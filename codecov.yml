@@ -1,0 +1,14 @@
+comment:
+  behavior: default
+  layout: "diff, flags, files"
+  require_changes: false
+ignore:
+  - "**/*.md"
+  - "**/stories/**"
+  - "build/.*"
+  - "config/.*"
+  - "flow-typed/.*"
+  - "node_modules/.*"
+parsers:
+  javascript:
+    enable_partials: yes

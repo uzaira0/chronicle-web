@@ -1,0 +1,21 @@
+id: web-i18n-placeholder-prose
+language: tsx
+severity: error
+message: Prose in a placeholder must be translated with `t('...')`. Identifier-shaped examples (an email, a URL, a filename, a date) may stay literal.
+ignores:
+  - '**/e2e/**'
+  - '**/*.test.tsx'
+  - '**/src/modern/test/**'
+rule:
+  kind: jsx_attribute
+  all:
+    - has: { kind: property_identifier, regex: '^placeholder$' }
+    - any:
+        - has: { kind: string, has: { kind: string_fragment, regex: '[A-Za-z]+\s+[A-Za-z]+' } }
+        - has:
+            kind: jsx_expression
+            has:
+              any:
+                - kind: string
+                - kind: template_string
+              has: { kind: string_fragment, regex: '[A-Za-z]+\s+[A-Za-z]+' }

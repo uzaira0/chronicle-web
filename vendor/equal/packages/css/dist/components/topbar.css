@@ -1,0 +1,8 @@
+/* Generated from Equal Research UI drop-in outputs by ontology/scripts/sync_packages.py. Do not edit by hand. */
+@import "../equal.css";
+
+/* Component entry generated for eqds:component.topbar. */
+.eq-topbar,
+[data-eq-component="TopBar"] {
+  --eq-component-category: layout;
+}

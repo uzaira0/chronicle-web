@@ -1,0 +1,8 @@
+/* Generated from Equal Research UI drop-in outputs by ontology/scripts/sync_packages.py. Do not edit by hand. */
+@import "../equal.css";
+
+/* Component entry generated for eqds:component.slider. */
+.eq-slider,
+[data-eq-component="Slider"] {
+  --eq-component-category: form;
+}

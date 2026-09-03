@@ -1,0 +1,30 @@
+{
+  "input": {
+    "participantId": "p-golden-1",
+    "candidate": {
+      "id": "c-golden-1",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "email": "jane@example.com",
+      "dateOfBirth": "1990-05-15"
+    },
+    "participationStatus": "ENROLLED",
+    "participantTags": ["control", "wave-2"],
+    "participantNotes": "Completed all sessions"
+  },
+  "expected": [
+    {
+      "candidate": {
+        "id": "c-golden-1",
+        "firstName": "Jane",
+        "lastName": "Smith",
+        "email": "jane@example.com",
+        "dateOfBirth": "1990-05-15"
+      },
+      "participantId": "p-golden-1",
+      "participantNotes": "Completed all sessions",
+      "participantTags": ["control", "wave-2"],
+      "participationStatus": "ENROLLED"
+    }
+  ]
+}

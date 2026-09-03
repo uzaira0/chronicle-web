@@ -1,0 +1,341 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion minimal input 1`] = `
+{
+  "choices": [],
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion full input 1`] = `
+{
+  "choices": [
+    "Good",
+    "Bad",
+    "OK",
+  ],
+  "title": "How are you?",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion null input 1`] = `
+{
+  "choices": [],
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion number input 1`] = `
+{
+  "choices": [],
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion mixed choices 1`] = `
+{
+  "choices": [
+    "A",
+    "B",
+  ],
+  "title": "Q1",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion array input treated as non-object 1`] = `
+{
+  "choices": [],
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion undefined input 1`] = `
+{
+  "choices": [],
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireQuestion empty string title 1`] = `
+{
+  "choices": [],
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireRecord empty object 1`] = `
+{
+  "active": false,
+  "description": "",
+  "id": "",
+  "questions": [],
+  "recurrenceRule": null,
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireRecord full valid record 1`] = `
+{
+  "active": true,
+  "dateCreated": "2024-01-15",
+  "description": "A daily check-in",
+  "id": "q-1",
+  "questions": [
+    {
+      "choices": [
+        "Good",
+        "Bad",
+      ],
+      "title": "How?",
+    },
+    {
+      "choices": [],
+      "title": "Why?",
+    },
+  ],
+  "recurrenceRule": "FREQ=DAILY",
+  "title": "Daily Survey",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireRecord minimal record with id 1`] = `
+{
+  "active": false,
+  "description": "",
+  "id": "q-2",
+  "questions": [],
+  "recurrenceRule": null,
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireRecord null input 1`] = `
+{
+  "active": false,
+  "description": "",
+  "id": "",
+  "questions": [],
+  "recurrenceRule": null,
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireRecord record without dateCreated omits field 1`] = `
+{
+  "active": false,
+  "description": "",
+  "id": "q-3",
+  "questions": [],
+  "recurrenceRule": null,
+  "title": "No Date",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireRecord record with non-string recurrenceRule 1`] = `
+{
+  "active": false,
+  "description": "",
+  "id": "q-4",
+  "questions": [],
+  "recurrenceRule": null,
+  "title": "",
+}
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireList empty array 1`] = `[]`;
+
+exports[`normalizer snapshots normalizeQuestionnaireList mixed valid and invalid items 1`] = `
+[
+  {
+    "active": true,
+    "description": "",
+    "id": "q-1",
+    "questions": [],
+    "recurrenceRule": null,
+    "title": "Survey A",
+  },
+  {
+    "active": false,
+    "description": "",
+    "id": "q-2",
+    "questions": [
+      {
+        "choices": [
+          "A",
+        ],
+        "title": "Q1",
+      },
+    ],
+    "recurrenceRule": null,
+    "title": "Survey B",
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeQuestionnaireList all items missing id are filtered out 1`] = `[]`;
+
+exports[`normalizer snapshots normalizeQuestionnaireList single valid item 1`] = `
+[
+  {
+    "active": false,
+    "description": "",
+    "id": "q-only",
+    "questions": [],
+    "recurrenceRule": null,
+    "title": "Only One",
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeStudySubmissionGroups empty object 1`] = `[]`;
+
+exports[`normalizer snapshots normalizeStudySubmissionGroups multiple dates sorted descending 1`] = `
+[
+  {
+    "date": "2024-01-17",
+    "ids": [
+      "p3",
+    ],
+  },
+  {
+    "date": "2024-01-15",
+    "ids": [
+      "p1",
+      "p2",
+    ],
+  },
+  {
+    "date": "2024-01-10",
+    "ids": [
+      "p4",
+      "p5",
+      "p6",
+    ],
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeStudySubmissionGroups single date with numeric IDs 1`] = `
+[
+  {
+    "date": "2024-03-01",
+    "ids": [
+      "1",
+      "2",
+      "3",
+    ],
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeStudySubmissionGroups values with non-string/non-number items filtered 1`] = `
+[
+  {
+    "date": "2024-05-01",
+    "ids": [
+      "valid",
+      "also-valid",
+      "42",
+    ],
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeStudySubmissionGroups empty ids arrays 1`] = `
+[
+  {
+    "date": "2024-06-02",
+    "ids": [],
+  },
+  {
+    "date": "2024-06-01",
+    "ids": [],
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeParticipantList empty array 1`] = `[]`;
+
+exports[`normalizer snapshots normalizeParticipantList full participant list 1`] = `
+[
+  {
+    "candidate": {
+      "firstName": "John",
+      "id": "c-1",
+      "lastName": "Doe",
+    },
+    "participantId": "p-1",
+    "participantNotes": "Regular participant",
+    "participantTags": [
+      "control",
+      "wave-1",
+    ],
+    "participationStatus": "ENROLLED",
+  },
+  {
+    "candidate": {
+      "id": "c-2",
+    },
+    "participantId": "p-2",
+    "participantNotes": undefined,
+    "participantTags": [],
+    "participationStatus": "PAUSED",
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeParticipantList participant with missing fields uses defaults 1`] = `
+[
+  {
+    "candidate": {
+      "id": "",
+    },
+    "participantId": "p-3",
+    "participantNotes": undefined,
+    "participantTags": [],
+    "participationStatus": "UNKNOWN",
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeParticipantList filters out items without participantId 1`] = `
+[
+  {
+    "candidate": {
+      "id": "c-4",
+    },
+    "participantId": "p-4",
+    "participantNotes": undefined,
+    "participantTags": [],
+    "participationStatus": "UNKNOWN",
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeParticipantList non-array participantTags defaults to empty array 1`] = `
+[
+  {
+    "candidate": {
+      "id": "",
+    },
+    "participantId": "p-5",
+    "participantNotes": undefined,
+    "participantTags": [],
+    "participationStatus": "UNKNOWN",
+  },
+]
+`;
+
+exports[`normalizer snapshots normalizeParticipantList missing participationStatus defaults to UNKNOWN 1`] = `
+[
+  {
+    "candidate": {
+      "id": "c-6",
+    },
+    "participantId": "p-6",
+    "participantNotes": undefined,
+    "participantTags": [],
+    "participationStatus": "UNKNOWN",
+  },
+]
+`;

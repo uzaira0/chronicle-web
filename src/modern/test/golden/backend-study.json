@@ -1,0 +1,29 @@
+{
+  "_comment": "Shape mirrors Kotlin: com.openlattice.chronicle.study.Study (serialized as StudySummary)",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Sleep Study 2024",
+  "description": "A longitudinal study on sleep patterns",
+  "createdAt": "2024-01-15T10:00:00Z",
+  "updatedAt": "2024-06-01T12:00:00Z",
+  "startedAt": "2024-02-01T00:00:00Z",
+  "endedAt": "+999999999-12-31T23:59:59.999999999-18:00",
+  "lat": 37.4275,
+  "lon": -122.1697,
+  "group": "neuroscience",
+  "version": "1.0",
+  "contact": "researcher@university.edu",
+  "organizationIds": ["org-1"],
+  "notificationsEnabled": true,
+  "storage": "chronicle",
+  "settings": {
+    "AndroidSensor": {
+      "sensors": ["accelerometer"],
+      "samplingRateHz": 5
+    }
+  },
+  "modules": {
+    "ANDROID_SENSOR": {},
+    "TIME_USE_DIARY": {}
+  },
+  "phoneNumber": "+15551234567"
+}

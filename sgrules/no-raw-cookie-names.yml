@@ -1,0 +1,17 @@
+id: no-raw-cookie-names
+language: typescript
+severity: error
+message: |
+  Raw cookie name strings drift between code paths (we previously had
+  pipeline-flusher.ts copy-paste the lookup with a silent `?? ''` fallback that
+  masked missing-cookie bugs as 401s). Use `CSRF_COOKIE_NAME` /
+  `AUTH_COOKIE_NAME` from `dsl/constants.ts`.
+rule:
+  any:
+    - kind: string_fragment
+    - kind: string
+  regex: '^(ol_csrf_token|chronicle_auth)$'
+files:
+  - e2e/**/*.ts
+ignores:
+  - e2e/dsl/constants.ts

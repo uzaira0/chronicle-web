@@ -1,0 +1,13 @@
+{
+  "_comment": "Shape mirrors Kotlin: com.openlattice.chronicle.dashboard.StudyRealtimeStats",
+  "studyId": "550e8400-e29b-41d4-a716-446655440000",
+  "activeParticipants24h": 5,
+  "dataSubmissions24h": 142,
+  "totalParticipants": 20,
+  "lastDataReceived": "2024-06-15T14:30:00Z",
+  "submissionsByType": {
+    "USAGE_EVENT": 100,
+    "SENSOR_DATA": 42
+  },
+  "timestamp": "2024-06-15T15:00:00Z"
+}

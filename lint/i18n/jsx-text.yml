@@ -1,0 +1,17 @@
+id: web-i18n-jsx-text
+language: tsx
+severity: error
+message: Hardcoded English in JSX text. Render it through `t('...')` from `useTranslator()` and add the English base entry to src/modern/i18n/en/translation.json.
+note: |
+  Allowed as-is: the brand word "Chronicle", camelCase identifiers, and path/URL/file-shaped tokens.
+  Everything else a participant or researcher can read must come from the translation table.
+ignores:
+  - '**/e2e/**'
+  - '**/*.test.tsx'
+  - '**/src/modern/test/**'
+rule:
+  kind: jsx_text
+  regex: '[A-Za-z]{2,}'
+  not:
+    # brand word | camelCase identifier | path/url/file-shaped | a lowercase unit token (ms, px, kb)
+    regex: '^\s*(Chronicle|[a-z]+(?:[A-Z][a-z0-9]*)+|\S*[./]\S+|[a-z]{1,3})\s*$'

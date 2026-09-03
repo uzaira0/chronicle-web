@@ -1,0 +1,20 @@
+id: no-bearer-in-dsl
+language: typescript
+severity: error
+message: |
+  Bearer-token auth in the DSL bypasses cookie+CSRF and resolves to a different
+  security principal than the browser uses, so DSL-seeded resources return 403/401
+  to subsequent page loads. Use apiPost/apiGet/apiDelete from `dsl/di/api-client.ts`
+  — they read `X-CSRF-Token` dynamically from `context.cookies()`.
+note: |
+  See chronicle_e2e_dsl_auth.md for the full incident write-up. The DSL-seeded
+  studies returning 403 to the browser is the canonical failure mode.
+rule:
+  any:
+    - kind: template_string
+    - kind: string
+  regex: 'Bearer \$\{'
+files:
+  - e2e/dsl/**/*.ts
+ignores:
+  - e2e/dsl/constants.ts

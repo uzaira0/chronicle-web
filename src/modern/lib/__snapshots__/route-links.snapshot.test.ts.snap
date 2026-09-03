@@ -1,0 +1,91 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`route-links snapshots pickModernBase pickModernBase('/chronicle/modern/studies/alpha') 1`] = `"/chronicle/modern"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/chronicle/modern') 1`] = `"/chronicle/modern"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/chronicle/modern/') 1`] = `"/chronicle/modern"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/modern/studies/alpha') 1`] = `"/modern"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/modern') 1`] = `"/modern"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/modern/') 1`] = `"/modern"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/chronicle/studies/alpha') 1`] = `"/chronicle"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/chronicle') 1`] = `"/chronicle"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/chronicle/') 1`] = `"/chronicle"`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/other/path') 1`] = `""`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('/') 1`] = `""`;
+
+exports[`route-links snapshots pickModernBase pickModernBase('') 1`] = `""`;
+
+exports[`route-links snapshots modernRoutePath modernRoutePath('/dashboard', '/chronicle/modern/studies/alpha') 1`] = `"/chronicle/modern/dashboard"`;
+
+exports[`route-links snapshots modernRoutePath modernRoutePath('dashboard', '/chronicle/modern/studies/alpha') 1`] = `"/chronicle/modern/dashboard"`;
+
+exports[`route-links snapshots modernRoutePath modernRoutePath('/settings', '/chronicle/studies/alpha') 1`] = `"/chronicle/settings"`;
+
+exports[`route-links snapshots modernRoutePath modernRoutePath('settings', '/modern/studies/alpha') 1`] = `"/modern/settings"`;
+
+exports[`route-links snapshots modernRoutePath modernRoutePath('/about', '/other/path') 1`] = `"/about"`;
+
+exports[`route-links snapshots modernRoutePath modernRoutePath('/studies', '/') 1`] = `"/studies"`;
+
+exports[`route-links snapshots modernStudyPath modernStudyPath('study-abc', '/chronicle/modern/studies/alpha') 1`] = `"/chronicle/modern/studies/study-abc"`;
+
+exports[`route-links snapshots modernStudyPath modernStudyPath('study with spaces', '/chronicle/studies/alpha') 1`] = `"/chronicle/studies/study%20with%20spaces"`;
+
+exports[`route-links snapshots modernStudyPath modernStudyPath('study/with/slashes', '/modern/studies/alpha') 1`] = `"/modern/studies/study%2Fwith%2Fslashes"`;
+
+exports[`route-links snapshots modernStudyPath modernStudyPath('', '/chronicle/modern') 1`] = `"/chronicle/modern/studies/"`;
+
+exports[`route-links snapshots convenience path helpers modernQuestionnairePath('/chronicle/modern') 1`] = `"/chronicle/modern/questionnaire"`;
+
+exports[`route-links snapshots convenience path helpers modernSurveyPath('/chronicle/modern') 1`] = `"/chronicle/modern/survey"`;
+
+exports[`route-links snapshots convenience path helpers modernTimeUseDiaryPath('/chronicle/modern') 1`] = `"/chronicle/modern/time-use-diary"`;
+
+exports[`route-links snapshots convenience path helpers modernParticipantDashboardPath('/chronicle/modern') 1`] = `"/chronicle/modern/participant"`;
+
+exports[`route-links snapshots convenience path helpers modernQuestionnairePath('/chronicle') 1`] = `"/chronicle/questionnaire"`;
+
+exports[`route-links snapshots convenience path helpers modernSurveyPath('/chronicle') 1`] = `"/chronicle/survey"`;
+
+exports[`route-links snapshots convenience path helpers modernTimeUseDiaryPath('/chronicle') 1`] = `"/chronicle/time-use-diary"`;
+
+exports[`route-links snapshots convenience path helpers modernParticipantDashboardPath('/chronicle') 1`] = `"/chronicle/participant"`;
+
+exports[`route-links snapshots convenience path helpers modernQuestionnairePath('/modern') 1`] = `"/modern/questionnaire"`;
+
+exports[`route-links snapshots convenience path helpers modernSurveyPath('/modern') 1`] = `"/modern/survey"`;
+
+exports[`route-links snapshots convenience path helpers modernTimeUseDiaryPath('/modern') 1`] = `"/modern/time-use-diary"`;
+
+exports[`route-links snapshots convenience path helpers modernParticipantDashboardPath('/modern') 1`] = `"/modern/participant"`;
+
+exports[`route-links snapshots convenience path helpers modernQuestionnairePath('/other') 1`] = `"/questionnaire"`;
+
+exports[`route-links snapshots convenience path helpers modernSurveyPath('/other') 1`] = `"/survey"`;
+
+exports[`route-links snapshots convenience path helpers modernTimeUseDiaryPath('/other') 1`] = `"/time-use-diary"`;
+
+exports[`route-links snapshots convenience path helpers modernParticipantDashboardPath('/other') 1`] = `"/participant"`;
+
+exports[`route-links snapshots legacyModernPath legacyModernPath('study-1', 'audit', '/chronicle') 1`] = `"/chronicle/studies/study-1/audit"`;
+
+exports[`route-links snapshots legacyModernPath legacyModernPath('study-1', 'compliance', '/chronicle') 1`] = `"/chronicle/studies/study-1/compliance"`;
+
+exports[`route-links snapshots legacyModernPath legacyModernPath('study-1', 'participants', '/chronicle') 1`] = `"/chronicle/studies/study-1/participants"`;
+
+exports[`route-links snapshots legacyModernPath legacyModernPath('study-1', 'questionnaires', '/chronicle') 1`] = `"/chronicle/studies/study-1/questionnaires"`;
+
+exports[`route-links snapshots legacyModernPath legacyModernPath('study-1', 'time-use-diary', '/chronicle') 1`] = `"/chronicle/studies/study-1/time-use-diary"`;
+
+exports[`route-links snapshots legacyModernPath encodes special characters in study ID 1`] = `"/chronicle/studies/study%20id/participants"`;
+
+exports[`route-links snapshots legacyModernPath encodes unicode in study ID 1`] = `"/chronicle/modern/studies/study-%C3%A9tude/audit"`;

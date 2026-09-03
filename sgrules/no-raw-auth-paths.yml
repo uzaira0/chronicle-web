@@ -1,0 +1,17 @@
+id: no-raw-auth-paths
+language: typescript
+severity: error
+message: |
+  Raw auth/admin path literals drift from the constants module. Use
+  `TESTING_LOGIN_PATH`, `SESSION_PATH`, `FLUSH_PIPELINE_PATH`, or
+  `TESTING_LOGIN_ROUTE_GLOB` from `dsl/constants.ts`.
+rule:
+  any:
+    - kind: string_fragment
+    - kind: string
+    - kind: template_string
+  regex: '/chronicle/v3/(auth/(testing-login|session)|admin/test-only/flush-pipeline)'
+files:
+  - e2e/**/*.ts
+ignores:
+  - e2e/dsl/constants.ts

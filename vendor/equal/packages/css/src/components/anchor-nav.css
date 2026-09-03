@@ -1,0 +1,8 @@
+/* Generated from Equal Research UI drop-in outputs by ontology/scripts/sync_packages.py. Do not edit by hand. */
+@import "../equal.css";
+
+/* Component entry generated for eqds:component.anchor_nav. */
+.eq-anchor-nav,
+[data-eq-component="AnchorNav"] {
+  --eq-component-category: navigation;
+}

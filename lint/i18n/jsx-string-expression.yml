@@ -1,0 +1,27 @@
+id: web-i18n-jsx-string-expression
+language: tsx
+severity: error
+message: Hardcoded English in a JSX child string expression ({'...'} or {`...`}). Use `{t('...')}` and add the English base entry to src/modern/i18n/en/translation.json.
+note: |
+  Closes the `{'literal'}` escape hatch around web-i18n-jsx-text. Only the literal fragments of
+  the string count, so `{`${idx}. ${title}`}` is clean; attribute expressions are covered by
+  web-i18n-jsx-attr and web-i18n-placeholder-prose. A literal nested inside a ternary or a call
+  is not matched, because matching every nested string would also flag t('key') arguments.
+ignores:
+  - '**/e2e/**'
+  - '**/*.test.tsx'
+  - '**/src/modern/test/**'
+rule:
+  kind: jsx_expression
+  not:
+    inside: { kind: jsx_attribute }
+  has:
+    any:
+      - kind: string
+      - kind: template_string
+    has:
+      kind: string_fragment
+      regex: '[A-Za-z]{2,}'
+      not:
+        # brand word | camelCase | kebab/snake/scheme identifier | path/url/file-shaped | unit token
+        regex: '^\s*(Chronicle|[a-z]+(?:[A-Z][a-z0-9]*)+|[a-z0-9]+(?:[-_:][a-z0-9]*)+|\S*[./]\S+|[a-z]{1,3})\s*$'

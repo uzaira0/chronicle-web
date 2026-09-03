@@ -1,0 +1,29 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`format function snapshots getStartOfDayIso('2024-01-01') 1`] = `"2024-01-01T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso('2024-01-01') 1`] = `"2024-01-01T23:59:59.999Z"`;
+
+exports[`format function snapshots getStartOfDayIso('2024-06-15') 1`] = `"2024-06-15T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso('2024-06-15') 1`] = `"2024-06-15T23:59:59.999Z"`;
+
+exports[`format function snapshots getStartOfDayIso('2024-12-31') 1`] = `"2024-12-31T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso('2024-12-31') 1`] = `"2024-12-31T23:59:59.999Z"`;
+
+exports[`format function snapshots getStartOfDayIso('2020-02-29') 1`] = `"2020-02-29T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso('2020-02-29') 1`] = `"2020-02-29T23:59:59.999Z"`;
+
+exports[`format function snapshots getStartOfDayIso('1999-12-31') 1`] = `"1999-12-31T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso('1999-12-31') 1`] = `"1999-12-31T23:59:59.999Z"`;
+
+exports[`format function snapshots getStartOfDayIso returns ISO string with T00:00:00 1`] = `"2024-07-04T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso returns ISO string with T23:59:59 1`] = `"2024-07-04T23:59:59.999Z"`;
+
+exports[`format function snapshots getStartOfDayIso with edge date 2000-01-01 1`] = `"2000-01-01T00:00:00.000Z"`;
+
+exports[`format function snapshots getEndOfDayIso with edge date 2000-01-01 1`] = `"2000-01-01T23:59:59.999Z"`;

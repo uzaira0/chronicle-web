@@ -1,0 +1,10 @@
+{
+  "_comment": "Shape mirrors Kotlin: com.openlattice.chronicle.participants.Participant",
+  "participantId": "p-golden-1",
+  "candidate": {
+    "id": "c-golden-1"
+  },
+  "participationStatus": "ENROLLED",
+  "participantNotes": "Completed all sessions",
+  "participantTags": ["control", "wave-2"]
+}

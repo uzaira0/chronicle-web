@@ -1,0 +1,14 @@
+# Project-local ast-grep config for chronicle-web.
+# Rules are scoped to the e2e DSL — they enforce invariants that prevent the
+# regressions we hit during the persona/DSL unification work.
+#
+# Run via: bunx ast-grep scan --config sgconfig.yml
+# (Wired into `bun run lint:ast` in package.json.)
+
+# lint/i18n holds the hardcoded-English guard (`bun run i18n:lint`, scoped to src/modern; the
+# rules ignore e2e/ themselves; the *-ts.yml files are the same rules for plain .ts sources). lint/i18n/fixtures carries deliberate violations for
+# `bun run i18n:lint:selftest`, so a bare `ast-grep scan` at the root reports them.
+
+ruleDirs:
+  - sgrules
+  - lint/i18n

@@ -1,0 +1,9 @@
+{
+  "_comment": "Shape mirrors Kotlin: com.openlattice.chronicle.dashboard.StudyEvent",
+  "eventId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "studyId": "550e8400-e29b-41d4-a716-446655440000",
+  "eventType": "ENROLLMENT",
+  "participantId": "p-1",
+  "metadata": { "source": "android-app" },
+  "createdAt": "2024-06-15T14:30:00Z"
+}

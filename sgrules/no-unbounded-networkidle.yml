@@ -1,0 +1,14 @@
+id: no-unbounded-networkidle
+language: typescript
+severity: error
+message: |
+  `waitForLoadState('networkidle')` with no timeout option can burn the full
+  30s default if the SPA never reaches network-idle (background polling, web
+  sockets, analytics pings). Always pass `{ timeout: <ms> }` and pair with a
+  `.catch(() => undefined)` so a hanging poll bails fast and the assertion
+  immediately after is responsible for visibility-retry.
+rule:
+  pattern: $X.waitForLoadState('networkidle')
+files:
+  - e2e/**/*.ts
+  - e2e/**/*.tsx

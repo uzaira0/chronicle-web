@@ -1,0 +1,20 @@
+[
+  {
+    "name": "JS bundle (gzipped, all chunks)",
+    "path": "dist/chunk-*.js",
+    "gzip": true,
+    "limit": "450 kB"
+  },
+  {
+    "name": "JS bundle (brotli, all chunks)",
+    "path": "dist/chunk-*.js",
+    "brotli": true,
+    "limit": "380 kB"
+  },
+  {
+    "name": "CSS bundle (gzipped, includes vendored eqds design system)",
+    "path": "dist/chunk-*.css",
+    "gzip": true,
+    "limit": "160 kB"
+  }
+]

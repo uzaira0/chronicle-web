@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
+    "allowJs": false,
+    "checkJs": false,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/modern/*"],
+      "@e2e/*": ["./e2e/*"]
+    },
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node", "bun-types"]
+  },
+  "include": [
+    "src/modern/**/*",
+    "src/modern/**/*.d.ts",
+    "src/typescript-policy.d.ts",
+    "vite.config.ts",
+    "e2e/**/*"
+  ]
+}

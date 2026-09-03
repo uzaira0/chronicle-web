@@ -1,0 +1,23 @@
+coverage/
+node_modules/
+build/
+dist/
+.vite/
+playwright-report/
+test-results/
+reports/mutation/
+npm-debug.log
+*.DS_Store
+*.LICENSE.txt
+
+# AI agent artifacts
+.jules/
+.Jules/
+dev_server.log
+dev_output.log
+preview.log
+biome_output.txt
+biome_output.log
+full_biome.log
+*_output.log
+*_output.txt

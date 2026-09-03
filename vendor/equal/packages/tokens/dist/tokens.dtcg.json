@@ -1,0 +1,316 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "Generated from ontology/ssot/design-system-assets.yaml.",
+  "color-background": {
+    "$type": "color",
+    "$value": "#f7faf8",
+    "$description": "background token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.background",
+        "cssVariable": "--eq-bg",
+        "role": "background"
+      }
+    }
+  },
+  "color-surface": {
+    "$type": "color",
+    "$value": "#ffffff",
+    "$description": "surface token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.surface",
+        "cssVariable": "--eq-surface",
+        "role": "surface"
+      }
+    }
+  },
+  "color-surface-muted": {
+    "$type": "color",
+    "$value": "#eef7f2",
+    "$description": "surface token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.surface-muted",
+        "cssVariable": "--eq-surface-muted",
+        "role": "surface"
+      }
+    }
+  },
+  "color-text": {
+    "$type": "color",
+    "$value": "#10231f",
+    "$description": "foreground token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.text",
+        "cssVariable": "--eq-ink",
+        "role": "foreground"
+      }
+    }
+  },
+  "color-muted": {
+    "$type": "color",
+    "$value": "#50635d",
+    "$description": "foreground token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.muted",
+        "cssVariable": "--eq-muted",
+        "role": "foreground"
+      }
+    }
+  },
+  "color-primary": {
+    "$type": "color",
+    "$value": "#0b735d",
+    "$description": "action token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.primary",
+        "cssVariable": "--eq-primary",
+        "role": "action"
+      }
+    }
+  },
+  "color-primary-ink": {
+    "$type": "color",
+    "$value": "#ffffff",
+    "$description": "action_foreground token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.primary-ink",
+        "cssVariable": "--eq-primary-ink",
+        "role": "action_foreground"
+      }
+    }
+  },
+  "color-secondary": {
+    "$type": "color",
+    "$value": "#c8f1e4",
+    "$description": "action_secondary token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.secondary",
+        "cssVariable": "--eq-secondary",
+        "role": "action_secondary"
+      }
+    }
+  },
+  "color-border": {
+    "$type": "color",
+    "$value": "#c9d8d2",
+    "$description": "border token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.border",
+        "cssVariable": "--eq-border",
+        "role": "border"
+      }
+    }
+  },
+  "color-focus": {
+    "$type": "color",
+    "$value": "#145cf2",
+    "$description": "focus token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.focus",
+        "cssVariable": "--eq-focus",
+        "role": "focus"
+      }
+    }
+  },
+  "color-warning": {
+    "$type": "color",
+    "$value": "#805200",
+    "$description": "status token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.warning",
+        "cssVariable": "--eq-warning",
+        "role": "status"
+      }
+    }
+  },
+  "color-danger": {
+    "$type": "color",
+    "$value": "#b4232a",
+    "$description": "status token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.danger",
+        "cssVariable": "--eq-danger",
+        "role": "status"
+      }
+    }
+  },
+  "color-success": {
+    "$type": "color",
+    "$value": "#0a6f50",
+    "$description": "status token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.success",
+        "cssVariable": "--eq-success",
+        "role": "status"
+      }
+    }
+  },
+  "color-info": {
+    "$type": "color",
+    "$value": "#2254a6",
+    "$description": "status token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.info",
+        "cssVariable": "--eq-info",
+        "role": "status"
+      }
+    }
+  },
+  "color-proof": {
+    "$type": "color",
+    "$value": "#6f4e00",
+    "$description": "evidence token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.proof",
+        "cssVariable": "--eq-proof",
+        "role": "evidence"
+      }
+    }
+  },
+  "color-provenance": {
+    "$type": "color",
+    "$value": "#2c6275",
+    "$description": "evidence token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "color.provenance",
+        "cssVariable": "--eq-provenance",
+        "role": "evidence"
+      }
+    }
+  },
+  "typography-body-size": {
+    "$type": "dimension",
+    "$value": "1rem",
+    "$description": "body_text token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "typography.body.size",
+        "cssVariable": "--eq-text-body",
+        "role": "body_text"
+      }
+    }
+  },
+  "typography-label-size": {
+    "$type": "dimension",
+    "$value": "0.875rem",
+    "$description": "label_text token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "typography.label.size",
+        "cssVariable": "--eq-text-label",
+        "role": "label_text"
+      }
+    }
+  },
+  "typography-heading-size": {
+    "$type": "dimension",
+    "$value": "1.375rem",
+    "$description": "heading_text token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "typography.heading.size",
+        "cssVariable": "--eq-text-heading",
+        "role": "heading_text"
+      }
+    }
+  },
+  "spacing-1": {
+    "$type": "dimension",
+    "$value": "0.25rem",
+    "$description": "spacing token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "spacing.1",
+        "cssVariable": "--eq-space-1",
+        "role": "spacing"
+      }
+    }
+  },
+  "spacing-2": {
+    "$type": "dimension",
+    "$value": "0.5rem",
+    "$description": "spacing token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "spacing.2",
+        "cssVariable": "--eq-space-2",
+        "role": "spacing"
+      }
+    }
+  },
+  "spacing-3": {
+    "$type": "dimension",
+    "$value": "0.75rem",
+    "$description": "spacing token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "spacing.3",
+        "cssVariable": "--eq-space-3",
+        "role": "spacing"
+      }
+    }
+  },
+  "spacing-4": {
+    "$type": "dimension",
+    "$value": "1rem",
+    "$description": "spacing token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "spacing.4",
+        "cssVariable": "--eq-space-4",
+        "role": "spacing"
+      }
+    }
+  },
+  "radius-control": {
+    "$type": "dimension",
+    "$value": "0.375rem",
+    "$description": "radius token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "radius.control",
+        "cssVariable": "--eq-radius-control",
+        "role": "radius"
+      }
+    }
+  },
+  "motion-fast": {
+    "$type": "duration",
+    "$value": "120ms",
+    "$description": "motion token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "motion.fast",
+        "cssVariable": "--eq-motion-fast",
+        "role": "motion"
+      }
+    }
+  },
+  "density-control-height": {
+    "$type": "dimension",
+    "$value": "2.75rem",
+    "$description": "density token generated from Equal SSOT.",
+    "$extensions": {
+      "eqds": {
+        "name": "density.control-height",
+        "cssVariable": "--eq-control-h",
+        "role": "density"
+      }
+    }
+  }
+}

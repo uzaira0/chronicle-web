@@ -1,0 +1,134 @@
+/* Generated from Equal Research UI drop-in outputs by ontology/scripts/sync_packages.py. Do not edit by hand. */
+
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 500;
+  src: url("fonts/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url("fonts/atkinson-hyperlegible-latin-400-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700 800;
+  src: url("fonts/atkinson-hyperlegible-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url("fonts/atkinson-hyperlegible-latin-700-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url("fonts/ibm-plex-mono-latin-400-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
+}
+
+:root,
+[data-eq-theme="light"] {
+  color-scheme: light;
+  --eq-bg: #F7F8F8;
+  --eq-surface: #FFFFFF;
+  --eq-surface-muted: #EEF5F2;
+  --eq-ink: #111A17;
+  --eq-muted: #52645D;
+  --eq-border: #C9D6D0;
+  --eq-primary: #0C6B57;
+  --eq-primary-ink: #FFFFFF;
+  --eq-secondary: #1F3FB8;
+  --eq-focus: #FFB400;
+  --eq-success: #0D6F3F;
+  --eq-success-bg: #DDF5E8;
+  --eq-warning: #7A5200;
+  --eq-warning-bg: #FFF2CC;
+  --eq-danger: #B5152B;
+  --eq-danger-bg: #FFE3E7;
+  --eq-info: #0B5390;
+  --eq-info-bg: #E2F0FF;
+  --eq-font-sans: "Atkinson Hyperlegible", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --eq-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --eq-text-12: .75rem;
+  --eq-text-14: 0.875rem;
+  --eq-text-16: 1rem;
+  --eq-text-20: 1.25rem;
+  --eq-text-28: 1.75rem;
+  --eq-text-48: 3rem;
+  --eq-space-1: 4px;
+  --eq-space-2: 8px;
+  --eq-space-3: .75rem;
+  --eq-space-4: 16px;
+  --eq-space-5: 24px;
+  --eq-space-6: 32px;
+  --eq-radius-sm: 4px;
+  --eq-radius-md: 8px;
+  --eq-radius-lg: 12px;
+  --eq-shadow-1: 0 16px 44px rgba(17, 26, 23, .08);
+  --eq-control-h: 44px;
+  --eq-motion-fast: 110ms;
+  --eq-motion-med: 180ms;
+  --eq-ease: cubic-bezier(.2, 0, 0, 1);
+}
+
+[data-eq-theme="dark"],
+.eq-dark {
+  color-scheme: dark;
+  --eq-bg: #101513;
+  --eq-surface: #17211D;
+  --eq-surface-muted: #20342d;
+  --eq-ink: #EDF5F1;
+  --eq-muted: #b4c5bd;
+  --eq-border: #32443c;
+  --eq-primary: #7ce3c7;
+  --eq-primary-ink: #061714;
+  --eq-secondary: #9bb7ff;
+  --eq-focus: #ffd36a;
+  --eq-success: #8be5ab;
+  --eq-success-bg: #183427;
+  --eq-warning: #f4c96b;
+  --eq-warning-bg: #3a2b10;
+  --eq-danger: #ff9aa8;
+  --eq-danger-bg: #3a1820;
+  --eq-info: #8fc8ff;
+  --eq-info-bg: #142c43;
+  --eq-shadow-1: none;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --eq-border: currentColor;
+    --eq-focus: #ffbf00;
+  }
+}

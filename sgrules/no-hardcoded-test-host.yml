@@ -1,0 +1,19 @@
+id: no-hardcoded-test-host
+language: typescript
+severity: error
+message: |
+  Hardcoded http://127.0.0.1:4173 (the bun preview proxy) silently breaks when
+  Playwright runs against a different baseURL. Use `persona.api.baseUrl`,
+  `auth.client.baseUrl`, or `providers.baseUrl` instead. For raw direct-backend
+  probes, use `persona.directBackendUrl` (sourced from constants.ts).
+rule:
+  any:
+    - kind: string_fragment
+    - kind: string
+    - kind: template_string
+  regex: 'http://127\.0\.0\.1:4173'
+files:
+  - e2e/**/*.ts
+  - e2e/**/*.tsx
+ignores:
+  - e2e/dsl/constants.ts

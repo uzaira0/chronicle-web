@@ -1,0 +1,17 @@
+{
+  "name": "@eqds/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Equal design-system token CSS entry point.",
+  "style": "dist/tokens.css",
+  "exports": {
+    ".": "./dist/tokens.css",
+    "./tokens.css": "./dist/tokens.css",
+    "./tokens.dtcg.json": "./dist/tokens.dtcg.json",
+    "./tokens.report.md": "./dist/tokens.report.md"
+  },
+  "files": [
+    "dist"
+  ]
+}

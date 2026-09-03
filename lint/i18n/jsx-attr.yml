@@ -1,0 +1,24 @@
+id: web-i18n-jsx-attr
+language: tsx
+severity: error
+message: Hardcoded English in a user-visible JSX attribute. Use `{t('...')}` and add the English base entry to src/modern/i18n/en/translation.json.
+note: Matches both `title="..."` and `title={'...'}` / `title={`...`}`; only the literal fragments of a template count.
+ignores:
+  - '**/e2e/**'
+  - '**/*.test.tsx'
+  - '**/src/modern/test/**'
+rule:
+  kind: jsx_attribute
+  all:
+    - has:
+        kind: property_identifier
+        regex: '^(title|alt|label|description|helperText|tooltip|emptyMessage|confirmLabel|cancelLabel|submitLabel|heading|subtitle|caption|aria-label|aria-description|aria-placeholder|aria-roledescription|aria-valuetext)$'
+    - any:
+        - has: { kind: string, has: { kind: string_fragment, regex: '[A-Za-z]{2,}' } }
+        - has:
+            kind: jsx_expression
+            has:
+              any:
+                - kind: string
+                - kind: template_string
+              has: { kind: string_fragment, regex: '[A-Za-z]{2,}' }

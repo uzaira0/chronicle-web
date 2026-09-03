@@ -1,0 +1,192 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`session slice state snapshots initial state shape default initial state 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": null,
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Institutional SSO",
+  "status": "idle",
+  "testingLoginEnabled": false,
+  "tokenSource": null,
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots state after pending action from idle 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": null,
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Institutional SSO",
+  "status": "bootstrapping",
+  "testingLoginEnabled": false,
+  "tokenSource": null,
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots state after pending action from error state (clears errorMessage) 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": null,
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Institutional SSO",
+  "status": "bootstrapping",
+  "testingLoginEnabled": false,
+  "tokenSource": null,
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots state after fulfilled action authenticated with user 1`] = `
+{
+  "authMode": "cookie-bootstrap",
+  "backendCompatibility": "operational",
+  "csrfToken": "csrf-abc",
+  "errorMessage": null,
+  "expiresAt": 1700000000,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Chronicle testing session",
+  "status": "authenticated",
+  "testingLoginEnabled": undefined,
+  "tokenSource": "testing-login",
+  "user": {
+    "email": "test@example.com",
+    "id": "user-1",
+    "name": "Test User",
+    "roles": [
+      "admin",
+    ],
+  },
+}
+`;
+
+exports[`session slice state snapshots state after fulfilled action awaiting SSO (user is null) 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": null,
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": "/chronicle/v3/auth/oidc/login",
+  "providerLabel": "Institutional SSO",
+  "status": "awaiting-sso",
+  "testingLoginEnabled": undefined,
+  "tokenSource": "sso-session",
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots state after fulfilled action fulfilled after prior error (clears errorMessage) 1`] = `
+{
+  "authMode": "cookie-bootstrap",
+  "backendCompatibility": "operational",
+  "csrfToken": "csrf-abc",
+  "errorMessage": null,
+  "expiresAt": 1700000000,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Chronicle testing session",
+  "status": "authenticated",
+  "testingLoginEnabled": undefined,
+  "tokenSource": "testing-login",
+  "user": {
+    "email": "test@example.com",
+    "id": "user-1",
+    "name": "Test User",
+    "roles": [
+      "admin",
+    ],
+  },
+}
+`;
+
+exports[`session slice state snapshots state after rejected action with explicit error payload 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": "Network timeout",
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Institutional SSO",
+  "status": "error",
+  "testingLoginEnabled": false,
+  "tokenSource": null,
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots state after rejected action with undefined payload uses default message 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": "Unable to initialize the Chronicle session.",
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Institutional SSO",
+  "status": "error",
+  "testingLoginEnabled": false,
+  "tokenSource": null,
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots multi-step transitions idle -> pending -> authenticated -> pending -> awaiting-sso 1`] = `
+{
+  "authMode": "institutional-sso",
+  "backendCompatibility": "operational",
+  "csrfToken": null,
+  "errorMessage": null,
+  "expiresAt": null,
+  "hasAppShell": true,
+  "loginUrl": "/chronicle/v3/auth/oidc/login",
+  "providerLabel": "Institutional SSO",
+  "status": "awaiting-sso",
+  "testingLoginEnabled": undefined,
+  "tokenSource": "sso-session",
+  "user": null,
+}
+`;
+
+exports[`session slice state snapshots multi-step transitions idle -> pending -> error -> pending -> authenticated (recovery) 1`] = `
+{
+  "authMode": "cookie-bootstrap",
+  "backendCompatibility": "operational",
+  "csrfToken": "csrf-abc",
+  "errorMessage": null,
+  "expiresAt": 1700000000,
+  "hasAppShell": true,
+  "loginUrl": null,
+  "providerLabel": "Chronicle testing session",
+  "status": "authenticated",
+  "testingLoginEnabled": undefined,
+  "tokenSource": "testing-login",
+  "user": {
+    "email": "test@example.com",
+    "id": "user-1",
+    "name": "Test User",
+    "roles": [
+      "admin",
+    ],
+  },
+}
+`;

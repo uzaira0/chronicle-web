@@ -1,0 +1,27 @@
+id: web-i18n-object-label
+language: tsx
+severity: error
+message: Prose in a `label`/`title`/`description`/`message` property. Resolve it at the render site with `t('...')` (or `translateCatalog` for catalog data) instead of storing English in the object.
+note: |
+  lib/study-constants.ts and lib/participant-data-types.ts are the catalog source of truth and
+  are excluded; their labels are overridden at render time via `translateCatalog`.
+ignores:
+  - '**/e2e/**'
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/src/modern/test/**'
+  - '**/src/modern/i18n/**'
+  - '**/lib/study-constants.ts'
+  - '**/lib/participant-data-types.ts'
+rule:
+  kind: pair
+  all:
+    - has:
+        kind: property_identifier
+        field: key
+        regex: '^(label|title|description|message|helperText|placeholder|tooltip|heading|subtitle|caption)$'
+    - has:
+        field: value
+        any:
+          - { kind: string, regex: '[A-Za-z]+\s+[A-Za-z]+' }
+          - { kind: template_string, regex: '[A-Za-z]+\s+[A-Za-z]+' }

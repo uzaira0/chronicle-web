@@ -1,0 +1,47 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`getErrorMessage snapshots non-object inputs return fallback null 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots non-object inputs return fallback undefined 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots non-object inputs return fallback string 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots non-object inputs return fallback number 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots non-object inputs return fallback boolean 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots non-object inputs return fallback empty string 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes data as string 1`] = `"Bad request body"`;
+
+exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes data.message as string 1`] = `"Validation failed"`;
+
+exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes empty data string falls through to status 1`] = `"Something went wrong (status 400)"`;
+
+exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes empty data.message falls through to status 1`] = `"Something went wrong (status 422)"`;
+
+exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes data as number falls through to status 1`] = `"Something went wrong (status 500)"`;
+
+exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes data as null falls through to status 1`] = `"Something went wrong (status 503)"`;
+
+exports[`getErrorMessage snapshots queryFn network error shapes FETCH_ERROR with error string 1`] = `"Network request failed"`;
+
+exports[`getErrorMessage snapshots queryFn network error shapes PARSING_ERROR with error string 1`] = `"Unexpected token"`;
+
+exports[`getErrorMessage snapshots generic message field object with message string 1`] = `"Something specific"`;
+
+exports[`getErrorMessage snapshots generic message field Error instance 1`] = `"Thrown error"`;
+
+exports[`getErrorMessage snapshots status-only objects numeric status without data or message 1`] = `"Something went wrong (status 404)"`;
+
+exports[`getErrorMessage snapshots status-only objects string status without data or message 1`] = `"Something went wrong (status TIMEOUT_ERROR)"`;
+
+exports[`getErrorMessage snapshots empty or unknown objects empty object 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots empty or unknown objects object with unrecognized fields 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots empty or unknown objects array (object but no recognized fields) 1`] = `"Something went wrong"`;
+
+exports[`getErrorMessage snapshots different fallback strings empty fallback 1`] = `""`;
+
+exports[`getErrorMessage snapshots different fallback strings long fallback 1`] = `"A very detailed fallback error message for the user."`;

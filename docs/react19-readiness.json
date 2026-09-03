@@ -1,0 +1,27 @@
+{
+  "blockedPackages": [],
+  "compatiblePackages": [
+    {
+      "validation": null,
+      "notes": "Shared Redux binding for both the legacy Flow shell and the modern Bun/TypeScript shell.",
+      "packageDir": "react-redux",
+      "reactDomRange": "n/a",
+      "reactRange": "^18.0 || ^19",
+      "status": "compatible",
+      "version": "9.2.0"
+    },
+    {
+      "validation": null,
+      "notes": "Modern React Router package.",
+      "packageDir": "react-router",
+      "reactDomRange": ">=19.2.7",
+      "reactRange": ">=19.2.7",
+      "status": "compatible",
+      "version": "8.3.0"
+    }
+  ],
+  "generatedDate": "2026-07-28",
+  "targetReactVersion": "19.2.7",
+  "verifiedPackages": [],
+  "unknownPackages": []
+}

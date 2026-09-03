@@ -1,0 +1,23 @@
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "title": "Sleep Study 2024",
+  "contact": "researcher@university.edu",
+  "description": "A longitudinal study on sleep patterns",
+  "group": "neuroscience",
+  "version": "1.0",
+  "modules": {
+    "ANDROID_SENSOR": {},
+    "TIME_USE_DIARY": {}
+  },
+  "settings": {
+    "AndroidSensor": {
+      "sensors": ["accelerometer"],
+      "samplingRateHz": 5,
+      "dutyCycleActiveSeconds": 30,
+      "dutyCyclePeriodSeconds": 300
+    }
+  },
+  "notificationsEnabled": true,
+  "createdAt": "2024-01-15T10:00:00Z",
+  "startedAt": "2024-02-01T00:00:00Z"
+}

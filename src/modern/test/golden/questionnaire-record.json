@@ -1,0 +1,26 @@
+{
+  "input": {
+    "id": "q-golden-1",
+    "title": "Daily Mood Survey",
+    "description": "Track your daily mood and energy levels",
+    "active": true,
+    "questions": [
+      { "title": "How is your mood?", "choices": ["Great", "Good", "Neutral", "Bad", "Terrible"] },
+      { "title": "Energy level?", "choices": ["High", "Medium", "Low"] }
+    ],
+    "dateCreated": "2024-03-10",
+    "recurrenceRule": "FREQ=DAILY"
+  },
+  "expected": {
+    "active": true,
+    "dateCreated": "2024-03-10",
+    "description": "Track your daily mood and energy levels",
+    "id": "q-golden-1",
+    "questions": [
+      { "choices": ["Great", "Good", "Neutral", "Bad", "Terrible"], "title": "How is your mood?" },
+      { "choices": ["High", "Medium", "Low"], "title": "Energy level?" }
+    ],
+    "recurrenceRule": "FREQ=DAILY",
+    "title": "Daily Mood Survey"
+  }
+}

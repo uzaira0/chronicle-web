@@ -1,0 +1,19 @@
+id: no-inline-client-request-in-scopes
+language: typescript
+severity: error
+message: |
+  Inline `client.request.get/post/delete` calls in DSL scopes bypass the central
+  auth-header logic in `api-client.ts`, leading to drift (we shipped a
+  pipeline-flusher that diverged on cookie handling). Use `apiGet`, `apiPost`,
+  `apiDelete`, or `apiGetBytes` instead.
+rule:
+  any:
+    - pattern: $X.request.post($$$)
+    - pattern: $X.request.get($$$)
+    - pattern: $X.request.delete($$$)
+    - pattern: $X.request.put($$$)
+    - pattern: $X.request.patch($$$)
+files:
+  - e2e/dsl/scopes/**/*.ts
+ignores:
+  - e2e/dsl/di/**/*.ts

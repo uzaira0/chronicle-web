@@ -1,0 +1,24 @@
+id: web-i18n-error-message-ts
+language: typescript
+severity: error
+# Plain-.ts twin of error-message.yml: ast-grep applies a rule only to its own language's files.
+message: >-
+  English prose in a thrown Error. If a user can see this message, build it with
+  createTranslator(getCurrentLanguage()).t('...'); if it is a developer-only invariant, mark the
+  line above with "// ast-grep-ignore: web-i18n-error-message-ts" or prefix it with a bracketed
+  module tag like `[study-constants] ...`, which marks it as a developer invariant.
+ignores:
+  - '**/e2e/**'
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/src/modern/test/**'
+rule:
+  pattern: new Error($MSG)
+constraints:
+  MSG:
+    all:
+      - any:
+          - { kind: string, regex: '[A-Za-z]+\s+[A-Za-z]+' }
+          - { kind: template_string, regex: '[A-Za-z]+\s+[A-Za-z]+' }
+      # Developer invariants carry a bracketed module tag: new Error(`[normalizeX] Expected array`)
+      - not: { regex: '^[`"'']\[' }

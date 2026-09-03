@@ -1,0 +1,201 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`study form helper snapshots buildStudyPayload minimal 1`] = `
+{
+  "contact": "admin@test.com",
+  "description": "Study description",
+  "group": "neuro",
+  "modules": {},
+  "notificationsEnabled": false,
+  "title": "My Study",
+  "version": "1.0",
+}
+`;
+
+exports[`study form helper snapshots buildStudyPayload with features 1`] = `
+{
+  "contact": "admin@test.com",
+  "description": "Study description",
+  "group": "neuro",
+  "modules": {
+    "ANDROID_SENSOR": {},
+    "CHRONICLE_SURVEYS": {},
+    "TIME_USE_DIARY": {},
+  },
+  "notificationsEnabled": false,
+  "title": "My Study",
+  "version": "1.0",
+}
+`;
+
+exports[`study form helper snapshots buildStudyPayload trims whitespace from all string fields 1`] = `
+{
+  "contact": "user@example.com",
+  "description": "Desc",
+  "group": "Group",
+  "modules": {},
+  "notificationsEnabled": false,
+  "title": "Padded Title",
+  "version": "2.0",
+}
+`;
+
+exports[`study form helper snapshots buildStudyPayload notifications enabled 1`] = `
+{
+  "contact": "admin@test.com",
+  "description": "Study description",
+  "group": "neuro",
+  "modules": {},
+  "notificationsEnabled": true,
+  "title": "My Study",
+  "version": "1.0",
+}
+`;
+
+exports[`study form helper snapshots buildSensorSetting null when no android feature 1`] = `null`;
+
+exports[`study form helper snapshots buildSensorSetting null when android feature but no sensors selected 1`] = `null`;
+
+exports[`study form helper snapshots buildSensorSetting with sensors 1`] = `
+{
+  "@class": "com.openlattice.chronicle.android.AndroidSensorSetting",
+  "dutyCycleActiveSeconds": 60,
+  "dutyCyclePeriodSeconds": 600,
+  "samplingRateHz": 10,
+  "sensors": [
+    "accelerometer",
+    "gyroscope",
+  ],
+}
+`;
+
+exports[`study form helper snapshots buildSensorSetting invalid numeric strings use defaults 1`] = `
+{
+  "@class": "com.openlattice.chronicle.android.AndroidSensorSetting",
+  "dutyCycleActiveSeconds": 30,
+  "dutyCyclePeriodSeconds": 300,
+  "samplingRateHz": 5,
+  "sensors": [
+    "accelerometer",
+  ],
+}
+`;
+
+exports[`study form helper snapshots buildStudyLimits null when all empty 1`] = `null`;
+
+exports[`study form helper snapshots buildStudyLimits all set 1`] = `
+{
+  "dataRetentionDuration": {
+    "days": 0,
+    "months": 3,
+    "years": 0,
+  },
+  "participantLimit": 100,
+  "studyDuration": {
+    "days": 0,
+    "months": 0,
+    "years": 1,
+  },
+}
+`;
+
+exports[`study form helper snapshots buildStudyLimits only participantLimit 1`] = `
+{
+  "participantLimit": 50,
+}
+`;
+
+exports[`study form helper snapshots buildStudyLimits only studyDurationDays 1`] = `
+{
+  "studyDuration": {
+    "days": 0,
+    "months": 6,
+    "years": 0,
+  },
+}
+`;
+
+exports[`study form helper snapshots buildStudyLimits zero values return null 1`] = `null`;
+
+exports[`study form helper snapshots daysToStudyDuration 0 days 1`] = `
+{
+  "days": 0,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 440 days 1`] = `
+{
+  "days": 15,
+  "months": 2,
+  "years": 1,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 365 days 1`] = `
+{
+  "days": 0,
+  "months": 0,
+  "years": 1,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 1095 days 1`] = `
+{
+  "days": 0,
+  "months": 0,
+  "years": 3,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 30 days 1`] = `
+{
+  "days": 0,
+  "months": 1,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 1 day 1`] = `
+{
+  "days": 1,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 730 days 1`] = `
+{
+  "days": 0,
+  "months": 0,
+  "years": 2,
+}
+`;
+
+exports[`study form helper snapshots buildDataCollectionSetting module entry shapes interval-configurable enabled module emits collectionCadence (plain object, no @class) 1`] = `
+{
+  "collectionCadence": {
+    "intervalSeconds": 1800,
+  },
+  "enabled": true,
+  "required": false,
+}
+`;
+
+exports[`study form helper snapshots buildDataCollectionSetting module entry shapes interval-configurable enabled module defaults collectionCadence to 900 1`] = `
+{
+  "collectionCadence": {
+    "intervalSeconds": 900,
+  },
+  "enabled": true,
+  "required": false,
+}
+`;
+
+exports[`study form helper snapshots buildDataCollectionSetting module entry shapes non-interval enabled module omits collectionCadence 1`] = `
+{
+  "enabled": true,
+  "required": false,
+}
+`;

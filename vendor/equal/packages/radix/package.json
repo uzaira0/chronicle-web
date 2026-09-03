@@ -1,0 +1,29 @@
+{
+  "name": "@eqds/radix",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Radix primitive wrappers generated for Equal React surfaces.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "peerDependencies": {
+    "react": "*",
+    "@radix-ui/react-slot": "*",
+    "@radix-ui/react-dialog": "*",
+    "@radix-ui/react-popover": "*",
+    "@radix-ui/react-tooltip": "*",
+    "@radix-ui/react-tabs": "*",
+    "@radix-ui/react-accordion": "*",
+    "@radix-ui/react-dropdown-menu": "*"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "src",
+    "dist"
+  ]
+}

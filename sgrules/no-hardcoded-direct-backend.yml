@@ -1,0 +1,19 @@
+id: no-hardcoded-direct-backend
+language: typescript
+severity: error
+message: |
+  Hardcoded http://localhost:40320 (the test backend port) silently breaks when
+  the harness boots on a different port (CHRONICLE_DIRECT_BACKEND_URL override).
+  Use `persona.directBackendUrl` or import `DIRECT_BACKEND_URL` from
+  `dsl/constants.ts`.
+rule:
+  any:
+    - kind: string_fragment
+    - kind: string
+    - kind: template_string
+  regex: 'http://localhost:40320'
+files:
+  - e2e/**/*.ts
+  - e2e/**/*.tsx
+ignores:
+  - e2e/dsl/constants.ts

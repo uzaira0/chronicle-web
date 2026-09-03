@@ -1,0 +1,7 @@
+[serve.static]
+plugins = ["bun-plugin-tailwind"]
+
+[test]
+preload = ["./src/modern/test/setup-dom.ts"]
+reuse-workers = false
+

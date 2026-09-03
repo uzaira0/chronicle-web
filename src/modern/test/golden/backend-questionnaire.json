@@ -1,0 +1,19 @@
+{
+  "_comment": "Shape mirrors Kotlin: com.openlattice.chronicle.survey.Questionnaire",
+  "id": "q-golden-1",
+  "title": "Daily Check-In",
+  "dateCreated": "2024-01-15T10:00:00Z",
+  "description": "A daily check-in survey",
+  "active": true,
+  "questions": [
+    {
+      "title": "How are you feeling?",
+      "choices": ["Good", "Fair", "Poor"]
+    },
+    {
+      "title": "Any concerns?",
+      "choices": []
+    }
+  ],
+  "recurrenceRule": "FREQ=DAILY"
+}

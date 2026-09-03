@@ -1,0 +1,20 @@
+{
+  "name": "@eqds/css",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Equal design-system CSS entry point.",
+  "style": "dist/equal.css",
+  "exports": {
+    ".": "./dist/equal.css",
+    "./equal.css": "./dist/equal.css",
+    "./components/*.css": "./dist/components/*.css"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "dependencies": {
+    "@eqds/tokens": "file:../tokens"
+  }
+}

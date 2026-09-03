@@ -1,0 +1,8 @@
+/* Generated from Equal Research UI drop-in outputs by ontology/scripts/sync_packages.py. Do not edit by hand. */
+@import "../equal.css";
+
+/* Component entry generated for eqds:component.empty_state. */
+.eq-empty-state,
+[data-eq-component="EmptyState"] {
+  --eq-component-category: feedback;
+}
