@@ -22,8 +22,8 @@ export function cases(t: (k: string) => string, id: string, msg: string) {
     // ast-grep-ignore
     throw new Error('A blanket ignore also suppresses this line');
   }
-  // ast-grep-ignore: web-i18n-error-message -- trailing text breaks the suppression FIRE: unused-suppression
-  if (errors.length > 3) throw new Error('Trailing text does not suppress this'); // FIRE: web-i18n-error-message
+  // ast-grep-ignore: web-i18n-error-message -- a note after the rule id is allowed since ast-grep 0.45.2
+  if (errors.length > 3) throw new Error('A suppression with a note still applies');
   throw new Error('Same-line ignore is checked below'); // ast-grep-ignore: web-i18n-error-message
 }
 // Documented hole: only `new Error(...)` is matched; TypeError/RangeError are developer errors.
