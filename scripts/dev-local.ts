@@ -18,15 +18,29 @@
 //     to a real backend instead.
 
 import index from '../index.html';
-import { backendTargetPath, isBackendApiPath, isInternalWebApiPath, isSameOriginRequest } from './backend-api-path';
+import {
+  backendTargetPath,
+  isBackendApiPath,
+  isInternalWebApiPath,
+  isLoopbackHost,
+  isSameOriginRequest,
+} from './backend-api-path';
 import { fixtureResponse } from './dev-fixtures';
 import { realDataResponse } from './dev-realdata';
 
 const port = Number(process.env.PORT ?? 5173);
-// Default to loopback so the server is NOT reachable off-box. Set HOST=0.0.0.0 to
-// listen on all interfaces (reachable on the LAN via the host's hostname) — only
-// do that in mock mode; exposing a real-backend proxy on the LAN leaks auth/data.
+// Loopback only, and not just by default: without a backend this server answers the
+// study endpoints with live prod-DB rows behind synthetic auth, and with one it strips
+// `Secure` from every backend auth cookie. A non-loopback HOST would publish both on the
+// LAN, so it is refused outright instead of being left to the operator to get right.
 const host = process.env.HOST ?? '127.0.0.1';
+if (!isLoopbackHost(host)) {
+  process.stderr.write(
+    `dev:local refuses HOST=${host}: it serves live prod-DB data behind synthetic auth and downgrades ` +
+      `proxied auth cookies to plain HTTP, which is only safe on a loopback listener. Use HOST=127.0.0.1.\n`,
+  );
+  process.exit(1);
+}
 const backendUrl = process.env.CHRONICLE_BACKEND_URL?.replace(/\/$/, '');
 
 // Proxy a supported Chronicle API request to a real backend. Kept in parity

@@ -3,6 +3,7 @@ import {
   backendTargetPath,
   isBackendApiPath,
   isInternalWebApiPath,
+  isLoopbackHost,
   isSameOriginRequest,
 } from '../../../scripts/backend-api-path';
 
@@ -62,5 +63,27 @@ describe('isSameOriginRequest', () => {
     );
     expect(isSameOriginRequest(requestUrl, null)).toBe(false);
     expect(isSameOriginRequest(requestUrl, 'not an origin')).toBe(false);
+  });
+});
+
+// The dev server serves live prod-DB rows behind synthetic auth and strips `Secure` from
+// proxied auth cookies, so scripts/dev-local.ts refuses to start on anything but loopback.
+describe('isLoopbackHost', () => {
+  it('accepts the loopback forms a developer would actually type', () => {
+    expect(isLoopbackHost('127.0.0.1')).toBe(true);
+    expect(isLoopbackHost('localhost')).toBe(true);
+    expect(isLoopbackHost('LocalHost')).toBe(true);
+    expect(isLoopbackHost('127.0.0.2')).toBe(true);
+    expect(isLoopbackHost('::1')).toBe(true);
+    expect(isLoopbackHost('[::1]')).toBe(true);
+  });
+
+  it('rejects every host that would publish the dev server off-box', () => {
+    expect(isLoopbackHost('0.0.0.0')).toBe(false);
+    expect(isLoopbackHost('::')).toBe(false);
+    expect(isLoopbackHost('10.23.4.137')).toBe(false);
+    expect(isLoopbackHost('127.0.0.1.evil.example.com')).toBe(false);
+    expect(isLoopbackHost('localhost.evil.example.com')).toBe(false);
+    expect(isLoopbackHost('')).toBe(false);
   });
 });
