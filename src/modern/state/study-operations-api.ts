@@ -11,6 +11,7 @@ import { getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
 import { triggerBlobDownload } from '@/lib/download';
 import { getParticipantCsrfToken } from '@/lib/participant-access';
 import type { StudyParticipantPolicySetting } from '@/lib/participant-policy';
+import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } from './settings-revision';
 
 // Canonical status/policy value sets come from the generated LinkML contract module —
 // re-exported here so existing consumers keep importing them from this API surface.
@@ -534,14 +535,30 @@ export const studyOperationsApi = createApi({
     }),
     updateStudySettings: builder.mutation<
       unknown,
-      { studyId: string; settingType: string; setting: Record<string, unknown> | unknown[] }
+      {
+        studyId: string;
+        settingType: string;
+        setting: Record<string, unknown> | unknown[];
+        // Settings revision from the last settings response (settings-revision.ts). Sent as
+        // If-Match so a stale form gets 412 instead of overwriting another user's change.
+        ifMatch?: string | undefined;
+      }
     >({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Study' }],
-      query: ({ studyId, settingType, setting }) => ({
+      query: ({ studyId, settingType, setting, ifMatch }) => ({
         body: setting,
+        headers: ifMatch ? { 'If-Match': ifMatch } : undefined,
         method: 'PATCH',
         url: `/study/${encodeURIComponent(studyId)}/settings/type/${settingType}`,
       }),
+      transformErrorResponse: (error, _meta, { studyId }) => {
+        if (isSettingsConflict(error)) forgetSettingsRevision(studyId);
+        return error;
+      },
+      transformResponse: (body: unknown, meta, { studyId }) => {
+        rememberSettingsRevision(studyId, meta?.response?.headers);
+        return body;
+      },
     }),
     setStudyLimits: builder.mutation<unknown, { studyId: string; limits: Record<string, unknown> }>({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Study' }],
@@ -965,10 +982,18 @@ export const studyOperationsApi = createApi({
     getStudySettings: builder.query<StudySettings, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/settings`,
+      transformResponse: (body: StudySettings, meta, studyId) => {
+        rememberSettingsRevision(studyId, meta?.response?.headers);
+        return body;
+      },
     }),
     getStudyDataCollectionSetting: builder.query<DataCollectionSettingSummary, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/settings/type/DataCollection`,
+      transformResponse: (body: DataCollectionSettingSummary, meta, studyId) => {
+        rememberSettingsRevision(studyId, meta?.response?.headers);
+        return body;
+      },
     }),
     getOrgStudies: builder.query<StudySummary[], string>({
       providesTags: (result) =>

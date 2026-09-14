@@ -142,8 +142,9 @@ function buildModuleEntry(form: StudyFormData, module: (typeof COLLECTION_MODULE
   // `enabled` is always sent explicitly — the backend CollectionModuleSetting has no
   // default for it. `required` (per-module consent design §3.1) is meaningful only while
   // enabled, but is always sent (mirrors `enabled`, keeps the write idempotent); defaults
-  // optional (false), and a disabled module is never required.
-  const enabled = form.moduleSettings?.[value] ?? defaultEnabled;
+  // optional (false), and a disabled module is never required. An always-on module is
+  // written enabled whatever the form state says (stale state from before the lock).
+  const enabled = module.alwaysOn ? true : (form.moduleSettings?.[value] ?? defaultEnabled);
   const required = enabled ? (form.moduleRequired?.[value] ?? false) : false;
   const moduleEntry: Record<string, unknown> = { enabled, required };
 
@@ -177,7 +178,17 @@ export function buildDataCollectionSetting(form: StudyFormData) {
     return null;
   }
 
+  // A newer server may carry modules this build has never heard of. `modules` is written
+  // whole, so rebuilding it from COLLECTION_MODULES alone would delete them on any
+  // unrelated edit — carry the loaded entries through untouched first (same reasoning as
+  // healthConnectRecordTypes retaining unknown wire ids).
+  const known = new Set<string>(COLLECTION_MODULES.map(({ value }) => value));
   const modules: Record<string, Record<string, unknown>> = {};
+  for (const [moduleId, entry] of Object.entries(form.loadedModules ?? {})) {
+    if (!known.has(moduleId) && entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      modules[moduleId] = { ...(entry as Record<string, unknown>) };
+    }
+  }
   for (const module of COLLECTION_MODULES) {
     modules[module.value] = buildModuleEntry(form, module);
   }
@@ -192,13 +203,18 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   };
 }
 
-export function buildStudyLimits(form: StudyFormData) {
+// `clearWhenEmpty` is the edit-mode behavior: the limits endpoint is a PUT (a whole
+// replace), so emptying every field must send `{}` to actually drop the study's existing
+// limits. Creating a study has nothing to clear, so it keeps the null (= no request).
+export function buildStudyLimits(form: StudyFormData, clearWhenEmpty: true): Record<string, unknown>;
+export function buildStudyLimits(form: StudyFormData, clearWhenEmpty?: false): Record<string, unknown> | null;
+export function buildStudyLimits(form: StudyFormData, clearWhenEmpty = false): Record<string, unknown> | null {
   const participantLimit = parseInt(form.participantLimit, 10);
   const studyDurationDays = parseInt(form.studyDurationDays, 10);
   const dataRetentionDays = parseInt(form.dataRetentionDays, 10);
 
   if (!(participantLimit > 0) && !(studyDurationDays > 0) && !(dataRetentionDays > 0)) {
-    return null;
+    return clearWhenEmpty ? {} : null;
   }
 
   const limits: Record<string, unknown> = {};

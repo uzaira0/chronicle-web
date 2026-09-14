@@ -197,6 +197,17 @@ export function validateParticipantPolicy(
   return errors;
 }
 
+// True when the edited form says exactly what the loaded policy already says. The policy is
+// legally significant and the server locks it once enrollment starts, so an edit that never
+// touched it must not re-send it — that write would be rejected and take unrelated setting
+// changes down with it. Compared trimmed, the same way buildStudyParticipantPolicy writes it.
+export function participantPolicyUnchanged(form: ParticipantPolicyForm, loaded: unknown): boolean {
+  const before = participantPolicyToForm(loaded);
+  return (Object.keys(EMPTY_PARTICIPANT_POLICY_FORM) as Array<keyof ParticipantPolicyForm>).every(
+    (field) => before[field].trim() === form[field].trim(),
+  );
+}
+
 export function buildStudyParticipantPolicy(form: ParticipantPolicyForm): StudyParticipantPolicySetting {
   const errors = validateParticipantPolicy(form);
   const firstError = Object.values(errors)[0];

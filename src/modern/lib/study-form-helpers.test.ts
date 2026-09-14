@@ -961,3 +961,52 @@ describe('buildStudyLimits() — additional variations', () => {
     expect(result).toEqual({ studyDuration: { years: 2, months: 0, days: 0 } });
   });
 });
+
+// Regression: editing a study and emptying every limit field used to build `null`, which
+// study-layout read as "nothing to write" — so the study kept its old limits forever.
+describe('buildStudyLimits() — edit-mode clear', () => {
+  it('sends an explicit empty object when every field is cleared', () => {
+    expect(buildStudyLimits(makeForm(), true)).toEqual({});
+  });
+
+  it('still sends the set limits when clearing is enabled', () => {
+    expect(buildStudyLimits(makeForm({ participantLimit: '50' }), true)).toEqual({ participantLimit: 50 });
+  });
+
+  it('keeps returning null in create mode, where there is nothing to clear', () => {
+    expect(buildStudyLimits(makeForm())).toBeNull();
+  });
+});
+
+// Regression: `modules` is written whole, so an older dashboard rebuilding it from its own
+// COLLECTION_MODULES list silently deleted any module a newer server had introduced.
+describe('buildDataCollectionSetting() — unknown modules', () => {
+  it('carries a module this build does not know about through untouched', () => {
+    const result = buildDataCollectionSetting(
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        loadedModules: { future_module: { enabled: true, required: true } },
+      }),
+    );
+    expect(result?.modules.future_module).toEqual({ enabled: true, required: true });
+  });
+
+  it('lets the form win for a module it does know about', () => {
+    const result = buildDataCollectionSetting(
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        loadedModules: { usage_events: { enabled: false, stale: true } },
+        moduleSettings: { usage_events: true },
+      }),
+    );
+    expect(result?.modules.usage_events).toMatchObject({ enabled: true });
+    expect(result?.modules.usage_events?.stale).toBeUndefined();
+  });
+
+  it('ignores non-object loaded entries', () => {
+    const result = buildDataCollectionSetting(
+      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], loadedModules: { junk: 'nope' } }),
+    );
+    expect(result?.modules.junk).toBeUndefined();
+  });
+});

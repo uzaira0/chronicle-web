@@ -34,7 +34,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { buildStudyParticipantPolicy, EMPTY_PARTICIPANT_POLICY_FORM } from '@/lib/participant-policy';
+import {
+  buildStudyParticipantPolicy,
+  EMPTY_PARTICIPANT_POLICY_FORM,
+  participantPolicyUnchanged,
+} from '@/lib/participant-policy';
 import { STUDY_FEATURES, type StudyModule } from '@/lib/study-constants';
 import {
   buildDataCollectionSetting,
@@ -45,6 +49,7 @@ import {
 } from '@/lib/study-form-helpers';
 import { PARTIAL_STUDY_CONFIGURATION_ERROR, studyNavigationActionError } from '@/lib/study-navigation';
 import { cn } from '@/lib/utils';
+import { isSettingsConflict, knownSettingsRevision } from '@/state/settings-revision';
 import {
   type StudyLifecycleStatus,
   useArchiveStudyMutation,
@@ -255,36 +260,52 @@ export function StudyLayout() {
       throw new Error(t('study_layout.status_unavailable_reload'));
     }
 
+    const policyForm = form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM;
     const sensorSetting = buildSensorSetting(form);
     const iosSensorSetting = buildIosSensorSetting(form, true);
     const dataCollection = buildDataCollectionSetting(form);
-    const participantPolicy = buildStudyParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM);
-    const limits = buildStudyLimits(form);
+    // Enrollment locks the participant policy server-side. Re-sending an identical copy
+    // would be rejected for no gain, so an untouched policy is simply not written.
+    const participantPolicy = participantPolicyUnchanged(policyForm, form.loadedParticipantPolicy)
+      ? null
+      : buildStudyParticipantPolicy(policyForm);
+    // Edit mode: emptying every limit field must clear the study's limits, not silently
+    // skip the write and leave the old ones in place.
+    const limits = buildStudyLimits(form, true);
 
-    // The settings PATCHes share a read-merge-write of the full settings map, so
-    // they must run sequentially or they would clobber each other. The general study
-    // update and the limits write touch disjoint columns and run in parallel.
+    // The settings PATCHes share a read-merge-write of the full settings map, so they must
+    // run sequentially or they would clobber each other. They are otherwise independent —
+    // one rejection (a locked policy, say) must not cancel the rest, so each is awaited on
+    // its own and the first failure is reported only once every write has been attempted.
+    const settingWrites: Array<{
+      setting: Record<string, unknown> | unknown[];
+      settingType: 'AndroidSensor' | 'DataCollection' | 'ParticipantPolicy' | 'Sensor';
+    }> = [];
+    if (participantPolicy) settingWrites.push({ setting: participantPolicy, settingType: 'ParticipantPolicy' });
+    if (sensorSetting) settingWrites.push({ setting: sensorSetting, settingType: 'AndroidSensor' });
+    settingWrites.push({ setting: iosSensorSetting, settingType: 'Sensor' });
+    if (dataCollection) settingWrites.push({ setting: dataCollection, settingType: 'DataCollection' });
+
     const writeSettings = async () => {
-      // Write the legally significant policy first. If the server has locked it
-      // after enrollment activity, stop before applying other setting changes.
-      await updateStudySettings({
-        studyId,
-        settingType: 'ParticipantPolicy',
-        setting: participantPolicy,
-      }).unwrap();
-      if (sensorSetting) {
-        await updateStudySettings({ studyId, settingType: 'AndroidSensor', setting: sensorSetting }).unwrap();
+      let firstFailure: unknown = null;
+      for (const write of settingWrites) {
+        try {
+          // Each successful PATCH returns the next revision, so the chain stays current
+          // across the sequence; a 412 means someone else wrote in between.
+          await updateStudySettings({ studyId, ifMatch: knownSettingsRevision(studyId), ...write }).unwrap();
+        } catch (err) {
+          firstFailure ??= err;
+        }
       }
-      await updateStudySettings({ studyId, settingType: 'Sensor', setting: iosSensorSetting }).unwrap();
-      if (dataCollection) {
-        await updateStudySettings({ studyId, settingType: 'DataCollection', setting: dataCollection }).unwrap();
-      }
+      if (firstFailure === null) return;
+      if (isSettingsConflict(firstFailure)) throw new Error(t('study_layout.settings_conflict'));
+      throw new Error(getErrorMessage(firstFailure, t('study_layout.some_changes_failed')));
     };
 
     const results = await Promise.allSettled([
       updateStudy({ studyId, study: buildStudyPayload(form) }).unwrap(),
       writeSettings(),
-      limits ? setStudyLimits({ studyId, limits }).unwrap() : null,
+      setStudyLimits({ studyId, limits }).unwrap(),
     ]);
     const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (failures.length > 0) {

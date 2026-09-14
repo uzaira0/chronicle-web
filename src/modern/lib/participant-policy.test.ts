@@ -4,6 +4,7 @@ import {
   buildStudyParticipantPolicy,
   EMPTY_PARTICIPANT_POLICY_FORM,
   participantPolicyToForm,
+  participantPolicyUnchanged,
   validateParticipantPolicy,
 } from './participant-policy';
 
@@ -104,5 +105,33 @@ describe('StudyParticipantPolicy form contract', () => {
     expect(() => buildStudyParticipantPolicy({ ...VALID_POLICY, dataUseAndSharing: '' })).toThrow(
       'Data use and sharing is required.',
     );
+  });
+});
+
+// Regression: every edit re-sent the participant policy first, so once enrollment locked
+// it server-side, changing only a sensor setting failed on a write nothing had asked for.
+describe('participantPolicyUnchanged()', () => {
+  const loaded = buildStudyParticipantPolicy(VALID_POLICY);
+
+  it('is true when the form still says exactly what the server holds', () => {
+    expect(participantPolicyUnchanged(participantPolicyToForm(loaded), loaded)).toBe(true);
+  });
+
+  it('ignores whitespace the write path would trim anyway', () => {
+    expect(participantPolicyUnchanged(VALID_POLICY, loaded)).toBe(true);
+  });
+
+  it('is false when a field actually changed', () => {
+    const edited = { ...participantPolicyToForm(loaded), purpose: 'A different purpose.' };
+    expect(participantPolicyUnchanged(edited, loaded)).toBe(false);
+  });
+
+  it('is false when the study has no policy yet and the form fills one in', () => {
+    expect(participantPolicyUnchanged(VALID_POLICY, undefined)).toBe(false);
+  });
+
+  it('treats a null consentDocumentUrl and an empty one as the same', () => {
+    const form = { ...participantPolicyToForm(loaded), consentDocumentUrl: '' };
+    expect(participantPolicyUnchanged(form, { ...loaded, consentDocumentUrl: null })).toBe(true);
   });
 });

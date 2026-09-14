@@ -90,6 +90,10 @@ export function healthConnectRecordTypeLabel(value: string): string {
 export type CollectionModuleId = ActiveCollectionModuleId;
 
 export type CollectionModuleDescriptor = {
+  // Operational module the study cannot switch off: the Play and Amazon apps refuse to
+  // enroll a study that does not disclose it (server rejects the write too, see
+  // StudyController.validatePlayCollectionPolicy). Rendered as "Always on" in the form.
+  alwaysOn?: boolean;
   defaultEnabled: boolean;
   description: string;
   // The collapsible signal group this module is rendered under in the study form
@@ -148,6 +152,7 @@ const COLLECTION_MODULE_PRESENTATION = [
     group: 'Diagnostics & Capability',
     privacyClass: 'Operational diagnostics',
     description: 'Upload success/failure diagnostics (no participant content).',
+    alwaysOn: true,
   },
   {
     value: 'sensor_availability',
@@ -357,6 +362,7 @@ const COLLECTION_MODULE_PRESENTATION = [
     description: 'When the device is tilted.',
   },
 ] as const satisfies ReadonlyArray<{
+  alwaysOn?: boolean;
   description: string;
   group: string;
   label: string;

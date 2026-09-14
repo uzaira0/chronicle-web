@@ -63,6 +63,12 @@ type StudyFormData = {
   // getInitialFormData; optional only so the helper test fixtures (which predate this
   // field and build a StudyFormData without it) keep type-checking.
   moduleSettings?: Record<string, boolean>;
+  // The study's DataCollection `modules` map exactly as loaded, so the write path can carry
+  // through module entries this build does not know about instead of deleting them.
+  loadedModules?: Record<string, unknown> | undefined;
+  // The study's ParticipantPolicy setting exactly as loaded, so the write path can tell an
+  // untouched policy (skip the PATCH — it may be locked by enrollment) from an edited one.
+  loadedParticipantPolicy?: unknown;
   // Per-active-module "required for participation" flag (keyed by CollectionModuleId).
   // Meaningful only when the module is enabled; the enrollment wizard makes a required
   // module mandatory to accept and locks it in the on-device Data Sharing surface.
@@ -227,8 +233,8 @@ function toInteractionConfig(form: StudyFormData): InteractionConfig {
 // setting wins; otherwise fall back to the module's privacy-class default.
 function initialModuleSettings(dataCollection?: DataCollectionSettingSummary): Record<string, boolean> {
   const moduleSettings: Record<string, boolean> = {};
-  for (const { value, defaultEnabled } of COLLECTION_MODULES) {
-    moduleSettings[value] = dataCollection?.modules?.[value]?.enabled ?? defaultEnabled;
+  for (const { value, defaultEnabled, alwaysOn } of COLLECTION_MODULES) {
+    moduleSettings[value] = alwaysOn ? true : (dataCollection?.modules?.[value]?.enabled ?? defaultEnabled);
   }
   return moduleSettings;
 }
@@ -332,6 +338,13 @@ function initialHealthConnectRecordTypes(dataCollection?: DataCollectionSettingS
     : [];
 }
 
+// The loaded `modules` map, untyped, so the write path can carry unknown module entries
+// through. A one-liner like the other initialX seeds, kept out of getInitialFormData for
+// the same reason they are: that function is already at its complexity ceiling.
+function initialLoadedModules(dataCollection?: DataCollectionSettingSummary): Record<string, unknown> | undefined {
+  return dataCollection?.modules;
+}
+
 function getInitialFormData(
   study?: StudySummary,
   limits?: StudyLimits,
@@ -367,6 +380,8 @@ function getInitialFormData(
     features: modules,
     group: study?.group || '',
     healthConnectRecordTypes: initialHealthConnectRecordTypes(dataCollection),
+    loadedModules: initialLoadedModules(dataCollection),
+    loadedParticipantPolicy: participantPolicy,
     moduleDispositions: initialModuleDispositions(dataCollection),
     moduleIntervalSeconds: initialModuleIntervals(dataCollection),
     moduleRequired: initialModuleRequired(dataCollection),
@@ -576,11 +591,20 @@ function DataCollectionModuleRow({
             {description}
           </p>
         </div>
-        <ModuleModeControl
-          label={label}
-          mode={enabled ? (required ? 'required' : 'optional') : 'disabled'}
-          onChange={(next) => onSetMode(value, next)}
-        />
+        {module.alwaysOn ? (
+          <span
+            className="shrink-0 rounded-md border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground"
+            title={t('study_form.always_on_hint')}
+          >
+            {t('study_form.always_on')}
+          </span>
+        ) : (
+          <ModuleModeControl
+            label={label}
+            mode={enabled ? (required ? 'required' : 'optional') : 'disabled'}
+            onChange={(next) => onSetMode(value, next)}
+          />
+        )}
       </div>
       {sensorType && enabled && (
         <div className="grid gap-4 border-t border-border/40 pt-3 sm:grid-cols-3">
@@ -915,6 +939,8 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
   // it (required), may decline it (optional), or it is not collected at all (disabled).
   // Enabled/required move together in a single update so the pair can never be inconsistent.
   const setModuleMode = (moduleId: string, mode: ModuleMode) => {
+    // Always-on modules have no mode control; ignore a stray disable rather than write it.
+    if (mode === 'disabled' && COLLECTION_MODULES.some((m) => m.value === moduleId && m.alwaysOn)) return;
     setForm((prev) => ({
       ...prev,
       moduleRequired: { ...prev.moduleRequired, [moduleId]: mode === 'required' },
