@@ -1226,7 +1226,7 @@
       "sensor_availability": "Which sensors the device hardware exposes.",
       "questionnaire": "Scheduling of questionnaire deep-link notifications.",
       "battery_telemetry": "Battery level, charging state, and power events.",
-      "interaction_events": "Where taps and scrolls land (screen-region grid + element role), via an Accessibility service. Content-free — never the text of what you tap.",
+      "interaction_events": "Where taps, scrolls, and focus changes land — the on-screen bounds of the element, a derived screen region, the element role, and the foreground app — via an Accessibility service. Content-free: never the text of what you tap, and not the exact finger position.",
       "in_app_activity_class": "Which screen within an app is open (the app activity/screen name), added to the app-usage log at the same resolution. Opt-in. Content-free — the screen name, never on-screen text.",
       "audio_activity": "Which app is producing audio, plus playback state, headphone/output route, and volume. Mic-free — never any audio content or microphone capture.",
       "audio_content": "The playing track's title, artist, and album from the active media session. Opt-in — track metadata only, never the audio itself.",

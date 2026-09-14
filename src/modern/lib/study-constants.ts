@@ -176,7 +176,7 @@ const COLLECTION_MODULE_PRESENTATION = [
     group: 'Usage & Behavior',
     privacyClass: 'Interaction metadata',
     description:
-      'Where taps and scrolls land (screen-region grid + element role), via an Accessibility service. Content-free — never the text of what you tap.',
+      'Where taps, scrolls, and focus changes land — the on-screen bounds of the element, a derived screen region, the element role, and the foreground app — via an Accessibility service. Content-free: never the text of what you tap, and not the exact finger position.',
   },
   {
     value: 'in_app_activity_class',
