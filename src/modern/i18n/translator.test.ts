@@ -138,3 +138,23 @@ describe('language-code resolution', () => {
     expect(ARRAY_ORDER_PERMUTATIONS['he-female']?.weekday_options).toEqual([6, 0, 1, 2, 3, 4, 5]);
   });
 });
+
+// Regression: `bed_time_tonight` is an empty string in the Spanish and Swedish tables, and
+// an empty value used to win over the English fallback — the today-diary bed-time question
+// rendered as a required input with no title at all.
+describe('createTranslator — empty values fall back to English', () => {
+  test('an empty Spanish value renders the English text, not a blank label', () => {
+    const es = createTranslator('es');
+    expect(es.t('bed_time_tonight')).toBe(createTranslator('en').t('bed_time_tonight'));
+    expect(es.t('bed_time_tonight')).not.toBe('');
+  });
+
+  test('an empty value reached through a $t() context reference also falls back', () => {
+    const es = createTranslator('es');
+    expect(es.t('day_end_time_ctx.bed_time', { context: 'today' })).not.toBe('');
+  });
+
+  test('a translated Spanish value still wins over English', () => {
+    expect(createTranslator('es').t('button_next')).toBe('Siguiente');
+  });
+});

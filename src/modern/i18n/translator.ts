@@ -83,9 +83,12 @@ export function createTranslator(effectiveCode: string): Translator {
 
   // Upstream initialised i18next with `fallbackLng: en`, so a key a language table lacks
   // renders in English rather than as its raw key. Only a key absent everywhere echoes.
+  // An empty string in a language table is an untranslated placeholder, not a translation:
+  // upstream ran with i18next's `returnEmptyString: false`, so it fell back to English
+  // rather than rendering a blank label on a required question. Matched here.
   function lookup(key: string, context?: string): unknown {
     const raw = resolveRaw(table, key, context);
-    return raw === undefined ? resolveRaw(english, key, context) : raw;
+    return raw === undefined || raw === '' ? resolveRaw(english, key, context) : raw;
   }
 
   function renderString(raw: string, options: TransOptions): string {

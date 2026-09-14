@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Lists the English keys each language table still lacks (the translator's to-do list) and
 // any keys a table carries that English no longer has. Exit code 1 when --check and a table
-// has stale keys. Usage: bun scripts/i18n-report.ts [--check] [code ...]
+// has missing, empty, or stale keys. Usage: bun scripts/i18n-report.ts [--check] [code ...]
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -34,14 +34,21 @@ const codes = requested.length
       .map((entry) => entry.name);
 
 const english = load('en');
-let stale = false;
+let failed = false;
 for (const code of codes) {
   const table = load(code);
   const missing = [...english.keys()].filter((key) => !table.has(key));
   const extra = [...table.keys()].filter((key) => !english.has(key));
-  console.log(`${code}: ${table.size} keys, ${missing.length} missing, ${extra.length} stale`);
+  // A key present but empty is an untranslated placeholder. The runtime falls back to
+  // English for it (translator.ts `lookup`), so it never renders blank — but it is still
+  // an unfinished translation and --check must not call the table done.
+  const empty = [...table.keys()].filter((key) => english.get(key) && !table.get(key));
+  console.log(
+    `${code}: ${table.size} keys, ${missing.length} missing, ${empty.length} empty, ${extra.length} stale`,
+  );
   if (requested.length) for (const key of missing) console.log(`  - ${key}: ${english.get(key)}`);
+  for (const key of empty) console.log(`  ~ empty: ${key}`);
   for (const key of extra) console.log(`  ! stale: ${key}`);
-  if (extra.length) stale = true;
+  if (missing.length || empty.length || extra.length) failed = true;
 }
-if (check && stale) process.exit(1);
+if (check && failed) process.exit(1);
