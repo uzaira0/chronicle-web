@@ -52,8 +52,8 @@ for (const [name, groups] of [
         differences.push(`missing catalog.${group}: ${JSON.stringify(expected[group])}`);
         continue;
       }
-      const wanted = expected[group];
-      const found = actual[group];
+      const wanted = expected[group] ?? {};
+      const found = actual[group] ?? {};
       for (const key of new Set([...Object.keys(wanted), ...Object.keys(found)])) {
         const path = `catalog.${group}.${key}`;
         if (!Object.hasOwn(found, key)) {

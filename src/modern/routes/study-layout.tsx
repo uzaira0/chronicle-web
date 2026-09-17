@@ -269,14 +269,16 @@ export function StudyLayout() {
     const participantPolicy = participantPolicyUnchanged(policyForm, form.loadedParticipantPolicy)
       ? null
       : buildStudyParticipantPolicy(policyForm);
-    // Edit mode: emptying every limit field must clear the study's limits, not silently
-    // skip the write and leave the old ones in place.
-    const limits = buildStudyLimits(form, true);
+    // An empty body is not a "clear" on the wire: the limits endpoint binds `{}` to the
+    // StudyLimits defaults (25 participants, 1y duration, 90d retention), so emptying every
+    // field must skip the write until the API grows an explicit "no limit" representation.
+    const limits = buildStudyLimits(form);
 
     // The settings PATCHes share a read-merge-write of the full settings map, so they must
     // run sequentially or they would clobber each other. They are otherwise independent —
     // one rejection (a locked policy, say) must not cancel the rest, so each is awaited on
     // its own and the first failure is reported only once every write has been attempted.
+    // The exception is a revision conflict, which aborts the sequence (see below).
     const settingWrites: Array<{
       setting: Record<string, unknown> | unknown[];
       settingType: 'AndroidSensor' | 'DataCollection' | 'ParticipantPolicy' | 'Sensor';
@@ -295,6 +297,9 @@ export function StudyLayout() {
           await updateStudySettings({ studyId, ifMatch: knownSettingsRevision(studyId), ...write }).unwrap();
         } catch (err) {
           firstFailure ??= err;
+          // A 412 forgets the revision, so every later write would go out unguarded and
+          // clobber whoever won the race. Stop the sequence instead.
+          if (isSettingsConflict(err)) break;
         }
       }
       if (firstFailure === null) return;
@@ -305,7 +310,7 @@ export function StudyLayout() {
     const results = await Promise.allSettled([
       updateStudy({ studyId, study: buildStudyPayload(form) }).unwrap(),
       writeSettings(),
-      setStudyLimits({ studyId, limits }).unwrap(),
+      limits ? setStudyLimits({ studyId, limits }).unwrap() : null,
     ]);
     const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (failures.length > 0) {

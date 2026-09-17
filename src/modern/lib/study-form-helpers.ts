@@ -203,18 +203,15 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   };
 }
 
-// `clearWhenEmpty` is the edit-mode behavior: the limits endpoint is a PUT (a whole
-// replace), so emptying every field must send `{}` to actually drop the study's existing
-// limits. Creating a study has nothing to clear, so it keeps the null (= no request).
-export function buildStudyLimits(form: StudyFormData, clearWhenEmpty: true): Record<string, unknown>;
-export function buildStudyLimits(form: StudyFormData, clearWhenEmpty?: false): Record<string, unknown> | null;
-export function buildStudyLimits(form: StudyFormData, clearWhenEmpty = false): Record<string, unknown> | null {
+// Null means "no request": the limits endpoint binds an empty body to the StudyLimits
+// defaults rather than clearing, so there is no wire representation of "no limit" yet.
+export function buildStudyLimits(form: StudyFormData): Record<string, unknown> | null {
   const participantLimit = parseInt(form.participantLimit, 10);
   const studyDurationDays = parseInt(form.studyDurationDays, 10);
   const dataRetentionDays = parseInt(form.dataRetentionDays, 10);
 
   if (!(participantLimit > 0) && !(studyDurationDays > 0) && !(dataRetentionDays > 0)) {
-    return clearWhenEmpty ? {} : null;
+    return null;
   }
 
   const limits: Record<string, unknown> = {};

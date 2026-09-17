@@ -962,21 +962,6 @@ describe('buildStudyLimits() — additional variations', () => {
   });
 });
 
-// Regression: editing a study and emptying every limit field used to build `null`, which
-// study-layout read as "nothing to write" — so the study kept its old limits forever.
-describe('buildStudyLimits() — edit-mode clear', () => {
-  it('sends an explicit empty object when every field is cleared', () => {
-    expect(buildStudyLimits(makeForm(), true)).toEqual({});
-  });
-
-  it('still sends the set limits when clearing is enabled', () => {
-    expect(buildStudyLimits(makeForm({ participantLimit: '50' }), true)).toEqual({ participantLimit: 50 });
-  });
-
-  it('keeps returning null in create mode, where there is nothing to clear', () => {
-    expect(buildStudyLimits(makeForm())).toBeNull();
-  });
-});
 
 // Regression: `modules` is written whole, so an older dashboard rebuilding it from its own
 // COLLECTION_MODULES list silently deleted any module a newer server had introduced.
