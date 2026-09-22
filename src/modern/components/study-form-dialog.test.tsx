@@ -239,3 +239,250 @@ describe('StudyFormDialog Health Connect scope', () => {
     expect(submissions[0]?.healthConnectRecordTypes).toEqual(['steps', 'future_metric']);
   });
 });
+
+describe('StudyFormDialog configuration export and import', () => {
+  const CONFIG = {
+    format: 'chronicle-study-config',
+    version: 1,
+    exportedAt: '2026-09-17T00:00:00Z',
+    study: {
+      contact: 'imported@example.org',
+      dataRetentionDays: '400',
+      description: 'Imported description',
+      dutyCycleActiveSeconds: '30',
+      dutyCyclePeriodSeconds: '300',
+      features: ['CHRONICLE_DATA_COLLECTION', 'TIME_USE_DIARY'],
+      group: 'imported-group',
+      healthConnectRecordTypes: ['steps'],
+      moduleRequired: { health_connect: true },
+      moduleSettings: { device_settings: true, health_connect: true },
+      moduleIntervalSeconds: { device_settings: '3600' },
+      notificationsEnabled: true,
+      participantPolicy: POLICY,
+      participantLimit: '250',
+      samplingRateHz: '5',
+      selectedSensors: [],
+      studyDurationDays: '180',
+      title: 'Imported study',
+      version: '2.0',
+    },
+  };
+
+  async function importFile(text: string, name = 'config.json') {
+    const input = screen.getByTestId<HTMLInputElement>('study-config-file');
+    const file = new File([text], name, { type: 'application/json' });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+      // file.text() resolves on a later microtask than the change handler's first await.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  test('imports a configuration file into every field of the create form and submits it', async () => {
+    const submissions: StudyFormData[] = [];
+    const onSubmit = mock((form: StudyFormData) => {
+      submissions.push(form);
+      return Promise.resolve();
+    });
+    render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    await importFile(JSON.stringify(CONFIG));
+
+    expect(screen.getByRole('status').textContent).toContain('config.json');
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Name/).value).toBe('Imported study');
+    expect(screen.getByLabelText<HTMLInputElement>(/^Contact Email/).value).toBe('imported@example.org');
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Group/).value).toBe('imported-group');
+    expect(screen.getByLabelText<HTMLInputElement>(/^Version/).value).toBe('2.0');
+    expect(screen.getByLabelText<HTMLInputElement>('Participant Limit').value).toBe('250');
+    expect(screen.getByLabelText<HTMLInputElement>('Study Duration (days)').value).toBe('180');
+    expect(screen.getByLabelText<HTMLInputElement>('Data Retention (days)').value).toBe('400');
+    expect(screen.getByLabelText<HTMLInputElement>('Enable daily notifications').checked).toBe(true);
+    expect(screen.getByRole('button', { name: 'Time Use Diary' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByLabelText<HTMLInputElement>(/^Responsible Institution/).value).toBe(
+      POLICY.responsibleInstitution,
+    );
+    expect(screen.getByLabelText<HTMLInputElement>('Steps').checked).toBe(true);
+    expect((document.getElementById('interval-device_settings') as HTMLInputElement).value).toBe('3600');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(submissions[0]?.title).toBe('Imported study');
+    expect(submissions[0]?.moduleRequired?.health_connect).toBe(true);
+    expect(submissions[0]?.moduleSettings?.health_connect).toBe(true);
+    expect(submissions[0]?.healthConnectRecordTypes).toEqual(['steps']);
+    expect(submissions[0]?.participantPolicy?.version).toBe(POLICY.version);
+  });
+
+  test('shows every module in the state the save path will write, not Disabled by omission', async () => {
+    const submissions: StudyFormData[] = [];
+    const onSubmit = mock((form: StudyFormData) => {
+      submissions.push(form);
+      return Promise.resolve();
+    });
+    render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    // CONFIG names two modules; usage_events is not one of them, and its contract default
+    // is enabled — the form must not claim it is off while the save path turns it on.
+    await importFile(JSON.stringify(CONFIG));
+
+    const usageEvents = screen.getByRole('group', { name: 'App Usage Events collection mode' });
+    expect(usageEvents.querySelector<HTMLInputElement>('input[value="disabled"]')?.checked).toBe(false);
+    expect(usageEvents.querySelector<HTMLInputElement>('input[value="optional"]')?.checked).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(submissions[0]?.moduleSettings?.usage_events).toBe(true);
+  });
+
+  test('does not import an unofferable feature or the legacy sensor fields the form cannot show', async () => {
+    const submissions: StudyFormData[] = [];
+    const onSubmit = mock((form: StudyFormData) => {
+      submissions.push(form);
+      return Promise.resolve();
+    });
+    render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    await importFile(
+      JSON.stringify({
+        ...CONFIG,
+        study: {
+          ...CONFIG.study,
+          features: ['CHRONICLE_DATA_COLLECTION', 'ANDROID_SENSOR', 'IOS_SENSOR'],
+          samplingRateHz: '100000',
+          selectedSensors: ['accelerometer'],
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(submissions[0]?.features).toEqual(['CHRONICLE_DATA_COLLECTION']);
+    expect(submissions[0]?.samplingRateHz).toBe('5');
+    expect(submissions[0]?.selectedSensors).toEqual([]);
+  });
+
+  test("keeps the edited study's participant policy and says so", async () => {
+    studySettingsQuery = { data: { ParticipantPolicy: POLICY } };
+    render(<StudyFormDialog mode="edit" onSubmit={mock(() => Promise.resolve())} study={EDIT_STUDY} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
+
+    await importFile(
+      JSON.stringify({
+        ...CONFIG,
+        study: { ...CONFIG.study, participantPolicy: { ...POLICY, version: 'imported-policy' } },
+      }),
+    );
+
+    expect(screen.getByLabelText<HTMLInputElement>(/^Policy Version/).value).toBe(POLICY.version);
+    expect(screen.getByRole('status').textContent).toContain('participant policy');
+  });
+
+  test('refuses an oversized file without reading it into memory', async () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    const file = new File(['{}'], 'huge.json', { type: 'application/json' });
+    Object.defineProperty(file, 'size', { value: 2_000_000 });
+    let read = false;
+    file.text = () => {
+      read = true;
+      return Promise.resolve('{}');
+    };
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('study-config-file'), { target: { files: [file] } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(read).toBe(false);
+    expect(screen.getByRole('alert').textContent).toContain('too large');
+  });
+
+  test('reports an unreadable file in the dashboard language, not in browser engine English', async () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    const file = new File(['{}'], 'gone.json', { type: 'application/json' });
+    file.text = () => Promise.reject(new Error('The requested file could not be read, typically due to permissions.'));
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('study-config-file'), { target: { files: [file] } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByRole('alert').textContent).toBe('The file could not be loaded.');
+  });
+
+  test('offers exactly one keyboard-reachable import control and announces into a live region', () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    const input = screen.getByTestId<HTMLInputElement>('study-config-file');
+    expect(input.getAttribute('aria-hidden')).toBe('true');
+    expect(input.tabIndex).toBe(-1);
+    expect(input.getAttribute('aria-label')).toBeNull();
+    // The live region exists before the import so a screen reader announces the change.
+    expect(screen.getByRole('status').textContent).toBe('');
+  });
+
+  test('rejects a file that is not a study configuration and leaves the form untouched', async () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Typed title' } });
+
+    await importFile(JSON.stringify({ hello: 'world' }), 'notes.json');
+
+    expect(screen.getByRole('alert').textContent).toContain('not a Chronicle study configuration');
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Name/).value).toBe('Typed title');
+  });
+
+  test('exports the current form state, unsaved edits included, as a study configuration file', async () => {
+    const blobs: Blob[] = [];
+    const names: string[] = [];
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    URL.createObjectURL = (blob: Blob) => {
+      blobs.push(blob);
+      return 'blob:study-config';
+    };
+    URL.revokeObjectURL = () => undefined;
+    HTMLAnchorElement.prototype.click = function () {
+      names.push(this.download);
+    };
+    try {
+      studySettingsQuery = { data: { ParticipantPolicy: POLICY } };
+      limitsQuery = { data: { participantLimit: 40 } };
+      render(<StudyFormDialog mode="edit" onSubmit={mock(() => Promise.resolve())} study={EDIT_STUDY} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
+      fireEvent.change(screen.getByLabelText(/^Study Group/), { target: { value: 'unsaved-group' } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Export configuration' }));
+
+      expect(blobs).toHaveLength(1);
+      expect(names[0]).toMatch(/^existing-study-config-\d{4}-\d{2}-\d{2}\.json$/);
+      const [blob] = blobs;
+      if (!blob) throw new Error('export produced no blob');
+      const exported = JSON.parse(await blob.text()) as { study: StudyFormData; format: string };
+      expect(exported.format).toBe('chronicle-study-config');
+      expect(exported.study.title).toBe('Existing study');
+      expect(exported.study.group).toBe('unsaved-group');
+      expect(exported.study.participantLimit).toBe('40');
+      expect(exported.study.participantPolicy?.responsibleInstitution).toBe(POLICY.responsibleInstitution);
+      expect(exported.study).not.toHaveProperty('loadedParticipantPolicy');
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+});

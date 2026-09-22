@@ -1,5 +1,13 @@
-import { LoaderCircle, Pencil, Plus } from 'lucide-react';
-import { type Dispatch, type FormEvent, type SetStateAction, useEffect, useRef, useState } from 'react';
+import { Download, LoaderCircle, Pencil, Plus, Upload } from 'lucide-react';
+import {
+  type ChangeEvent,
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { StudyParticipantPolicyFields } from '@/components/study-participant-policy-fields';
 import { Button } from '@/components/ui/button';
@@ -10,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { translateCatalog, useTranslator } from '@/i18n';
 import { isValidEmail } from '@/lib/data-validation';
+import { triggerBlobDownload } from '@/lib/download';
 import { getErrorMessage } from '@/lib/errors';
 import {
   EMPTY_PARTICIPANT_POLICY_FORM,
@@ -17,6 +26,15 @@ import {
   participantPolicyToForm,
   validateParticipantPolicy,
 } from '@/lib/participant-policy';
+import {
+  applyStudyConfig,
+  ignoredStudyConfigEntries,
+  keepsCurrentParticipantPolicy,
+  parseStudyConfig,
+  STUDY_CONFIG_MAX_BYTES,
+  serializeStudyConfig,
+  studyConfigFileName,
+} from '@/lib/study-config-file';
 import {
   COLLECTION_MODULE_GROUP_ORDER,
   COLLECTION_MODULES,
@@ -463,6 +481,112 @@ function toggleHealthConnectScope(current: string[], recordType: string): string
   const orderedKnown = HEALTH_CONNECT_RECORD_TYPES.map(({ value }) => value).filter((value) => selected.has(value));
   const preservedUnknown = current.filter((value) => !isKnownHealthConnectRecordType(value) && selected.has(value));
   return [...orderedKnown, ...preservedUnknown];
+}
+
+// Export/import of the whole form as one portable JSON file (lib/study-config-file). Export
+// serializes the current form state, so unsaved edits are included — what you see is what you
+// get. Import replaces the form state and nothing more: the normal Save path persists it.
+function StudyConfigTransfer({
+  form,
+  onImport,
+}: {
+  form: StudyFormData;
+  onImport: (next: StudyFormData, fileName: string) => void;
+}) {
+  const { t } = useTranslator();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importedFrom, setImportedFrom] = useState<string | null>(null);
+  const [policyKept, setPolicyKept] = useState(false);
+  const [ignored, setIgnored] = useState<string[]>([]);
+
+  const exportConfig = () => {
+    const now = new Date();
+    const blob = new Blob([serializeStudyConfig(form, now)], { type: 'application/json' });
+    triggerBlobDownload(blob, studyConfigFileName(form.title, now));
+  };
+
+  const importConfig = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Reset so choosing the same file again re-fires onChange.
+    event.target.value = '';
+    if (!file) return;
+    setImportError(null);
+    setImportedFrom(null);
+    // Check the size before reading: file.text() would otherwise pull a multi-gigabyte file
+    // into memory (and its UTF-16 copy) before the cap inside parseStudyConfig could fire,
+    // stalling the tab and losing whatever is unsaved in the open dialog.
+    if (file.size > STUDY_CONFIG_MAX_BYTES) {
+      setImportError(t('study_config.too_large'));
+      return;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      // A read failure carries an English-only engine message (DOMException), which
+      // getErrorMessage would happily display; the translated sentence is the right one.
+      setImportError(t('study_form.import_config_failed'));
+      return;
+    }
+    try {
+      onImport(applyStudyConfig(form, parseStudyConfig(text)), file.name);
+      setPolicyKept(keepsCurrentParticipantPolicy(form));
+      setIgnored(ignoredStudyConfigEntries(text));
+      setImportedFrom(file.name);
+    } catch (err) {
+      setImportError(getErrorMessage(err, t('study_form.import_config_failed')));
+    }
+  };
+
+  return (
+    <div className="space-y-2 border-b border-border/60 pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <FieldHint className="max-w-prose">{t('study_form.transfer_hint')}</FieldHint>
+        <div className="flex gap-2 max-sm:w-full max-sm:flex-col max-sm:[&>button]:w-full">
+          <Button onClick={exportConfig} size="sm" type="button" variant="outline">
+            <Download className="mr-2 h-4 w-4" />
+            {t('study_form.export_config')}
+          </Button>
+          <Button onClick={() => fileInput.current?.click()} size="sm" type="button" variant="outline">
+            <Upload className="mr-2 h-4 w-4" />
+            {t('study_form.import_config')}
+          </Button>
+          {/* The visible button is the one control: a focusable clipped input would be an
+              invisible tab stop with the same accessible name, and a duplicate for a screen
+              reader. Hidden from both, it still opens the picker via .click(). */}
+          <input
+            accept="application/json,.json"
+            aria-hidden="true"
+            className="sr-only"
+            data-testid="study-config-file"
+            tabIndex={-1}
+            onChange={(event) => {
+              importConfig(event).catch((err) =>
+                setImportError(getErrorMessage(err, t('study_form.import_config_failed'))),
+              );
+            }}
+            ref={fileInput}
+            type="file"
+          />
+        </div>
+      </div>
+      {/* Mounted unconditionally: a polite live region inserted with its text already in it is
+          routinely not announced, so the import would silently replace every field. */}
+      <p className="text-xs text-foreground" role="status">
+        {importedFrom ? t('study_form.import_config_done', { file: importedFrom }) : ''}
+        {importedFrom && policyKept ? ` ${t('study_form.import_config_policy_kept')}` : ''}
+        {importedFrom && ignored.length > 0
+          ? ` ${t('study_form.import_config_ignored', { entries: ignored.join(', ') })}`
+          : ''}
+      </p>
+      {importError && (
+        <p className="text-xs text-destructive" role="alert">
+          {importError}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function StudyDialogTrigger({ mode }: { mode: 'create' | 'edit' }) {
@@ -1029,6 +1153,8 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
               });
             }}
           >
+            <StudyConfigTransfer form={form} onImport={(next) => setForm(next)} />
+
             {/* Section 1: Basic Study Information */}
             <fieldset className="space-y-4">
               <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">

@@ -881,7 +881,21 @@
     "participant_limit": "Participant Limit",
     "duration_days": "Study Duration (days)",
     "retention_days": "Data Retention (days)",
-    "hc_scope_error": "Select at least one Health Connect record type or disable Health Connect."
+    "hc_scope_error": "Select at least one Health Connect record type or disable Health Connect.",
+    "export_config": "Export configuration",
+    "import_config": "Import configuration",
+    "transfer_hint": "Reuse this setup elsewhere: save the form as a file, or load one. Nothing changes until you submit.",
+    "import_config_done": "Loaded configuration from {{file}}. Review the values, then save.",
+    "import_config_policy_kept": "This study keeps its own participant policy; the one in the file was not applied.",
+    "import_config_ignored": "Not applied, because this form cannot show it: {{entries}}.",
+    "import_config_failed": "The file could not be loaded."
+  },
+  "study_config": {
+    "too_large": "Study configuration file is too large.",
+    "not_json": "Study configuration file is not valid JSON.",
+    "wrong_format": "This file is not a Chronicle study configuration.",
+    "wrong_version": "Study configuration version {{version}} is not supported by this dashboard.",
+    "invalid_field": "Study configuration field \"{{field}}\" has the wrong type."
   },
   "participant_info": {
     "issue_failed": "Unable to issue participant link ({{status}}).",
