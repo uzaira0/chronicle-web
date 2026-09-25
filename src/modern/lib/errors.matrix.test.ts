@@ -75,7 +75,7 @@ describe('getErrorMessage — priority order verification', () => {
     expect(getErrorMessage({ status: 500 }, 'fb')).toBe('fb (status 500)');
   });
   it('status string also works', () => {
-    expect(getErrorMessage({ status: 'FETCH_ERROR' }, 'fb')).toBe('fb (status FETCH_ERROR)');
+    expect(getErrorMessage({ status: 'PARSING_ERROR' }, 'fb')).toBe('fb (status PARSING_ERROR)');
   });
   it('empty data falls through to error', () => {
     expect(getErrorMessage({ data: '', error: 'ErrMsg' }, 'fb')).toBe('ErrMsg');

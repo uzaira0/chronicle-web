@@ -60,20 +60,20 @@ export function SessionBootstrap({ children }: PropsWithChildren) {
 
   if (session.status === 'bootstrapping' || session.status === 'idle') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <StatePanel
           description={t('session.bootstrapping_description')}
           eyebrow={t('session.eyebrow')}
           icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
           title={t('session.bootstrapping_title')}
         />
-      </div>
+      </main>
     );
   }
 
   if (session.status === 'error') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <StatePanel
           actions={
             <Button
@@ -92,7 +92,7 @@ export function SessionBootstrap({ children }: PropsWithChildren) {
           title={t('session.failed_title')}
           tone="destructive"
         />
-      </div>
+      </main>
     );
   }
 

@@ -39,10 +39,32 @@ describe('getErrorMessage()', () => {
     expect(getErrorMessage({ status: 422, data: { message: '' } }, fallback)).toBe(`${fallback} (status 422)`);
   });
 
-  it('extracts queryFn network error string', () => {
-    expect(getErrorMessage({ status: 'FETCH_ERROR', error: 'Network request failed' }, fallback)).toBe(
-      'Network request failed',
+  // production-readiness U1/U4: a network failure never shows the browser's own exception
+  // text; it shows the caller's sentence plus a translated connection hint.
+  it('replaces queryFn network error text with a connection hint', () => {
+    expect(getErrorMessage({ status: 'FETCH_ERROR', error: 'TypeError: Failed to fetch' }, fallback)).toBe(
+      `${fallback} (could not reach the server; check your connection and try again)`,
     );
+    // A timeout reached the server and got no answer: say so rather than blame the connection.
+    expect(getErrorMessage({ status: 'TIMEOUT_ERROR', error: 'AbortError: signal timed out' }, fallback)).toBe(
+      `${fallback} (the server did not answer in time; try again)`,
+    );
+  });
+
+  it('says the browser is offline when it knows so', () => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+    try {
+      expect(getErrorMessage({ status: 'FETCH_ERROR', error: 'TypeError: Failed to fetch' }, fallback)).toBe(
+        `${fallback} (you appear to be offline; reconnect and try again)`,
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, 'onLine');
+    }
+  });
+
+  it('never shows raw TypeError or AbortError text', () => {
+    expect(getErrorMessage(new TypeError('Failed to fetch'), fallback)).toBe(fallback);
+    expect(getErrorMessage(new DOMException('signal timed out', 'AbortError'), fallback)).toBe(fallback);
   });
 
   it('extracts generic message field', () => {
@@ -139,8 +161,8 @@ describe('getErrorMessage()', () => {
     expect(getErrorMessage(new Error(''), fallback)).toBe(fallback);
   });
 
-  it('handles TypeError instance', () => {
-    expect(getErrorMessage(new TypeError('type problem'), fallback)).toBe('type problem');
+  it('handles TypeError instance without showing its text', () => {
+    expect(getErrorMessage(new TypeError('type problem'), fallback)).toBe(fallback);
   });
 
   it('handles object with only toString override', () => {

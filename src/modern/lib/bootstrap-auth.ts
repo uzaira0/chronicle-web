@@ -4,6 +4,7 @@ import {
   AUTH_TESTING_LOGIN_ENDPOINT,
 } from '@/lib/auth-endpoints';
 import { getErrorMessage } from '@/lib/errors';
+import { timeoutSignal } from '@/lib/request-timeout';
 
 const CSRF_COOKIE = 'ol_csrf_token';
 const INSTITUTIONAL_SSO_LABEL = 'Institutional SSO';
@@ -93,6 +94,7 @@ type ServerSessionResponse = {
 async function fetchServerSession(): Promise<ServerSessionResponse> {
   const response = await fetch(AUTH_SESSION_ENDPOINT, {
     credentials: 'same-origin',
+    signal: timeoutSignal(),
   });
 
   // A 401 means the security filter rejected an expired/invalid cookie before
@@ -123,6 +125,7 @@ async function requestTestingLogin(): Promise<ServerSessionResponse | null> {
       'Content-Type': 'application/json',
     },
     method: 'POST',
+    signal: timeoutSignal(),
   });
 
   if (response.status === 403) {
@@ -169,6 +172,7 @@ export async function requestDashboardLogin(password: string): Promise<Bootstrap
         'Content-Type': 'application/json',
       },
       method: 'POST',
+      signal: timeoutSignal(),
     });
   } catch {
     throw new Error(DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE);

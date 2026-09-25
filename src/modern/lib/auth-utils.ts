@@ -1,4 +1,5 @@
 import { AUTH_LOGOUT_ENDPOINT } from '@/lib/auth-endpoints';
+import { timeoutSignal } from '@/lib/request-timeout';
 
 import type { RootState } from '@/state/store';
 
@@ -32,6 +33,7 @@ export async function logoutSession(): Promise<void> {
     await fetch(AUTH_LOGOUT_ENDPOINT, {
       method: 'POST',
       credentials: 'same-origin',
+      signal: timeoutSignal(),
     });
   } catch {
     // Best-effort: if the endpoint is unreachable the cookie will expire naturally.

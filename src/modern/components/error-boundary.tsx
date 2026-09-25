@@ -13,6 +13,7 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Outlet, useLocation } from 'react-router';
 import { createTranslator, getCurrentLanguage } from '@/i18n';
 import { reportError } from '@/lib/observability';
 
@@ -26,16 +27,23 @@ interface State {
   // NOT stored/shown — raw error detail could leak PHI in a HIPAA UI; it is
   // captured out-of-band via componentDidCatch -> reportError (telemetry).
   hasError: boolean;
+  // A lazy route chunk that failed to download fails again on a re-render; only a reload
+  // fetches it afresh (after a deploy the old chunk name may be gone too).
+  chunkLoadFailed: boolean;
 }
+
+const CHUNK_LOAD_FAILURE =
+  /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk/i;
 
 export class ObservabilityErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { chunkLoadFailed: false, hasError: false };
   }
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: unknown): State {
+    const message = error instanceof Error ? error.message : '';
+    return { chunkLoadFailed: CHUNK_LOAD_FAILURE.test(message), hasError: true };
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -44,7 +52,11 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
   }
 
   handleRetry = (): void => {
-    this.setState({ hasError: false });
+    if (this.state.chunkLoadFailed) {
+      window.location.reload();
+      return;
+    }
+    this.setState({ chunkLoadFailed: false, hasError: false });
   };
 
   override render(): ReactNode {
@@ -55,6 +67,8 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
       // Class components cannot use the language hook; read the persisted choice directly.
       const { t } = createTranslator(getCurrentLanguage());
 
+      // Inline styles on purpose: this fallback must render even when the stylesheet or theme failed to load.
+      /* eslint-disable shadcn/no-inline-styles -- stylesheet-independent crash fallback */
       return (
         <div
           style={{
@@ -84,8 +98,22 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
           </button>
         </div>
       );
+      /* eslint-enable shadcn/no-inline-styles */
     }
 
     return this.props.children;
   }
+}
+
+/**
+ * The routed page behind its own boundary, so one page's render error leaves the shell and
+ * its navigation usable. Keyed by path: navigating away clears the error.
+ */
+export function RouteOutlet() {
+  const { pathname } = useLocation();
+  return (
+    <ObservabilityErrorBoundary key={pathname}>
+      <Outlet />
+    </ObservabilityErrorBoundary>
+  );
 }

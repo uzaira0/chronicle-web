@@ -24,7 +24,7 @@ exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes data as number
 
 exports[`getErrorMessage snapshots RTK FetchBaseQueryError shapes data as null falls through to status 1`] = `"Something went wrong (status 503)"`;
 
-exports[`getErrorMessage snapshots queryFn network error shapes FETCH_ERROR with error string 1`] = `"Network request failed"`;
+exports[`getErrorMessage snapshots queryFn network error shapes FETCH_ERROR with error string 1`] = `"Something went wrong (could not reach the server; check your connection and try again)"`;
 
 exports[`getErrorMessage snapshots queryFn network error shapes PARSING_ERROR with error string 1`] = `"Unexpected token"`;
 
@@ -34,7 +34,7 @@ exports[`getErrorMessage snapshots generic message field Error instance 1`] = `"
 
 exports[`getErrorMessage snapshots status-only objects numeric status without data or message 1`] = `"Something went wrong (status 404)"`;
 
-exports[`getErrorMessage snapshots status-only objects string status without data or message 1`] = `"Something went wrong (status TIMEOUT_ERROR)"`;
+exports[`getErrorMessage snapshots status-only objects string status without data or message 1`] = `"Something went wrong (the server did not answer in time; try again)"`;
 
 exports[`getErrorMessage snapshots empty or unknown objects empty object 1`] = `"Something went wrong"`;
 

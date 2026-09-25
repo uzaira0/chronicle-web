@@ -33,8 +33,6 @@ const DIRECT_MODERN_SHELL_PATTERNS = [
   /^\/chronicle\/studies\/[^/]+\/time-use-diary$/,
   /^\/chronicle\/survey$/,
   /^\/chronicle\/time-use-diary$/,
-  /^\/(?:chronicle\/)?privacy$/,
-  /^\/(?:chronicle\/)?withdrawal$/,
 ];
 
 export function hasEnrollmentQuery(search = '') {

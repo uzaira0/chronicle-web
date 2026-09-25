@@ -36,10 +36,6 @@ const directModernRouteArb = fc.oneof(
   fc.constant('/chronicle/studies'),
   fc.constant('/chronicle/survey'),
   fc.constant('/chronicle/time-use-diary'),
-  fc.constant('/privacy'),
-  fc.constant('/withdrawal'),
-  fc.constant('/chronicle/privacy'),
-  fc.constant('/chronicle/withdrawal'),
   studyIdSegment.map((id) => `/studies/${id}`),
   studyIdSegment.map((id) => `/studies/${id}/questionnaires`),
   studyIdSegment.map((id) => `/studies/${id}/participants`),
@@ -64,6 +60,11 @@ const nonModernRouteArb = fc.constantFrom(
   '/admin/users',
   '/settings/profile',
   '/other/random/path',
+  // Retired platform policy pages: study policy links now live in the participant shell footer.
+  '/privacy',
+  '/withdrawal',
+  '/chronicle/privacy',
+  '/chronicle/withdrawal',
 );
 
 // ---------------------------------------------------------------------------

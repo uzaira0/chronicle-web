@@ -84,7 +84,36 @@ function extractRawMessage(error: unknown): string | null {
   return null;
 }
 
+// RTK Query's transport failures: the request never got an HTTP answer.
+const NETWORK_FAILURE_STATUSES: ReadonlySet<unknown> = new Set(['FETCH_ERROR', 'TIMEOUT_ERROR']);
+// Browser exception names whose message is the engine's own wording ("Failed to fetch",
+// "signal timed out", "x is undefined"), never a sentence written for the person reading.
+const ENGINE_ERROR_NAMES: ReadonlySet<unknown> = new Set(['TypeError', 'AbortError', 'TimeoutError']);
+
+function isNetworkFailure(error: unknown): boolean {
+  return !!error && typeof error === 'object' && NETWORK_FAILURE_STATUSES.has((error as { status?: unknown }).status);
+}
+
+function networkFailureKey(error: unknown): string {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'common.error_offline';
+  return (error as { status?: unknown }).status === 'TIMEOUT_ERROR' ? 'common.error_timeout' : 'common.error_network';
+}
+
+function isEngineError(error: unknown): boolean {
+  return !!error && typeof error === 'object' && ENGINE_ERROR_NAMES.has((error as { name?: unknown }).name);
+}
+
 export function getErrorMessage(error: unknown, fallback: string): string {
+  if (isNetworkFailure(error)) {
+    // Runs outside React; the caller's `fallback` is already translated.
+    const { t } = createTranslator(getCurrentLanguage());
+    return t(networkFailureKey(error), { message: fallback });
+  }
+  if (isEngineError(error)) {
+    console.error('[chronicle] suppressed a browser exception message', error);
+    return sanitizeErrorMessage(fallback);
+  }
+
   const extracted = extractRawMessage(error);
   if (extracted !== null) {
     if (isDisplayableErrorMessage(extracted)) {
