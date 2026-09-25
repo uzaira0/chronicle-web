@@ -38,11 +38,8 @@ const config: KnipConfig = {
   // `exports`/`types` (and namespace variants) checks are disabled. Unused
   // FILES, DEPENDENCIES, UNLISTED imports and BINARIES remain strictly enforced.
   exclude: ['exports', 'types', 'nsExports', 'nsTypes', 'enumMembers'],
-  ignoreBinaries: [
-    // Provided by the ast-grep config (sgconfig.yml) and the `lint:ast` script,
-    // installed in CI separately; not a package.json dependency.
-    'ast-grep',
-  ],
+  // POSIX diff, used by the check:api-types freshness gate; not an npm binary.
+  ignoreBinaries: ['diff'],
   ignoreDependencies: [
     // Mutation testing tooling, invoked only via the `test:mutate` script /
     // stryker.config.json.
@@ -53,31 +50,17 @@ const config: KnipConfig = {
     // axe-core is the type/runtime peer of @axe-core/playwright, referenced only
     // by the (out-of-project) Playwright a11y spec e2e/accessibility.spec.ts.
     'axe-core',
-    // Spawned by its pinned local binary in e2e/pa11y.spec.ts. Knip cannot
-    // infer a dependency from node_modules/.bin path construction.
-    'pa11y',
     // Transitive runtime helper pinned via package.json `overrides`; no direct import.
     '@babel/runtime',
     // Consumed via CSS (@import) or the HTML/font bootstrap, not TS imports —
     // knip cannot trace these: see src/modern/styles/index.css and src/index.ts.
     '@eqds/css',
     '@eqds/tokens',
-    '@eqds/radix',
     '@eqds/react',
-    '@fontsource-variable/inter',
     // PostCSS/Tailwind pipeline used by the Bun build plugin + CSS, not imported.
     '@tailwindcss/postcss',
     'postcss',
     'postcss-loader',
-    // Charting libs reserved for dashboard views; kept as direct deps but not yet
-    // wired into the modern tree.
-    '@nivo/*',
-    // Radix primitives kept available for the design system; only dialog,
-    // dropdown-menu and slot are wired today.
-    '@radix-ui/react-accordion',
-    '@radix-ui/react-popover',
-    '@radix-ui/react-tabs',
-    '@radix-ui/react-tooltip',
     // Transitive supply-chain version pins declared in package.json `overrides`
     // (security cadence): not direct imports, must stay listed to hold the pin.
     'ajv',

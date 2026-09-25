@@ -9,4 +9,4 @@ import { EqualIcon } from "@eqds/icons";
 <EqualIcon name="copy" aria-hidden />;
 ```
 
-Keep icon additions in `ontology/ssot/integrations.yaml#icon_map`, regenerate packages, and let downstream apps tree-shake the imported Lucide icons.
+Icon additions belong upstream (`ontology/ssot/integrations.yaml#icon_map` in the Equal source, not in this repo); see `vendor/equal/PROVENANCE.md`. Downstream apps tree-shake the imported Lucide icons.

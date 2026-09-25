@@ -1,6 +1,8 @@
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import tailwindPlugin from 'bun-plugin-tailwind';
+import { collectThirdPartyNotices } from './third-party-notices';
 
 // Clean stale output from previous builds
 rmSync('./dist', { recursive: true, force: true });
@@ -16,6 +18,11 @@ const result = await Bun.build({
   // the participant is told "A new link is required" for a link that was perfectly good.
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   entrypoints: ['./index.html'],
+  // Keep fonts out of the render-blocking CSS. Bun 1.3 inlines every CSS url() asset as a
+  // data: URI (loader: file does not change that), which made fonts 70% of the stylesheet
+  // (177 KB of 254 KB) and defeated font-display:swap. Left external, the url survives
+  // unresolved; the block after the build copies the fonts with a content hash.
+  external: ['*.woff2'],
   minify: true,
   outdir: './dist',
   plugins: [tailwindPlugin],
@@ -52,3 +59,27 @@ if (entryOutput) {
   }
 }
 writeFileSync(htmlPath, html);
+writeFileSync('./dist/THIRD-PARTY-NOTICES.txt', collectThirdPartyNotices('.'));
+
+// Fonts: copy with a content hash (nginx serves /chronicle/*.woff2 as immutable for 1y) and
+// point the CSS at the hashed name.
+const fontDir = join(dirname(Bun.resolveSync('@eqds/tokens/tokens.css', import.meta.dir)), 'fonts');
+mkdirSync('./dist/fonts', { recursive: true });
+// SIL OFL 1.1 requires the license to travel with the font files.
+copyFileSync(join(fontDir, 'OFL.txt'), './dist/fonts/OFL.txt');
+const cssFiles = readdirSync('./dist').filter((file) => file.endsWith('.css'));
+for (const font of readdirSync(fontDir).filter((file) => file.endsWith('.woff2'))) {
+  const hash = createHash('sha256')
+    .update(readFileSync(join(fontDir, font)))
+    .digest('hex')
+    .slice(0, 8);
+  const hashed = font.replace(/\.woff2$/, `-${hash}.woff2`);
+  copyFileSync(join(fontDir, font), join('./dist/fonts', hashed));
+  for (const css of cssFiles) {
+    const path = join('./dist', css);
+    // The Tailwind plugin rewrites the url relative to the source file (../node_modules/...),
+    // so replace the whole url(); the CSS chunk sits in /chronicle/, next to fonts/.
+    const pattern = new RegExp(`url\\([^)]*/${font.replaceAll('.', '\\.')}\\)`, 'g');
+    writeFileSync(path, readFileSync(path, 'utf-8').replace(pattern, `url(fonts/${hashed})`));
+  }
+}

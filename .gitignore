@@ -21,3 +21,10 @@ biome_output.log
 full_biome.log
 *_output.log
 *_output.txt
+
+# Local env files (Bun auto-loads .env*); only the example is tracked
+.env*
+!.env.example
+
+# Vendored build output is source here (see vendor/equal/PROVENANCE.md)
+!vendor/equal/packages/*/dist/

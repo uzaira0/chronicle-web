@@ -6,6 +6,7 @@
 // the two linters do not double-report. typescript-eslint >=8.61 supports the repo's
 // TS 6.0.x (supported range >=4.8.4 <6.1.0); projectService auto-discovers the
 // tsconfig; vendor/ is third-party and excluded.
+import { plugin as shadcn } from '@shadcn/lint';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -22,6 +23,9 @@ export default tseslint.config(
       '**/*.js.flow',
     ],
   },
+  // Registered with no rules enabled, so `eslint-disable shadcn/...` directives written for
+  // `bun run lint:design` (eslint.shadcn.mjs) resolve here too instead of erroring.
+  { plugins: { shadcn } },
   {
     files: [
       'src/modern/**/*.{ts,tsx}',

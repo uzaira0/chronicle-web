@@ -12,9 +12,9 @@
     "limit": "380 kB"
   },
   {
-    "name": "CSS bundle (gzipped, includes vendored eqds design system)",
+    "name": "CSS bundle (gzipped, includes vendored eqds design system; fonts are separate files)",
     "path": "dist/chunk-*.css",
     "gzip": true,
-    "limit": "160 kB"
+    "limit": "40 kB"
   }
 ]

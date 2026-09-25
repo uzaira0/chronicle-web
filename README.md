@@ -12,7 +12,9 @@ commands.
 - `bun run preview` serves the current production build.
 - `bun run check` runs type, formatting, structural, and E2E-DSL checks.
 - `bun run test` runs the Bun-native unit and UI suites.
-- `bun run e2e` runs Playwright browser tests.
+- `bun run e2e` runs Playwright browser tests. The API-backed specs need the backend harness on
+  port 40320 first; from the monorepo root run
+  `./gradlew :chronicle-server:test --tests "*PlaywrightBackendServer*" -Dchronicle.playwright.backend=true`.
 - `bun run test:e2e:smoke` verifies that the production bundle mounts and its core shell works in Chromium.
 - `bun run check:api-types` regenerates OpenAPI TypeScript types and fails on drift.
 

@@ -16,10 +16,8 @@ Local source:
 - `dist/tokens.report.md`
 - `ontology/ssot/design-system-assets.yaml#dtcg_tokens`
 
-Regenerate with:
+Regenerate:
 
-```sh
-python3 ontology/scripts/sync_packages.py
-python3 ontology/scripts/sync_design_system_assets.py
-python3 scripts/check_design_system_assets.py
-```
+Generated upstream in the Equal design-system source, not in this repo; the `ontology/`
+paths above refer to that upstream tree. Do not edit these files by hand here. To update the
+vendored copy, follow `vendor/equal/PROVENANCE.md` (section "Updating").

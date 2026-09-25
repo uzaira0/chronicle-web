@@ -13,8 +13,8 @@ The implementation and declarations are generated from `ontology/catalog.yaml` p
 
 The wrappers require `@eqds/css/equal.css` and the progressive enhancement script from the drop-in kit when using the custom dropdown behavior.
 
-Regenerate with:
+Regenerate:
 
-```sh
-python3 ontology/scripts/sync_packages.py
-```
+Generated upstream in the Equal design-system source, not in this repo; the `ontology/`
+paths above refer to that upstream tree. Do not edit these files by hand here. To update the
+vendored copy, follow `vendor/equal/PROVENANCE.md` (section "Updating").
