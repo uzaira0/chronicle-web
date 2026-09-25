@@ -24,6 +24,7 @@ await mock.module('@/state/study-operations-api', () => ({
   useDownloadStudyExportMutation: () => [() => ({ unwrap: () => Promise.resolve() }), { isLoading: false }],
   useDownloadStudyTudDataMutation: () => [() => ({ unwrap: () => Promise.resolve() }), { isLoading: false }],
   useDownloadQuestionnaireResponsesMutation: () => [() => ({ unwrap: () => Promise.resolve() }), { isLoading: false }],
+  useGetStudyDataCollectionSettingQuery: () => ({ data: undefined }),
   useGetStudyQuestionnairesQuery: () => ({ data: [], isError: false, isLoading: false }),
   useGetStudySummaryQuery: () => ({
     data: { id: 'study-1', modules: { ANDROID_SENSOR: {} }, title: 'Export Study' },
@@ -68,5 +69,20 @@ describe('StudyBulkDownloadsPage submission fence', () => {
       resolveCreate?.({ exportId: 'export-1' });
       await Promise.resolve();
     });
+  });
+});
+
+describe('StudyBulkDownloadsPage form controls', () => {
+  test('export-format select draws its boundary with the 3:1 input token (SC 1.4.11)', () => {
+    const { container } = render(
+      <MemoryRouter initialEntries={['/studies/study-1/downloads']}>
+        <Routes>
+          <Route element={<StudyBulkDownloadsPage />} path="/studies/:studyId/downloads" />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const select = container.querySelector('select#export-format') as HTMLElement;
+    expect(select.classList.contains('border-input')).toBe(true);
+    expect(select.classList.contains('border-border')).toBe(false);
   });
 });

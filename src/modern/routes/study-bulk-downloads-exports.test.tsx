@@ -9,6 +9,8 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router';
 const tudCalls: unknown[] = [];
 const questionnaireCalls: unknown[] = [];
 const exportCalls: unknown[] = [];
+// The study's DataCollection setting; undefined = not loaded, so nothing starts deselected.
+let dataCollectionSetting: { modules: Record<string, { enabled: boolean }> } | undefined;
 
 const studyOperationsApiModule = await import('@/state/study-operations-api');
 
@@ -36,6 +38,7 @@ await mock.module('@/state/study-operations-api', () => ({
     },
     { isLoading: false },
   ],
+  useGetStudyDataCollectionSettingQuery: () => ({ data: dataCollectionSetting }),
   useGetStudyQuestionnairesQuery: () => ({
     data: [{ active: true, description: '', id: 'q-1', questions: [{ choices: [], title: 'Q1' }], title: 'Sleep log' }],
     isError: false,
@@ -65,7 +68,10 @@ const { StudyBulkDownloadsPage } = await import('./study-bulk-downloads-page');
 
 // Bun's test runner has no auto-cleanup, so without this each render stacks another copy
 // of the page in the same document and the queries below match more than one node.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  dataCollectionSetting = undefined;
+});
 
 function renderPage() {
   return render(
@@ -189,5 +195,33 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     });
     expect(screen.getByLabelText<HTMLSelectElement>('Format').value).toBe('EXCEL');
     expect(screen.getByLabelText<HTMLInputElement>('Start date (optional)').value).toBe('');
+  });
+});
+
+// compliance SL7: the export defaults to the modules the study collects. A type whose module
+// the researcher turned off starts deselected (it can still be picked, for data collected
+// while the module was on).
+describe('StudyBulkDownloadsPage export defaults', () => {
+  test('starts types of disabled modules deselected and leaves them out of the request', async () => {
+    dataCollectionSetting = {
+      modules: { sleep: { enabled: false }, usage_events: { enabled: true }, battery_telemetry: { enabled: false } },
+    };
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Sleep Events' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Battery Telemetry' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Usage Events' }).getAttribute('aria-pressed')).toBe('true');
+
+    act(() => screen.getByRole('button', { name: 'Start export' }).click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const { request } = exportCalls.at(-1) as { request: { dataTypes: string[] } };
+    expect(request.dataTypes).toContain('UsageEvents');
+    expect(request.dataTypes).not.toContain('SleepEvents');
+    expect(request.dataTypes).not.toContain('BatteryTelemetry');
+
+    // Opting back in exports what was collected while the module was on.
+    act(() => screen.getByRole('button', { name: 'Sleep Events' }).click());
+    expect(screen.getByRole('button', { name: 'Sleep Events' }).getAttribute('aria-pressed')).toBe('true');
   });
 });

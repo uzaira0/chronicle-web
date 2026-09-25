@@ -14,7 +14,7 @@ import { useParams } from 'react-router';
 
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,7 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { getEndOfDayIso, getStartOfDayIso } from '@/lib/format';
-import { participantDataTypesForModules } from '@/lib/participant-data-types';
+import { dataTypesOfDisabledModules, participantDataTypesForModules } from '@/lib/participant-data-types';
 import {
   type CreateStudyExportRequest,
   type ParticipantDataType,
@@ -37,6 +37,7 @@ import {
   useDownloadQuestionnaireResponsesMutation,
   useDownloadStudyExportMutation,
   useDownloadStudyTudDataMutation,
+  useGetStudyDataCollectionSettingQuery,
   useGetStudyQuestionnairesQuery,
   useGetStudySummaryQuery,
   useListStudyExportsQuery,
@@ -121,7 +122,7 @@ export function StudyBulkDownloadsPage() {
     isLoading: exportListLoading,
     isFetching: isExportListFetching,
     refetch: refetchExportJobs,
-  } = useListStudyExportsQuery({ limit: 50, offset: 0, studyId }, { skip: !studyId });
+  } = useListStudyExportsQuery({ studyId }, { skip: !studyId });
 
   const [createExport, { isLoading: isCreating }] = useCreateStudyExportMutation();
   const [downloadExport, { isLoading: isDownloading }] = useDownloadStudyExportMutation();
@@ -134,7 +135,10 @@ export function StudyBulkDownloadsPage() {
   // The backend's CreateStudyExportRequest already accepts a type subset, a format and a
   // date range; this page used to hard-code "all types, EXCEL, full range" and expose
   // none of it.
-  const [excludedTypes, setExcludedTypes] = useState<ReadonlySet<ParticipantDataType>>(new Set());
+  // Types the user flipped from their default. The default is selected, except for types
+  // whose module the study has turned off (compliance SL7: the export matches what the
+  // study collects; a flipped one exports data from while the module was on).
+  const [flippedTypes, setFlippedTypes] = useState<ReadonlySet<ParticipantDataType>>(new Set());
   const [format, setFormat] = useState<StudyExportFormat>('EXCEL');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -145,7 +149,7 @@ export function StudyBulkDownloadsPage() {
   useEffect(() => {
     if (exportStateStudyIdRef.current === studyId) return;
     exportStateStudyIdRef.current = studyId;
-    setExcludedTypes(new Set());
+    setFlippedTypes(new Set());
     setFormat('EXCEL');
     setStartDate('');
     setEndDate('');
@@ -189,13 +193,16 @@ export function StudyBulkDownloadsPage() {
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
 
   const availableDataTypes = useMemo(() => participantDataTypesForModules(modules), [modules]);
+  const { data: dataCollection } = useGetStudyDataCollectionSettingQuery(studyId, { skip: !studyId });
+  const offByDefault = useMemo(() => dataTypesOfDisabledModules(dataCollection), [dataCollection]);
+  const isExcluded = (value: ParticipantDataType) => offByDefault.has(value) !== flippedTypes.has(value);
 
-  const selectedDataTypes = availableDataTypes.filter((option) => !excludedTypes.has(option.value));
+  const selectedDataTypes = availableDataTypes.filter((option) => !isExcluded(option.value));
   const createStatusKey = canCreateStatusKey(availableDataTypes.length, isCreating);
   const canCreate = selectedDataTypes.length > 0;
 
   const toggleType = (value: ParticipantDataType) => {
-    setExcludedTypes((prev) => {
+    setFlippedTypes((prev) => {
       const next = new Set(prev);
       if (next.has(value)) next.delete(value);
       else next.add(value);
@@ -208,15 +215,7 @@ export function StudyBulkDownloadsPage() {
   }
 
   if (studyIsLoading) {
-    return (
-      <StatePanel
-        className="max-w-none"
-        description={t('bulk_downloads.loading_description')}
-        eyebrow={t('common.loading')}
-        icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-        title={t('bulk_downloads.loading_title')}
-      />
-    );
+    return <TableSkeleton label={t('bulk_downloads.loading_title')} />;
   }
 
   if (isStudyError) {
@@ -294,17 +293,20 @@ export function StudyBulkDownloadsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>{t('bulk_downloads.include_types')}</Label>
+            {offByDefault.size > 0 && (
+              <p className="text-sm text-muted-foreground">{t('bulk_downloads.disabled_module_types_hint')}</p>
+            )}
             {availableDataTypes.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('bulk_downloads.no_exportable_types')}</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {availableDataTypes.map((option) => (
                   <Button
-                    aria-pressed={!excludedTypes.has(option.value)}
+                    aria-pressed={!isExcluded(option.value)}
                     key={option.value}
                     onClick={() => toggleType(option.value)}
                     size="sm"
-                    variant={excludedTypes.has(option.value) ? 'outline' : 'default'}
+                    variant={isExcluded(option.value) ? 'outline' : 'default'}
                   >
                     {translateCatalog(t, 'data_type', option.value, option.label)}
                   </Button>
@@ -317,7 +319,7 @@ export function StudyBulkDownloadsPage() {
             <div className="space-y-1.5">
               <Label htmlFor="export-format">{t('common.format')}</Label>
               <select
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 id="export-format"
                 onChange={(e) => setFormat(e.target.value as StudyExportFormat)}
                 value={format}
@@ -470,7 +472,7 @@ export function StudyBulkDownloadsPage() {
       )}
 
       <Card>
-        <CardHeader className="flex items-center justify-between gap-2 sm:flex-row sm:items-center">
+        <CardHeader className="flex items-center justify-between sm:flex-row sm:items-center">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2">
               <Clock3 className="h-4 w-4" />
@@ -496,12 +498,7 @@ export function StudyBulkDownloadsPage() {
         <CardContent className="p-0">
           {exportListLoading ? (
             <div className="px-6 py-4">
-              <StatePanel
-                description={t('bulk_downloads.loading_exports_description')}
-                eyebrow={t('common.loading')}
-                icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-                title={t('bulk_downloads.loading_exports_title')}
-              />
+              <TableSkeleton label={t('bulk_downloads.loading_exports_title')} />
             </div>
           ) : isExportListError ? (
             <div className="px-6 py-4">

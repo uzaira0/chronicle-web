@@ -97,7 +97,7 @@ export function DownloadParticipantDataModal({
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,32rem)]">
+      <DialogContent className="w-11/12 max-w-lg">
         <DialogTitle>
           <Download className="mr-2 inline h-5 w-5" />
           {t('download_modal.title')}

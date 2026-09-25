@@ -128,7 +128,7 @@ export function CollectionModulesPanel({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
@@ -148,7 +148,7 @@ export function CollectionModulesPanel({
         {/* The exceptions are the signal — a wall of identical "Active" badges is not. */}
         {inactive.length > 0 ? (
           <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               {t('modules_panel.not_collected', { count: String(inactive.length) })}
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -172,7 +172,7 @@ export function CollectionModulesPanel({
           <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
             {healthConnect.healthConnectRecordTypes.length > 0 ? (
               <>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('modules_panel.hc_scope', { count: String(healthConnect.healthConnectRecordTypes.length) })}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -203,7 +203,7 @@ export function CollectionModulesPanel({
             </p>
             {groups.map(([privacyClass, items]) => (
               <div className="pt-3" key={privacyClass}>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {translateCatalog(t, 'privacy_class', privacyClass, privacyClass)}
                 </p>
                 <ul className="mt-1.5 grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
@@ -217,10 +217,7 @@ export function CollectionModulesPanel({
                         {translateCatalog(t, 'module', module.value, module.label)}
                       </span>
                       <span
-                        className={cn(
-                          'shrink-0 text-xs',
-                          module.enabled ? 'text-[var(--eq-success)]' : 'text-muted-foreground',
-                        )}
+                        className={cn('shrink-0 text-xs', module.enabled ? 'text-success' : 'text-muted-foreground')}
                       >
                         {module.enabled
                           ? module.required
