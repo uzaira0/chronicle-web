@@ -13,20 +13,25 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' }, status });
 
+export const PSQL_ARGV = [
+  'docker',
+  'exec',
+  '-e',
+  'DEV_SQL',
+  'chronicle-postgres',
+  'bash',
+  '-lc',
+  // The server enforces READ-ONLY: every transaction in this session refuses writes.
+  // Limit: still the bootstrap superuser (bypasses RLS); switch to a dedicated read-only role if this ever leaves loopback.
+  `PGOPTIONS='-c default_transaction_read_only=on' PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$DEV_SQL"`,
+];
+
 async function q(sql: string): Promise<unknown> {
-  const proc = Bun.spawn(
-    [
-      'docker',
-      'exec',
-      '-e',
-      'DEV_SQL',
-      'chronicle-postgres',
-      'bash',
-      '-lc',
-      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$DEV_SQL"',
-    ],
-    { env: { ...process.env, DEV_SQL: sql }, stderr: 'pipe', stdout: 'pipe' },
-  );
+  const proc = Bun.spawn(PSQL_ARGV, {
+    env: { ...process.env, DEV_SQL: sql },
+    stderr: 'pipe',
+    stdout: 'pipe',
+  });
   const out = (await new Response(proc.stdout).text()).trim();
   const err = (await new Response(proc.stderr).text()).trim();
   await proc.exited;
