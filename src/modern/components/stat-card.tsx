@@ -13,14 +13,12 @@ export function StatCard({ className, label, tone = 'muted', value }: StatCardPr
   return (
     <div
       className={cn(
-        'eq-metric rounded-lg border p-4',
-        tone === 'default'
-          ? 'bg-[var(--eq-info-bg)] text-[var(--eq-info)] [border-color:var(--eq-info)]'
-          : 'border-border bg-muted/50',
+        'rounded-lg border p-4',
+        tone === 'default' ? 'border-info bg-info-bg text-info' : 'border-border bg-muted/50',
         className,
       )}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
+      <p className="text-2xs font-semibold uppercase tracking-eyebrow text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   );

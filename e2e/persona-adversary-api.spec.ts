@@ -16,10 +16,14 @@ async function authenticated(
   playwright: PlaywrightWorkerArgs['playwright'],
 ): Promise<{ csrf: string; json: Record<string, string>; request: APIRequestContext }> {
   const request = await playwright.request.newContext();
+  // With no X-Forwarded-Proto the backend assumes a TLS proxy and marks the session cookies
+  // Secure (AuthTokenController.isSecureRequest), so this plain-HTTP context would never send
+  // them back and every probe would hit a blanket 401. The UI path gets the same effect from
+  // the preview proxy stripping `Secure` (scripts/preview-backend-proxy.ts).
   const login = await request.post(`${DIRECT_BACKEND_URL}${TESTING_LOGIN_PATH}`, {
     data: { userId: 'test_user1' },
     failOnStatusCode: false,
-    headers: { [HEADER_CONTENT_TYPE]: MIME_JSON },
+    headers: { [HEADER_CONTENT_TYPE]: MIME_JSON, 'X-Forwarded-Proto': 'http' },
   });
   expect(login.status(), `testing-login must succeed before probing validation`).toBe(200);
   const { csrfToken } = (await login.json()) as { csrfToken?: string };

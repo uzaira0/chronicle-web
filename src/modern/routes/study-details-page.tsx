@@ -45,7 +45,7 @@ function statValue(isLoading: boolean, isError: boolean, value: number): string 
 function DetailField({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <div className="mt-1">{children}</div>
     </div>
   );
@@ -145,11 +145,7 @@ export function StudyDetailsPage() {
             <DetailField label={t('study_details.study_id')}>
               <div className="flex items-center gap-2">
                 <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{studyId}</code>
-                <CopyButton
-                  className="h-auto w-auto rounded border-0 p-1 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
-                  value={studyId}
-                  variant="ghost"
-                />
+                <CopyButton size="icon-xs" value={studyId} variant="ghost-muted" />
               </div>
             </DetailField>
             {study?.group && <DetailField label={t('study_details.group')}>{study.group}</DetailField>}

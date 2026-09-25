@@ -6,7 +6,7 @@ import { expectAppRendered } from './fixtures/app-ready';
  * Axe-core accessibility scans for Chronicle pages.
  *
  * These tests catch WCAG 2.1 Level A/AA violations at runtime that
- * eslint-plugin-jsx-a11y cannot detect (color contrast, focus order,
+ * the static biome a11y rules cannot detect (color contrast, focus order,
  * ARIA attribute correctness on rendered DOM, etc.).
  *
  * The app requires SSO authentication for most data-bearing pages.

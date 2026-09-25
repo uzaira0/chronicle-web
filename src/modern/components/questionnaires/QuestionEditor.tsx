@@ -68,7 +68,7 @@ export function QuestionEditor({
           </Button>
         </div>
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
             {t('questionnaire_builder.question_text')}
           </p>
           <Input

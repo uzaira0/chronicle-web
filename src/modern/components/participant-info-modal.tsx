@@ -18,7 +18,7 @@ function CopyField({ label, value }: { label: string; value: string }) {
   const { t } = useTranslator();
   return (
     <div className="space-y-1">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <div className="flex items-center gap-2">
         <code className="flex-1 overflow-x-auto rounded bg-muted px-2 py-1 font-mono text-xs">{value}</code>
         <CopyButton aria-label={t('common.copy_named', { name: label })} className="h-8 w-8" value={value} />
@@ -111,7 +111,7 @@ export function ParticipantInfoModal({ modules, onClose, participant, studyId }:
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,32rem)]">
+      <DialogContent className="w-11/12 max-w-lg">
         <DialogTitle>{t('participant_info.title')}</DialogTitle>
         <DialogDescription>{t('participant_info.description', { id: participant.participantId })}</DialogDescription>
 

@@ -80,7 +80,7 @@ export function StudySensorsCard({
         {showAndroid && (
           <div className="space-y-2">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {t('common.android')}
               </p>
               {androidSettings && <CadenceSummary settings={androidSettings} />}
@@ -97,9 +97,7 @@ export function StudySensorsCard({
         )}
         {showIos && iosSensors.length > 0 && (
           <div className="space-y-2 border-t border-border pt-4 first:border-0 first:pt-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {t('common.ios')}
-            </p>
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{t('common.ios')}</p>
             <div className="flex flex-wrap gap-1.5">
               {iosSensors.map((sensor) => (
                 <Badge key={sensor} variant="success">

@@ -7,7 +7,7 @@ export function getStatusVariant(status: unknown) {
     case 'COLLECTION_COMPLETED':
       return 'default' as const;
     case 'NOT_ENROLLED':
-      return 'destructive' as const;
+      return 'outline' as const;
     default:
       return 'muted' as const;
   }

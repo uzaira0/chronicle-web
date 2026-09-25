@@ -47,7 +47,7 @@ export function CopyButton({ value, ...props }: CopyButtonProps) {
       aria-label={copied ? t('common.copied') : props['aria-label'] || t('common.copy_to_clipboard')}
       onClick={handleCopy}
     >
-      {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+      {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
     </Button>
   );
 }

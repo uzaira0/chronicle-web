@@ -60,7 +60,8 @@ test.beforeEach(async ({ page }) => {
       status: 200,
     });
   });
-  await page.route('**/chronicle/api/web/study', async (route) => {
+  // The studies list is read page by page (?limit=&offset=), so match with or without a query.
+  await page.route(/\/chronicle\/api\/web\/study(\?.*)?$/, async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ body: '[]', contentType: 'application/json', status: 200 });
     } else {

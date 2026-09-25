@@ -36,7 +36,7 @@ export function QuestionnairePreviewModal({
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,48rem)]">
+      <DialogContent className="w-11/12 max-w-3xl">
         <div className="space-y-6">
           <div className="space-y-3">
             <div className="flex items-center gap-3 text-primary">
@@ -59,7 +59,7 @@ export function QuestionnairePreviewModal({
                       <p className="text-base font-semibold text-foreground">
                         {`${idx + 1}. ${question.title || t('questionnaire_builder.no_question_text')}`}
                       </p>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
                         {t('questionnaire_builder.answer_choices', { count: String(question.choices.length || 0) })}
                       </p>
                     </div>

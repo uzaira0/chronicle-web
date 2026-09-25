@@ -36,37 +36,33 @@ const expected = Object.fromEntries(
 const actual: Record<string, Record<string, string>> = english.catalog;
 const allGroups = [...new Set([...Object.keys(expected), ...Object.keys(actual)])];
 
+function groupDifferences(group: string): string[] {
+  if (!Object.hasOwn(expected, group)) return [`extra catalog.${group}: ${JSON.stringify(actual[group])}`];
+  if (!Object.hasOwn(actual, group)) return [`missing catalog.${group}: ${JSON.stringify(expected[group])}`];
+  const wanted = expected[group] ?? {};
+  const found = actual[group] ?? {};
+  const differences: string[] = [];
+  for (const key of new Set([...Object.keys(wanted), ...Object.keys(found)])) {
+    const path = `catalog.${group}.${key}`;
+    if (!Object.hasOwn(found, key)) {
+      differences.push(`missing ${path}: expected ${JSON.stringify(wanted[key])}`);
+    } else if (!Object.hasOwn(wanted, key)) {
+      differences.push(`extra ${path}: actual ${JSON.stringify(found[key])}`);
+    } else if (found[key] !== wanted[key]) {
+      differences.push(
+        `changed ${path}: expected ${JSON.stringify(wanted[key])}; actual ${JSON.stringify(found[key])}`,
+      );
+    }
+  }
+  return differences;
+}
+
 for (const [name, groups] of [
   ['module labels', ['module']],
   ['module descriptions', ['module_description']],
   ['remaining catalog fields', allGroups.filter((group) => group !== 'module' && group !== 'module_description')],
 ] as const) {
   test(`English catalog matches constants: ${name}`, () => {
-    const differences: string[] = [];
-    for (const group of groups) {
-      if (!Object.hasOwn(expected, group)) {
-        differences.push(`extra catalog.${group}: ${JSON.stringify(actual[group])}`);
-        continue;
-      }
-      if (!Object.hasOwn(actual, group)) {
-        differences.push(`missing catalog.${group}: ${JSON.stringify(expected[group])}`);
-        continue;
-      }
-      const wanted = expected[group] ?? {};
-      const found = actual[group] ?? {};
-      for (const key of new Set([...Object.keys(wanted), ...Object.keys(found)])) {
-        const path = `catalog.${group}.${key}`;
-        if (!Object.hasOwn(found, key)) {
-          differences.push(`missing ${path}: expected ${JSON.stringify(wanted[key])}`);
-        } else if (!Object.hasOwn(wanted, key)) {
-          differences.push(`extra ${path}: actual ${JSON.stringify(found[key])}`);
-        } else if (found[key] !== wanted[key]) {
-          differences.push(
-            `changed ${path}: expected ${JSON.stringify(wanted[key])}; actual ${JSON.stringify(found[key])}`,
-          );
-        }
-      }
-    }
-    expect(differences).toEqual([]);
+    expect(groups.flatMap(groupDifferences)).toEqual([]);
   });
 }

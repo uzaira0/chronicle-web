@@ -1,10 +1,10 @@
-import { CircleAlert, ExternalLink, LoaderCircle, SlidersHorizontal } from 'lucide-react';
+import { CircleAlert, ExternalLink, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { RouteSkeleton, StatePanel } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTranslator } from '@/i18n';
@@ -17,7 +17,13 @@ type GuiAvailability = 'checking' | 'available' | 'unavailable';
 export function StudyPreprocessingPage() {
   const { studyId = '' } = useParams<{ studyId: string }>();
   const { t } = useTranslator();
-  const { data: study, error: studyError, isError, isLoading } = useGetStudySummaryQuery(studyId, { skip: !studyId });
+  const {
+    data: study,
+    error: studyError,
+    isError,
+    isLoading,
+    refetch: refetchStudy,
+  } = useGetStudySummaryQuery(studyId, { skip: !studyId });
 
   const guiUrl = useMemo(() => preprocessingGuiUrl(studyId, study?.title), [study?.title, studyId]);
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
@@ -43,15 +49,7 @@ export function StudyPreprocessingPage() {
   }
 
   if (isLoading) {
-    return (
-      <StatePanel
-        className="max-w-none"
-        description={t('preprocessing.loading_description')}
-        eyebrow={t('common.loading')}
-        icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-        title={t('preprocessing.loading_title')}
-      />
-    );
+    return <RouteSkeleton />;
   }
 
   if (isError) {
@@ -61,6 +59,7 @@ export function StudyPreprocessingPage() {
         description={getErrorMessage(studyError, t('preprocessing.load_error_fallback'))}
         eyebrow={t('common.error')}
         icon={<CircleAlert className="h-5 w-5" />}
+        onRetry={refetchStudy}
         title={t('preprocessing.load_error_title')}
         tone="destructive"
       />

@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { getStatusVariant } from './participant-status';
 
 const KNOWN_STATUSES = ['ENROLLED', 'PAUSED', 'COLLECTION_COMPLETED', 'NOT_ENROLLED'] as const;
-const EXPECTED_VARIANTS = ['success', 'warning', 'default', 'destructive', 'muted'] as const;
+const EXPECTED_VARIANTS = ['success', 'warning', 'default', 'outline', 'muted'] as const;
 
 const knownStatusArb = fc.constantFrom(...KNOWN_STATUSES);
 const knownStatusSet = new Set<string>(KNOWN_STATUSES);

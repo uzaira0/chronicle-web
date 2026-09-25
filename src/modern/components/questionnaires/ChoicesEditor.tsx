@@ -106,7 +106,7 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="text-sm font-semibold uppercase tracking-eyebrow text-muted-foreground">
         {t('questionnaire_builder.choices')}
       </p>
       {items.map((choice, index) => (

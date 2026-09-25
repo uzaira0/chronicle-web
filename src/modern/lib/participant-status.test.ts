@@ -15,8 +15,9 @@ describe('getStatusVariant()', () => {
     expect(getStatusVariant('COLLECTION_COMPLETED')).toBe('default');
   });
 
-  it('returns "destructive" for NOT_ENROLLED', () => {
-    expect(getStatusVariant('NOT_ENROLLED')).toBe('destructive');
+  // Not enrolled is an ordinary lifecycle state; the red channel is kept for loss (design-review DR27).
+  it('returns "outline" for NOT_ENROLLED', () => {
+    expect(getStatusVariant('NOT_ENROLLED')).toBe('outline');
   });
 
   it('returns "muted" for UNKNOWN', () => {
@@ -34,7 +35,7 @@ describe('getStatusVariant()', () => {
       ['ENROLLED', 'success'],
       ['PAUSED', 'warning'],
       ['COLLECTION_COMPLETED', 'default'],
-      ['NOT_ENROLLED', 'destructive'],
+      ['NOT_ENROLLED', 'outline'],
       ['UNKNOWN', 'muted'],
     ] as const;
 

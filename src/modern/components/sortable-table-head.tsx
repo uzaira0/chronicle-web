@@ -32,7 +32,7 @@ export function SortableTableHead<K extends string>({
     >
       <button
         className={cn(
-          'flex items-center gap-1 hover:text-foreground',
+          'flex min-h-11 items-center gap-1 hover:text-foreground',
           active ? 'text-foreground' : 'text-muted-foreground',
         )}
         onClick={() => onSort(sortKey)}

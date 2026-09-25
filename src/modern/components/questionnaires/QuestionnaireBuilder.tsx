@@ -143,7 +143,7 @@ export function QuestionnaireBuilder({
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
               {t('questionnaire_builder.title')}
             </p>
             <Input
@@ -154,7 +154,7 @@ export function QuestionnaireBuilder({
             />
           </div>
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
               {t('questionnaire_builder.description_label')}
             </p>
             <Textarea

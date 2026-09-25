@@ -98,6 +98,20 @@ test.describe('modern shell', () => {
     await expect(page.locator('main').getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
   });
 
+  // WCAG 1.4.10 reflow: the header's right cluster (session badge, sign out, theme, language)
+  // once pushed the page 33px wider than a 390px phone.
+  test('the shell header fits a 390px viewport with no horizontal page scroll', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await page.goto('/studies');
+    await expect(page.locator('main').getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(0);
+    await expect(page.getByLabel('Language').filter({ visible: true })).toBeInViewport({ ratio: 1 });
+  });
+
   test('loads the studies route directly and keeps it after reload', async ({ page }) => {
     await page.goto('/studies');
 

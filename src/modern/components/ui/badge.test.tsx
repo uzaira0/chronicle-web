@@ -37,22 +37,27 @@ describe('Badge', () => {
   test('applies success variant classes', () => {
     const { container } = render(<Badge variant="success">OK</Badge>);
     const el = container.firstElementChild as HTMLElement;
-    expect(el.className).toContain('bg-[var(--eq-success-bg)]');
-    expect(el.className).toContain('text-[var(--eq-success)]');
+    expect(el.className).toContain('bg-success-bg');
+    expect(el.className).toContain('text-success');
   });
 
   test('applies warning variant classes', () => {
     const { container } = render(<Badge variant="warning">Warn</Badge>);
     const el = container.firstElementChild as HTMLElement;
-    expect(el.className).toContain('bg-[var(--eq-warning-bg)]');
-    expect(el.className).toContain('text-[var(--eq-warning)]');
+    expect(el.className).toContain('bg-warning-bg');
+    expect(el.className).toContain('text-warning');
   });
 
   test('applies destructive variant classes', () => {
     const { container } = render(<Badge variant="destructive">Error</Badge>);
     const el = container.firstElementChild as HTMLElement;
-    expect(el.className).toContain('bg-[var(--eq-danger-bg)]');
-    expect(el.className).toContain('text-[var(--eq-danger)]');
+    expect(el.className).toContain('bg-danger-bg');
+    expect(el.className).toContain('text-destructive');
+  });
+
+  test('uses only generatable classes (no dead eq-badge hook)', () => {
+    const { container } = render(<Badge>Plain</Badge>);
+    expect((container.firstElementChild as HTMLElement).className).not.toContain('eq-badge');
   });
 
   test('applies custom className', () => {

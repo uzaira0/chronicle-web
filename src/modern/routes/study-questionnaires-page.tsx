@@ -1,4 +1,4 @@
-import { CircleAlert, LoaderCircle, ScrollText } from 'lucide-react';
+import { CircleAlert, ScrollText } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
@@ -9,7 +9,7 @@ import {
   QuestionnairePreviewModal,
 } from '@/components/questionnaires';
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
@@ -34,6 +34,7 @@ export function StudyQuestionnairesPage() {
     data: questionnaires = [],
     error: questionnairesError,
     isError,
+    refetch: refetchQuestionnaires,
     isLoading,
   } = useGetStudyQuestionnairesQuery(studyId, {
     skip: !studyId,
@@ -138,15 +139,7 @@ export function StudyQuestionnairesPage() {
         />
       )}
 
-      {isLoading && (
-        <StatePanel
-          className="max-w-none"
-          description={t('questionnaires.loading_description')}
-          eyebrow={t('common.loading')}
-          icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-          title={t('questionnaires.loading_title')}
-        />
-      )}
+      {isLoading && <TableSkeleton label={t('questionnaires.loading_title')} />}
 
       {!isLoading && isError && (
         <StatePanel
@@ -154,6 +147,7 @@ export function StudyQuestionnairesPage() {
           description={getErrorMessage(questionnairesError, t('questionnaires.load_error_fallback'))}
           eyebrow={t('common.request_failed')}
           icon={<CircleAlert className="h-5 w-5" />}
+          onRetry={refetchQuestionnaires}
           title={t('questionnaires.load_error_title')}
           tone="destructive"
         />

@@ -1,10 +1,10 @@
-import { CircleAlert, LoaderCircle, RefreshCcw, ShieldAlert } from 'lucide-react';
+import { CircleAlert, RefreshCcw, ShieldAlert } from 'lucide-react';
 import { useMemo } from 'react';
 import { useParams } from 'react-router';
 
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -99,13 +99,7 @@ export function StudyCompliancePage() {
       />
 
       {isLoading ? (
-        <StatePanel
-          className="max-w-none"
-          description={t('compliance.loading_description')}
-          eyebrow={t('common.loading')}
-          icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-          title={t('compliance.loading_title')}
-        />
+        <TableSkeleton label={t('compliance.loading_title')} />
       ) : isError ? (
         <StatePanel
           className="max-w-none"

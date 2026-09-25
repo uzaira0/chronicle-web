@@ -5,6 +5,7 @@ import { AppShell } from '@/app/app-shell';
 import { ParticipantAccessBootstrap } from '@/app/participant-access-bootstrap';
 import { ParticipantShell } from '@/app/participant-shell';
 import { SessionBootstrap } from '@/app/session-bootstrap';
+import { RouteSkeleton } from '@/components/state-panel';
 import { pickModernBase } from '@/lib/route-links';
 
 // Lazy-loaded route pages for code splitting
@@ -53,7 +54,7 @@ export function ModernRouter() {
 
   return (
     <BrowserRouter basename={basename}>
-      <Suspense fallback={null}>
+      <Suspense fallback={<RouteSkeleton />}>
         <Routes>
           <Route
             element={

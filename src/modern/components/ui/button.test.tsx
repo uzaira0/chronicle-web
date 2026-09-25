@@ -27,6 +27,13 @@ describe('Button', () => {
     expect(el.className).toContain('bg-destructive');
   });
 
+  test('applies outline-destructive variant', () => {
+    const { container } = render(<Button variant="outline-destructive">Delete</Button>);
+    const el = container.firstElementChild as HTMLElement;
+    expect(el.className).toContain('text-destructive');
+    expect(el.className).toContain('border-destructive/30');
+  });
+
   test('applies ghost variant', () => {
     const { container } = render(<Button variant="ghost">Ghost</Button>);
     const el = container.firstElementChild as HTMLElement;
@@ -104,5 +111,12 @@ describe('Button', () => {
     expect(el.className).toContain('inline-flex');
     expect(el.className).toContain('rounded-lg');
     expect(el.className).toContain('font-extrabold');
+  });
+  // .eq-btn (layer components) carries min-height:44px and padding 0 16px. size="icon" must
+  // drop the padding (else its svg squeezes to 6px) and size="sm" the 44px floor (else it
+  // renders as tall as a default button); default/lg/icon keep the 44px target on purpose.
+  test('icon and sm sizes override the .eq-btn padding and min-height', () => {
+    expect(buttonVariants({ size: 'sm' }).split(' ')).toContain('min-h-0');
+    expect(buttonVariants({ size: 'icon' }).split(' ')).toContain('p-0');
   });
 });

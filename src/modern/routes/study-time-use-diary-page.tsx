@@ -1,9 +1,9 @@
-import { CalendarRange, CircleAlert, Clock3, Download, LoaderCircle } from 'lucide-react';
+import { CalendarRange, CircleAlert, Clock3, Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -115,7 +115,7 @@ export function StudyTimeUseDiaryPage() {
         <CardContent className="space-y-5">
           <div className="grid gap-4 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
                 {t('common.start_date')}
               </p>
               <Input
@@ -126,7 +126,7 @@ export function StudyTimeUseDiaryPage() {
               />
             </div>
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
                 {t('common.end_date')}
               </p>
               <Input
@@ -157,15 +157,7 @@ export function StudyTimeUseDiaryPage() {
         />
       )}
 
-      {submissionsState.isFetching && (
-        <StatePanel
-          className="max-w-none"
-          description={t('tud_exports.loading_description')}
-          eyebrow={t('common.loading')}
-          icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-          title={t('tud_exports.loading_title')}
-        />
-      )}
+      {submissionsState.isFetching && <TableSkeleton label={t('tud_exports.loading_title')} />}
 
       {downloadError && (
         <StatePanel

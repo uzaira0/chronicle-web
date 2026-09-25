@@ -88,7 +88,7 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,28rem)]">
+      <DialogContent className="w-11/12 max-w-md">
         <DialogTitle>{t('qr_modal.title')}</DialogTitle>
         <DialogDescription>{t('qr_modal.description')}</DialogDescription>
 

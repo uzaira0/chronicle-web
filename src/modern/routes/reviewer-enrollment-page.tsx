@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createTranslator, getCurrentLanguage, isRtlLanguage, LanguageSwitcher, useTranslator } from '@/i18n';
 import { getDefaultEnrollmentServerUrl, normalizePublicServerUrl } from '@/lib/participant-links';
+import { timeoutSignal } from '@/lib/request-timeout';
 import {
   ANDROID_PLAY_STORE_URL,
   type EnrollmentPreview,
@@ -73,6 +74,7 @@ export function ReviewerEnrollmentPage() {
         method: 'POST',
         redirect: 'error',
         referrerPolicy: 'no-referrer',
+        signal: timeoutSignal(),
       });
       // swallowed by the catch below, which renders t('reviewer.error_unverified')
       // ast-grep-ignore: web-i18n-error-message

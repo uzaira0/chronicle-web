@@ -3,7 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const badgeVariants = cva(
-  'eq-badge inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold tracking-[0.12em] uppercase transition-colors',
+  'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold tracking-label uppercase transition-colors',
   {
     defaultVariants: {
       variant: 'default',
@@ -13,9 +13,9 @@ const badgeVariants = cva(
         default: 'border-transparent bg-primary text-primary-foreground',
         muted: 'border-border bg-muted text-muted-foreground',
         outline: 'border-border text-foreground',
-        success: 'bg-[var(--eq-success-bg)] text-[var(--eq-success)] [border-color:var(--eq-success)]',
-        warning: 'bg-[var(--eq-warning-bg)] text-[var(--eq-warning)] [border-color:var(--eq-warning)]',
-        destructive: 'bg-[var(--eq-danger-bg)] text-[var(--eq-danger)] [border-color:var(--eq-danger)]',
+        success: 'border-success bg-success-bg text-success',
+        warning: 'border-warning bg-warning-bg text-warning',
+        destructive: 'border-destructive bg-danger-bg text-destructive',
       },
     },
   },

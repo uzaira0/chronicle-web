@@ -65,7 +65,7 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,32rem)]">
+      <DialogContent className="w-11/12 max-w-lg">
         <DialogTitle>{t('notes_editor.title')}</DialogTitle>
         <DialogDescription>{t('notes_editor.description', { id: participant.participantId })}</DialogDescription>
 

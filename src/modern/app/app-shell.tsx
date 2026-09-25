@@ -1,7 +1,8 @@
 import { EqualIcon } from '@eqds/icons';
 import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router';
+import { NavLink } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
+import { RouteOutlet } from '@/components/error-boundary';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -53,12 +54,12 @@ export function AppShell() {
         <aside
           className={cn(
             'sticky top-0 hidden h-screen shrink-0 self-start overflow-y-auto border-r border-border bg-sidebar px-3 py-5 md:flex md:flex-col',
-            isSidebarCollapsed ? 'w-[72px]' : 'w-64',
+            isSidebarCollapsed ? 'w-18' : 'w-64',
           )}
         >
           <div className="mb-6 flex items-center justify-between gap-2 px-2">
             <div className={cn('overflow-hidden', isSidebarCollapsed && 'sr-only')}>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Chronicle</p>
+              <p className="text-2xs font-bold uppercase tracking-eyebrow text-primary">Chronicle</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t('shell.research_operations')}</p>
             </div>
             <Button aria-label={t('shell.toggle_sidebar')} onClick={toggleSidebar} size="icon" variant="ghost">
@@ -106,7 +107,11 @@ export function AppShell() {
                 {session.user?.name && (
                   <span className="hidden text-sm text-muted-foreground sm:inline">{session.user.name}</span>
                 )}
-                <Badge variant={session.status === 'authenticated' ? 'success' : 'warning'}>
+                {/* Hidden on phones: the header cluster would otherwise overflow a 390px viewport. */}
+                <Badge
+                  className="hidden sm:inline-flex"
+                  variant={session.status === 'authenticated' ? 'success' : 'warning'}
+                >
                   {session.status === 'authenticated'
                     ? t('shell.signed_in')
                     : statusLabel(t, 'session', session.status)}
@@ -164,7 +169,7 @@ export function AppShell() {
           )}
 
           <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8" id="main-content" tabIndex={-1}>
-            <Outlet />
+            <RouteOutlet />
           </main>
         </div>
       </div>

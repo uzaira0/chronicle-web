@@ -47,7 +47,7 @@ export function DeleteQuestionnaireModal({
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,32rem)]">
+      <DialogContent className="w-11/12 max-w-lg">
         <div className="space-y-5">
           <div className="flex items-center gap-3 text-destructive">
             <TriangleAlert className="h-5 w-5" />
@@ -66,12 +66,7 @@ export function DeleteQuestionnaireModal({
               {t('common.close')}
             </Button>
             {showDeleteAction && (
-              <Button
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={requestState === 'PENDING'}
-                onClick={onDelete}
-                type="button"
-              >
+              <Button disabled={requestState === 'PENDING'} onClick={onDelete} type="button" variant="destructive">
                 {t('common.delete')}
               </Button>
             )}

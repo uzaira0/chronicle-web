@@ -79,7 +79,7 @@ export function ParticipantActivityCell({ hasTud, ps }: { hasTud: boolean; ps?: 
               {stream.days} {t(stream.days === 1 ? UNIT_KEYS[stream.unit].one : UNIT_KEYS[stream.unit].other)}
             </span>
             <span
-              className={stale ? 'text-[var(--eq-warning)]' : 'text-muted-foreground'}
+              className={stale ? 'text-warning' : 'text-muted-foreground'}
               title={
                 stream.last ? t('activity_cell.last_upload', { time: formatDisplayDateTime(stream.last) }) : undefined
               }

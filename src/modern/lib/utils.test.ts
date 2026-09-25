@@ -34,3 +34,16 @@ describe('cn', () => {
     expect(cn(['a', 'b'], 'c')).toBe('a b c');
   });
 });
+
+describe('cn with custom theme tokens (styles/index.css @theme)', () => {
+  test('a caller max-w overrides the dialog default', () => {
+    expect(cn('w-11/12 max-w-dialog', 'max-w-md')).toBe('w-11/12 max-w-md');
+  });
+  test('custom tracking tokens merge with scale tracking', () => {
+    expect(cn('tracking-eyebrow', 'tracking-wide')).toBe('tracking-wide');
+  });
+  test('custom font sizes merge and do not clobber colors', () => {
+    expect(cn('text-2xs', 'text-sm')).toBe('text-sm');
+    expect(cn('text-2xs', 'text-muted-foreground')).toBe('text-2xs text-muted-foreground');
+  });
+});

@@ -171,9 +171,7 @@ test.describe('study configuration transfer', () => {
           const copyDialog = await openEditDialog(page);
           const { config: reExported } = await exportFromEditDialog(page, copyDialog);
           expect(reExported.study.title).toBe(copyTitle);
-          const { title: _sourceTitle, ...sourceRest } = exported.study;
-          const { title: _copyTitle, ...copyRest } = reExported.study;
-          expect(copyRest).toEqual(sourceRest);
+          expect({ ...reExported.study, title: exported.study.title }).toEqual(exported.study);
         });
       });
     });

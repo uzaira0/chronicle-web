@@ -20,11 +20,13 @@ function RecentStudiesList({
   error,
   isError,
   isLoading,
+  onRetry,
   studies,
 }: {
   error: unknown;
   isError: boolean;
   isLoading: boolean;
+  onRetry: () => unknown;
   studies: Array<StudySummary & { id: string }>;
 }) {
   const { t } = useTranslator();
@@ -35,6 +37,7 @@ function RecentStudiesList({
         description={getErrorMessage(error, t('common.unable_to_load_studies'))}
         eyebrow={t('common.error')}
         icon={<CircleAlert className="h-5 w-5" />}
+        onRetry={onRetry}
         title={t('common.failed_to_load_studies')}
         tone="destructive"
       />
@@ -51,7 +54,14 @@ function RecentStudiesList({
   }
 
   if (studies.length === 0) {
-    return <p className="py-4 text-center text-sm text-muted-foreground">{t('overview.no_studies')}</p>;
+    return (
+      <div className="flex flex-col items-center gap-3 py-4 text-center text-sm text-muted-foreground">
+        <p>{t('overview.no_studies')}</p>
+        <Button asChild size="sm" variant="outline">
+          <Link to="/studies">{t('overview.view_studies')}</Link>
+        </Button>
+      </div>
+    );
   }
 
   return studies.slice(0, 3).map((study) => (
@@ -83,6 +93,7 @@ export function OverviewPage() {
     error: studiesError,
     isError: isStudiesError,
     isLoading: isStudiesLoading,
+    refetch: refetchStudies,
   } = useGetAllStudiesQuery(undefined, {
     skip: session.status !== 'authenticated',
   });
@@ -170,6 +181,7 @@ export function OverviewPage() {
                 error={studiesError}
                 isError={isStudiesError}
                 isLoading={isStudiesLoading}
+                onRetry={refetchStudies}
                 studies={studies}
               />
             </div>

@@ -60,7 +60,7 @@ export function ChangeEnrollmentModal({ onClose, participant, studyId }: ChangeE
       }}
       open
     >
-      <DialogContent className="w-[min(92vw,28rem)]">
+      <DialogContent className="w-11/12 max-w-md">
         <DialogTitle>{t('change_enrollment.title')}</DialogTitle>
         <DialogDescription>{t('change_enrollment.description', { id: participant.participantId })}</DialogDescription>
 
@@ -71,7 +71,7 @@ export function ChangeEnrollmentModal({ onClose, participant, studyId }: ChangeE
           </div>
 
           {success ? (
-            <div className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
+            <div className="rounded-lg border border-success/50 bg-success-bg px-4 py-3 text-sm text-success">
               {t('change_enrollment.updated', { status: statusLabel(t, 'participation', targetStatus) })}
             </div>
           ) : (

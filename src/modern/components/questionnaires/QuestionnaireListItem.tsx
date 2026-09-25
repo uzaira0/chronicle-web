@@ -41,7 +41,7 @@ export function QuestionnaireListItem({
 
           {description && <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>}
 
-          <div className="flex flex-wrap gap-4 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="flex flex-wrap gap-4 text-xs font-medium uppercase tracking-eyebrow text-muted-foreground">
             <span>{t('questionnaire_builder.question_count', { count: String(questionCount) })}</span>
             {dateCreated && (
               <span>{t('questionnaire_builder.created_on', { date: formatDisplayDate(dateCreated) })}</span>
@@ -76,10 +76,9 @@ export function QuestionnaireListItem({
           </Button>
           <Button
             aria-label={t('questionnaire_builder.delete_aria')}
-            className="border-destructive/30 text-destructive hover:bg-destructive/10"
             onClick={onDelete}
             type="button"
-            variant="outline"
+            variant="outline-destructive"
           >
             <Trash2 className="h-4 w-4" />
             {t('common.delete')}

@@ -46,9 +46,9 @@ describe('StatCard', () => {
   test('applies default tone classes when tone="default"', () => {
     const { container } = render(<StatCard label="L" value="V" tone="default" />);
     const root = container.firstElementChild as HTMLElement;
-    expect(root.className).toContain('bg-[var(--eq-info-bg)]');
-    expect(root.className).toContain('text-[var(--eq-info)]');
-    expect(root.className).toContain('[border-color:var(--eq-info)]');
+    expect(root.className).toContain('bg-info-bg');
+    expect(root.className).toContain('text-info');
+    expect(root.className).toContain('border-info');
   });
 
   test('applies custom className', () => {
@@ -57,10 +57,10 @@ describe('StatCard', () => {
     expect(root.className).toContain('my-extra-class');
   });
 
-  test('always has eq-metric rounded and border base classes', () => {
+  test('has rounded and border base classes, no dead eq-metric hook', () => {
     const { container } = render(<StatCard label="L" value="V" />);
     const root = container.firstElementChild as HTMLElement;
-    expect(root.className).toContain('eq-metric');
+    expect(root.className).not.toContain('eq-metric');
     expect(root.className).toContain('rounded-lg');
     expect(root.className).toContain('border');
     expect(root.className).toContain('p-4');

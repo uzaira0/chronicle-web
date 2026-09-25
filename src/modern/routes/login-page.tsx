@@ -80,7 +80,7 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
         <CardHeader>
           <div className="flex items-center gap-3 text-primary">
             <ShieldCheck className="h-5 w-5" />
-            <span className="text-xs font-semibold uppercase tracking-[0.24em]">Chronicle</span>
+            <span className="text-xs font-semibold uppercase tracking-eyebrow-wide">Chronicle</span>
           </div>
           <CardTitle>{t('login.title')}</CardTitle>
           <CardDescription>{t('login.description')}</CardDescription>

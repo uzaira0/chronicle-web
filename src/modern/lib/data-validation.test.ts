@@ -196,7 +196,7 @@ describe('getStatusVariant return values', () => {
     ['ENROLLED', 'success'],
     ['PAUSED', 'warning'],
     ['COLLECTION_COMPLETED', 'default'],
-    ['NOT_ENROLLED', 'destructive'],
+    ['NOT_ENROLLED', 'outline'],
     ['UNKNOWN', 'muted'],
   ] as const;
 
@@ -461,8 +461,10 @@ describe('getErrorMessage return type', () => {
   it('returns data.message when data is object', () => {
     expect(getErrorMessage({ data: { message: 'Detailed error' } }, 'default')).toBe('Detailed error');
   });
-  it('returns error string for FETCH_ERROR', () => {
-    expect(getErrorMessage({ status: 'FETCH_ERROR', error: 'Network failed' }, 'default')).toBe('Network failed');
+  it('replaces FETCH_ERROR text with a connection hint', () => {
+    expect(getErrorMessage({ status: 'FETCH_ERROR', error: 'Network failed' }, 'default')).toBe(
+      'default (could not reach the server; check your connection and try again)',
+    );
   });
   it('returns message from Error-like object', () => {
     expect(getErrorMessage({ message: 'Something broke' }, 'default')).toBe('Something broke');
