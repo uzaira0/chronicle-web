@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
+import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
   type AppUsageEntry,
   useGetAppUsageSurveyDataQuery,
@@ -136,6 +137,7 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
   });
 
   const [submit, submitResult] = useSubmitAppUsageSurveyMutation();
+  const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
@@ -157,8 +159,10 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
   const isFinal = isHourlyFinalStep(state.step, state.sharedApps.size > 0);
   const isPending = submitState === REQUEST_STATES.PENDING;
   const handleSubmit = () => {
-    submit({ data: buildPayload(state, grouped), participantId, studyId })
+    const data = buildPayload(state, grouped);
+    submit({ data, idempotencyKey: currentKey(data), participantId, studyId })
       .unwrap()
+      .then(rotateKey)
       .catch(() => {
         // RTK Query owns the failure state rendered below.
       });

@@ -7,6 +7,7 @@ import { isRtlLanguage, resolveLanguageCode } from '@/i18n/language-codes';
 import { LanguageSwitcher } from '@/i18n/language-switcher';
 import { createTranslator } from '@/i18n/translator';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
+import { useSubmissionKey } from '@/lib/use-submission-key';
 import { useSubmitTimeUseDiaryMutation } from '@/state/study-operations-api';
 import { advancePage, dayEndMinutes, setAnswer, timeErrors } from './tud-engine';
 import {
@@ -80,6 +81,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
   const [errors, setErrors] = useState<Set<string>>(new Set());
 
   const [submit, submitResult] = useSubmitTimeUseDiaryMutation();
+  const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
 
   const answerClockFormat = answers[0]?.[FIELD.CLOCK_FORMAT];
@@ -152,12 +154,26 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
       settings,
       waveId: props.waveId ?? null,
     });
-    submit({ data, participantId, studyId })
+    submit({ data, idempotencyKey: currentKey(data), participantId, studyId })
       .unwrap()
+      .then(rotateKey)
       .catch(() => {
         // RTK Query owns the failure state rendered by this form.
       });
-  }, [submit, answers, activityDay, settings, ctx, activityDate, props.familyId, props.waveId, participantId, studyId]);
+  }, [
+    submit,
+    answers,
+    activityDay,
+    settings,
+    ctx,
+    activityDate,
+    props.familyId,
+    props.waveId,
+    participantId,
+    studyId,
+    currentKey,
+    rotateKey,
+  ]);
 
   if (submitState === REQUEST_STATES.SUCCESS) {
     return (

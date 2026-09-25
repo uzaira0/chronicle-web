@@ -88,6 +88,7 @@ describe('PublicEnrollmentPage', () => {
     expect(screen.getByText('Example Research Institute')).toBeTruthy();
     expect(screen.getByText('Example Research Institute IT')).toBeTruthy();
     expect(screen.getByText('https://public-study.example.org')).toBeTruthy();
+    expect(screen.getByText(/always records your IP address/)).toBeTruthy();
 
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(requestUrl).toBe(

@@ -11,9 +11,21 @@ export type ParticipantSessionContext = {
   formKind: ParticipantFormKind;
   logicalDate?: string | null;
   participantId: string;
+  privacyPolicyUrl?: string | null;
   resourceId?: string | null;
   studyId: string;
+  withdrawalUrl?: string | null;
 };
+
+/** Returns the URL only when it is https, so a stored link can never become a script URL. */
+export function httpsLinkOrNull(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 export function participantAccessCodeIssueUrl(studyId: string, participantId: string): string {
   return `${RESEARCHER_WEB_API_BASE}/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/form-access-codes`;

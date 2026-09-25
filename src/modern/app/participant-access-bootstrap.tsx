@@ -1,8 +1,9 @@
-import { LoaderCircle, ShieldAlert } from 'lucide-react';
+import { LoaderCircle, RefreshCcw, ShieldAlert } from 'lucide-react';
 import { type PropsWithChildren, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router';
 
 import { StatePanel } from '@/components/state-panel';
+import { Button } from '@/components/ui/button';
 import { createTranslator, getCurrentLanguage, useTranslator } from '@/i18n';
 import {
   type ParticipantFormKind,
@@ -12,10 +13,11 @@ import {
   readParticipantSessionContext,
   storeParticipantSessionContext,
 } from '@/lib/participant-access';
+import { timeoutSignal } from '@/lib/request-timeout';
 
 type AccessState =
   | { context: ParticipantSessionContext; status: 'ready' }
-  | { message: string; status: 'error' }
+  | { message: string; retryable: boolean; status: 'error' }
   | {
       status: 'loading';
     };
@@ -50,6 +52,10 @@ function removeAccessCodeFromAddressBar(): void {
 // Module scope, not a ref: a ref is recreated by the very remount this has to survive.
 const exchangesInFlight = new Map<string, Promise<ParticipantSessionContext>>();
 
+// A refusal we worded ourselves; anything else (a dropped connection) is the browser's own
+// text, which the participant never sees.
+class ParticipantAccessError extends Error {}
+
 function exchangeOnce(accessCode: string): Promise<ParticipantSessionContext> {
   const pending = exchangesInFlight.get(accessCode);
   if (pending) return pending;
@@ -59,16 +65,20 @@ function exchangeOnce(accessCode: string): Promise<ParticipantSessionContext> {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
-  }).then(async (response) => {
-    if (!response.ok) {
-      // Drop the failure so a genuine retry (a new mount after a network blip) can try
-      // again; a successful exchange stays cached, because repeating it is what we are
-      // preventing.
+    signal: timeoutSignal(),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new ParticipantAccessError(createTranslator(getCurrentLanguage()).t('participant_access.link_invalid'));
+      }
+      return (await response.json()) as ParticipantSessionContext;
+    })
+    .catch((error: unknown) => {
+      // Drop any failure, a refusal or a network blip, so a genuine retry can try again; a
+      // successful exchange stays cached, because repeating it is what we are preventing.
       exchangesInFlight.delete(accessCode);
-      throw new Error(createTranslator(getCurrentLanguage()).t('participant_access.link_invalid'));
-    }
-    return (await response.json()) as ParticipantSessionContext;
-  });
+      throw error;
+    });
 
   exchangesInFlight.set(accessCode, request);
   return request;
@@ -78,8 +88,12 @@ export function ParticipantAccessBootstrap({ children }: PropsWithChildren) {
   const location = useLocation();
   const accessCode = useMemo(() => participantAccessCodeFromFragment(location.hash), [location.hash]);
   const [state, setState] = useState<AccessState>({ status: 'loading' });
+  // Bumped by the retry button; the code itself stays in memory because the address bar
+  // no longer holds it.
+  const [attempt, setAttempt] = useState(0);
   const { t } = useTranslator();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the retry trigger; bumping it re-runs the exchange.
   useEffect(() => {
     let cancelled = false;
     if (new URLSearchParams(location.search).has('accessCode')) removeAccessCodeFromAddressBar();
@@ -88,7 +102,7 @@ export function ParticipantAccessBootstrap({ children }: PropsWithChildren) {
       setState(
         existing && contextMatchesLocation(existing, location.pathname, location.search)
           ? { context: existing, status: 'ready' }
-          : { message: t('participant_access.missing_code'), status: 'error' },
+          : { message: t('participant_access.missing_code'), retryable: false, status: 'error' },
       );
       return () => {
         cancelled = true;
@@ -99,7 +113,7 @@ export function ParticipantAccessBootstrap({ children }: PropsWithChildren) {
     exchangeOnce(accessCode)
       .then((context) => {
         if (!contextMatchesLocation(context, location.pathname, location.search)) {
-          throw new Error(t('participant_access.link_mismatch'));
+          throw new ParticipantAccessError(t('participant_access.link_mismatch'));
         }
         storeParticipantSessionContext(context);
         removeAccessCodeFromAddressBar();
@@ -107,8 +121,10 @@ export function ParticipantAccessBootstrap({ children }: PropsWithChildren) {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
+          const refused = error instanceof ParticipantAccessError;
           setState({
-            message: error instanceof Error ? error.message : t('participant_access.not_established'),
+            message: refused ? error.message : t('participant_access.not_established'),
+            retryable: !refused,
             status: 'error',
           });
         }
@@ -117,7 +133,7 @@ export function ParticipantAccessBootstrap({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [accessCode, location.pathname, location.search, t]);
+  }, [accessCode, attempt, location.pathname, location.search, t]);
 
   if (state.status === 'loading') {
     return (
@@ -135,6 +151,14 @@ export function ParticipantAccessBootstrap({ children }: PropsWithChildren) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <StatePanel
+          actions={
+            state.retryable && (
+              <Button onClick={() => setAttempt((n) => n + 1)} variant="default">
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                {t('common.try_again')}
+              </Button>
+            )
+          }
           description={state.message}
           eyebrow={t('participant_access.eyebrow')}
           icon={<ShieldAlert className="h-5 w-5" />}

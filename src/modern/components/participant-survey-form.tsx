@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
+import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
   type AppUsageEntry,
   useGetAppUsageSurveyDataQuery,
@@ -71,6 +72,7 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
   });
 
   const [submit, submitResult] = useSubmitAppUsageSurveyMutation();
+  const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
   const [selections, setSelections] = useState<SelectionMap>({});
 
@@ -99,12 +101,13 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
       if (selected.includes(APP_USAGE_NONE_OPTION)) return [];
       return [{ ...entry, users: selected }];
     });
-    submit({ data: payload, participantId, studyId })
+    submit({ data: payload, idempotencyKey: currentKey(payload), participantId, studyId })
       .unwrap()
+      .then(rotateKey)
       .catch(() => {
         // RTK Query owns the failure state rendered by this form.
       });
-  }, [allAnswered, entries, selections, participantId, studyId, submit]);
+  }, [allAnswered, entries, selections, participantId, studyId, submit, currentKey, rotateKey]);
 
   if (isLoading) {
     return (

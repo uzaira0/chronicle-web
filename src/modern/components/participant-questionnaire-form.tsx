@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
+import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
   type QuestionnaireQuestion,
   useGetParticipantQuestionnaireQuery,
@@ -37,6 +38,7 @@ export function ParticipantQuestionnaireForm({
   const { t } = useTranslator();
 
   const [submit, submitResult] = useSubmitQuestionnaireResponsesMutation();
+  const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
 
   const [answers, setAnswers] = useState<AnswerMap>({});
@@ -62,20 +64,17 @@ export function ParticipantQuestionnaireForm({
 
   const handleSubmit = useCallback(() => {
     if (!allAnswered) return;
-    submit({
-      participantId,
-      questionnaireId,
-      responses: questions.map((question, index) => ({
-        questionTitle: question.title,
-        value: answers[index] ?? [],
-      })),
-      studyId,
-    })
+    const responses = questions.map((question, index) => ({
+      questionTitle: question.title,
+      value: answers[index] ?? [],
+    }));
+    submit({ idempotencyKey: currentKey(responses), participantId, questionnaireId, responses, studyId })
       .unwrap()
+      .then(rotateKey)
       .catch(() => {
         // RTK Query owns the failure state rendered by this form.
       });
-  }, [allAnswered, answers, participantId, questionnaireId, questions, studyId, submit]);
+  }, [allAnswered, answers, participantId, questionnaireId, questions, studyId, submit, currentKey, rotateKey]);
 
   if (isLoading) {
     return <StatusCard title={t('questionnaire.loading_title')} description={t('questionnaire.loading_description')} />;

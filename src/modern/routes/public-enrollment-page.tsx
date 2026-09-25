@@ -9,6 +9,7 @@ import {
   normalizePublicServerUrl,
 } from '@/lib/participant-links';
 import { isRfc3339OffsetDateTime } from '@/lib/participant-policy';
+import { REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
 
 const ANDROID_PACKAGE = 'com.bcm.chronicle';
 export const ANDROID_PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
@@ -252,6 +253,11 @@ export function PublicEnrollmentPage() {
     }
 
     const controller = new AbortController();
+    // Unmount cancels quietly (AbortError); a hung server ends in the unverified error instead.
+    const timer = setTimeout(
+      () => controller.abort(new DOMException('The request timed out.', 'TimeoutError')),
+      REQUEST_TIMEOUT_MS,
+    );
     const previewUrl =
       `${publicServerUrl}/chronicle/v4/study/${encodeURIComponent(invitation.studyId)}` +
       `/participant/${encodeURIComponent(invitation.participantId)}/enrollment-preview`;
@@ -288,7 +294,10 @@ export function PublicEnrollmentPage() {
         });
       });
 
-    return () => controller.abort();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, []);
 
   return (
@@ -402,6 +411,9 @@ export function PublicEnrollmentPage() {
                 <h3 className="font-semibold">{t('enrollment.data_use_and_sharing')}</h3>
                 <p className="mt-1 leading-7 text-muted-foreground">
                   {state.preview.participantPolicy.dataUseAndSharing}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {t('enrollment.platform_always_records')}
                 </p>
               </div>
               <div>
