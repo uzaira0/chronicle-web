@@ -22,7 +22,7 @@ import {
 //
 // Excluded on purpose:
 //  - the study id, organization and participants (not form state at all);
-//  - the two `loaded*` carry-through fields (they describe the study being edited);
+//  - the `loaded*` carry-through fields (they describe the study being edited);
 //  - the legacy top-level sensor fields and the per-module disable dispositions — see
 //    NON_PORTABLE_FIELDS.
 
@@ -58,7 +58,7 @@ const NON_PORTABLE_FIELDS = [
 
 export type PortableStudyConfig = Omit<
   StudyFormData,
-  'loadedModules' | 'loadedParticipantPolicy' | (typeof NON_PORTABLE_FIELDS)[number]
+  'loadedLimits' | 'loadedModules' | 'loadedParticipantPolicy' | (typeof NON_PORTABLE_FIELDS)[number]
 >;
 
 const STRING_FIELDS = [
@@ -121,6 +121,7 @@ const OFFERED_FEATURES = new Set<string>(STUDY_FEATURES.map(({ value }) => value
 
 export function toPortableStudyConfig(form: StudyFormData): PortableStudyConfig {
   const portable: StudyFormData = { ...form, participantPolicy: participantPolicyToForm(form.participantPolicy) };
+  delete portable.loadedLimits;
   delete portable.loadedModules;
   delete portable.loadedParticipantPolicy;
   for (const field of NON_PORTABLE_FIELDS) delete portable[field];
@@ -302,7 +303,7 @@ export function keepsCurrentParticipantPolicy(current: StudyFormData): boolean {
 
 /**
  * Applies an imported configuration onto the open form. Fields the file does not carry keep the
- * open form's values: the two `loaded*` carry-through fields, the legacy sensor configuration and
+ * open form's values: the `loaded*` carry-through fields, the legacy sensor configuration and
  * dispositions (NON_PORTABLE_FIELDS), the features the dialog does not offer, and — when editing a
  * study that already has one — the participant policy.
  */
@@ -312,6 +313,7 @@ export function applyStudyConfig(current: StudyFormData, imported: PortableStudy
     ...imported,
     features: [...imported.features, ...current.features.filter((feature) => !OFFERED_FEATURES.has(feature))],
     ...(keepsCurrentParticipantPolicy(current) ? { participantPolicy: current.participantPolicy } : {}),
+    loadedLimits: current.loadedLimits,
     loadedModules: current.loadedModules,
     loadedParticipantPolicy: current.loadedParticipantPolicy,
   };

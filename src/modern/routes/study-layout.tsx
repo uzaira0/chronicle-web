@@ -7,7 +7,6 @@ import {
   Clock3,
   FileArchive,
   History,
-  LoaderCircle,
   MoreVertical,
   ScrollText,
   Shield,
@@ -16,11 +15,12 @@ import {
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
+import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 
+import { RouteOutlet } from '@/components/error-boundary';
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { RouteSkeleton, StatePanel } from '@/components/state-panel';
 import { type StudyFormData, StudyFormDialog } from '@/components/study-form-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,10 +46,19 @@ import {
   buildSensorSetting,
   buildStudyLimits,
   buildStudyPayload,
+  studyLimitsUnchanged,
 } from '@/lib/study-form-helpers';
-import { PARTIAL_STUDY_CONFIGURATION_ERROR, studyNavigationActionError } from '@/lib/study-navigation';
+import {
+  PARTIAL_STUDY_CONFIGURATION_ERROR,
+  type StudySaveStep,
+  saveStep,
+  settingWrites,
+  studyNavigationActionError,
+  studyNavigationFailedSteps,
+  writeSettingsInOrder,
+} from '@/lib/study-navigation';
 import { cn } from '@/lib/utils';
-import { isSettingsConflict, knownSettingsRevision } from '@/state/settings-revision';
+import { isSettingsConflict, knownSettingsRevision, StudySettingsConflictError } from '@/state/settings-revision';
 import {
   type StudyLifecycleStatus,
   useArchiveStudyMutation,
@@ -101,7 +110,7 @@ function LifecycleBanner({ isPending, status }: { isPending: boolean; status: St
 
   if (status === 'ARCHIVED') {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+      <div className="flex items-center gap-2 rounded-lg border border-warning/50 bg-warning-bg px-4 py-3 text-sm text-warning">
         <Archive className="h-4 w-4 shrink-0" />
         {t('study_layout.banner_archived')}
       </div>
@@ -118,7 +127,7 @@ function LifecycleBanner({ isPending, status }: { isPending: boolean; status: St
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+    <div className="flex items-center gap-2 rounded-lg border border-warning/50 bg-warning-bg px-4 py-3 text-sm text-warning">
       <CircleAlert className="h-4 w-4 shrink-0" />
       {t('study_layout.banner_unavailable')}
     </div>
@@ -168,7 +177,13 @@ export function getAuthoritativeStudyLifecycleStatus({
 export function StudyLayout() {
   const { studyId = '' } = useParams<{ studyId: string }>();
   const location = useLocation();
-  const { data: study, error, isError, isLoading } = useGetStudySummaryQuery(studyId, { skip: !studyId });
+  const {
+    data: study,
+    error,
+    isError,
+    isLoading,
+    refetch: refetchStudy,
+  } = useGetStudySummaryQuery(studyId, { skip: !studyId });
   const {
     data: lifecycleStatus,
     isError: isLifecycleError,
@@ -190,6 +205,21 @@ export function StudyLayout() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [actionError, setActionError] = useState<string | null>(() => studyNavigationActionError(location.state));
+  const [createFailedSteps] = useState(() => studyNavigationFailedSteps(location.state));
+  const stepList = (steps: readonly StudySaveStep[]) =>
+    steps
+      .map(
+        (step) =>
+          ({
+            details: t('study_layout.save_step_details'),
+            ParticipantPolicy: t('study_layout.save_step_participant_policy'),
+            AndroidSensor: t('study_layout.save_step_android_sensors'),
+            Sensor: t('study_layout.save_step_ios_sensors'),
+            DataCollection: t('study_layout.save_step_data_collection'),
+            limits: t('study_layout.save_step_limits'),
+          })[step],
+      )
+      .join(', ');
 
   const status = getAuthoritativeStudyLifecycleStatus({
     data: lifecycleStatus,
@@ -224,14 +254,7 @@ export function StudyLayout() {
   }
 
   if (isLoading) {
-    return (
-      <StatePanel
-        description={t('study_layout.loading_description')}
-        eyebrow={t('study_layout.section')}
-        icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-        title={t('study_layout.loading_title')}
-      />
-    );
+    return <RouteSkeleton />;
   }
 
   if (isError) {
@@ -249,21 +272,22 @@ export function StudyLayout() {
         }
         eyebrow={isNotFound ? t('common.not_found') : isAuthError ? t('common.access_denied') : t('common.error')}
         icon={<CircleAlert className="h-5 w-5" />}
+        onRetry={refetchStudy}
         title={isNotFound ? t('study_layout.not_found_title') : t('study_layout.unavailable_title')}
         tone="destructive"
       />
     );
   }
 
-  const handleEditStudy = async (form: StudyFormData) => {
+  const handleEditStudy = async (
+    form: StudyFormData,
+    { settingsRevision }: { settingsRevision?: string | undefined },
+  ) => {
     if (!lifecycleActionsRef.current.showEdit) {
       throw new Error(t('study_layout.status_unavailable_reload'));
     }
 
     const policyForm = form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM;
-    const sensorSetting = buildSensorSetting(form);
-    const iosSensorSetting = buildIosSensorSetting(form, true);
-    const dataCollection = buildDataCollectionSetting(form);
     // Enrollment locks the participant policy server-side. Re-sending an identical copy
     // would be rejected for no gain, so an untouched policy is simply not written.
     const participantPolicy = participantPolicyUnchanged(policyForm, form.loadedParticipantPolicy)
@@ -272,50 +296,42 @@ export function StudyLayout() {
     // An empty body is not a "clear" on the wire: the limits endpoint binds `{}` to the
     // StudyLimits defaults (25 participants, 1y duration, 90d retention), so emptying every
     // field must skip the write until the API grows an explicit "no limit" representation.
-    const limits = buildStudyLimits(form);
+    // Untouched limits are not re-sent either: the PUT is admin-only and re-derives the
+    // study end date from "now", so a title edit would otherwise move it (and 403 for others).
+    const limits = studyLimitsUnchanged(form) ? null : buildStudyLimits(form);
 
-    // The settings PATCHes share a read-merge-write of the full settings map, so they must
-    // run sequentially or they would clobber each other. They are otherwise independent —
-    // one rejection (a locked policy, say) must not cancel the rest, so each is awaited on
-    // its own and the first failure is reported only once every write has been attempted.
-    // The exception is a revision conflict, which aborts the sequence (see below).
-    const settingWrites: Array<{
-      setting: Record<string, unknown> | unknown[];
-      settingType: 'AndroidSensor' | 'DataCollection' | 'ParticipantPolicy' | 'Sensor';
-    }> = [];
-    if (participantPolicy) settingWrites.push({ setting: participantPolicy, settingType: 'ParticipantPolicy' });
-    if (sensorSetting) settingWrites.push({ setting: sensorSetting, settingType: 'AndroidSensor' });
-    settingWrites.push({ setting: iosSensorSetting, settingType: 'Sensor' });
-    if (dataCollection) settingWrites.push({ setting: dataCollection, settingType: 'DataCollection' });
+    // The settings PATCHes run in order (see writeSettingsInOrder); every failed step is
+    // named in the error so the user knows exactly what did not persist.
+    const writes = settingWrites({
+      AndroidSensor: buildSensorSetting(form),
+      DataCollection: buildDataCollectionSetting(form),
+      ParticipantPolicy: participantPolicy,
+      Sensor: buildIosSensorSetting(form, true),
+    });
 
-    const writeSettings = async () => {
-      let firstFailure: unknown = null;
-      for (const write of settingWrites) {
-        try {
-          // Each successful PATCH returns the next revision, so the chain stays current
-          // across the sequence; a 412 means someone else wrote in between.
-          await updateStudySettings({ studyId, ifMatch: knownSettingsRevision(studyId), ...write }).unwrap();
-        } catch (err) {
-          firstFailure ??= err;
-          // A 412 forgets the revision, so every later write would go out unguarded and
-          // clobber whoever won the race. Stop the sequence instead.
-          if (isSettingsConflict(err)) break;
-        }
-      }
-      if (firstFailure === null) return;
-      if (isSettingsConflict(firstFailure)) throw new Error(t('study_layout.settings_conflict'));
-      throw new Error(getErrorMessage(firstFailure, t('study_layout.some_changes_failed')));
-    };
-
-    const results = await Promise.allSettled([
-      updateStudy({ studyId, study: buildStudyPayload(form) }).unwrap(),
-      writeSettings(),
-      limits ? setStudyLimits({ studyId, limits }).unwrap() : null,
+    // If-Match starts at the revision the form was loaded from, not whatever this tab saw last.
+    let ifMatch = settingsRevision;
+    const [details, settings, limitsFailure] = await Promise.all([
+      saveStep('details', updateStudy({ studyId, study: buildStudyPayload(form) }).unwrap()),
+      // Each successful PATCH returns the next revision (remembered by its transformResponse),
+      // so the chain stays current across the sequence. A 412 stops the sequence: later
+      // writes would otherwise clobber whoever won the race.
+      writeSettingsInOrder(
+        writes,
+        async (write) => {
+          const result = await updateStudySettings({ studyId, ifMatch, ...write }).unwrap();
+          ifMatch = knownSettingsRevision(studyId);
+          return result;
+        },
+        isSettingsConflict,
+      ),
+      saveStep('limits', limits ? setStudyLimits({ studyId, limits }).unwrap() : null),
     ]);
-    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-    if (failures.length > 0) {
-      throw new Error(t('study_layout.some_changes_failed'));
-    }
+    const [first, ...rest] = [...details, ...settings.failures, ...limitsFailure];
+    if (!first) return;
+    if (settings.stopped) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+    const steps = stepList([first, ...rest].map((failure) => failure.step));
+    throw new Error(`${t('study_layout.changes_not_saved', { steps })} ${getErrorMessage(first.error, '')}`.trim());
   };
 
   const handleArchive = async () => {
@@ -441,9 +457,11 @@ export function StudyLayout() {
 
       {actionError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {actionError === PARTIAL_STUDY_CONFIGURATION_ERROR
-            ? t('study_layout.partial_configuration_error')
-            : actionError}
+          {actionError !== PARTIAL_STUDY_CONFIGURATION_ERROR
+            ? actionError
+            : createFailedSteps.length > 0
+              ? t('study_layout.created_changes_not_saved', { steps: stepList(createFailedSteps) })
+              : t('study_layout.partial_configuration_error')}
         </div>
       )}
 
@@ -481,7 +499,7 @@ export function StudyLayout() {
       </nav>
 
       {/* Tab content */}
-      <Outlet />
+      <RouteOutlet />
 
       {/* Archive confirmation dialog */}
       <Dialog
@@ -491,7 +509,7 @@ export function StudyLayout() {
         }}
         open={showArchiveDialog && lifecycleActions.showArchive}
       >
-        <DialogContent className="w-[min(92vw,28rem)]">
+        <DialogContent className="w-11/12 max-w-md">
           <DialogTitle>{t('study_layout.archive')}</DialogTitle>
           <DialogDescription>{t('study_layout.archive_description', { title: study?.title ?? '' })}</DialogDescription>
           <div className="flex justify-end gap-3 pt-4">
@@ -520,7 +538,7 @@ export function StudyLayout() {
         }}
         open={showRestoreDialog && lifecycleActions.showRestore}
       >
-        <DialogContent className="w-[min(92vw,28rem)]">
+        <DialogContent className="w-11/12 max-w-md">
           <DialogTitle>
             {isScheduledForDeletion ? t('study_layout.cancel_deletion') : t('study_layout.restore')}
           </DialogTitle>
@@ -573,7 +591,7 @@ export function StudyLayout() {
         }}
         open={showDeleteDialog && lifecycleActions.showDelete}
       >
-        <DialogContent className="w-[min(92vw,28rem)]">
+        <DialogContent className="w-11/12 max-w-md">
           <DialogTitle className="text-destructive">{t('study_layout.delete')}</DialogTitle>
           <DialogDescription>{t('study_layout.delete_description')}</DialogDescription>
           <div className="space-y-3 pt-2">

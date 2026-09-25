@@ -137,6 +137,10 @@ describe('StudyFormDialog participant policy', () => {
       screen.getByText(/responsible institution and server operator—not the Chronicle app publisher/),
     ).toBeTruthy();
     expect(screen.getByText(/server locks this policy after the first enrollment or device activity/)).toBeTruthy();
+    expect(screen.getByLabelText(/^Data Use and Sharing/).getAttribute('aria-describedby')).toBe(
+      'participant-policy-dataUseAndSharing-hint',
+    );
+    expect(screen.getByText(/Also disclose what the platform always records/)).toBeTruthy();
   });
 
   test('loads every saved field without changing the policy effectiveAt offset', () => {
@@ -448,9 +452,9 @@ describe('StudyFormDialog configuration export and import', () => {
   test('exports the current form state, unsaved edits included, as a study configuration file', async () => {
     const blobs: Blob[] = [];
     const names: string[] = [];
-    const originalCreateObjectURL = URL.createObjectURL;
-    const originalRevokeObjectURL = URL.revokeObjectURL;
-    const originalClick = HTMLAnchorElement.prototype.click;
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    const originalClick = Object.getOwnPropertyDescriptor(HTMLAnchorElement.prototype, 'click');
     URL.createObjectURL = (blob: Blob) => {
       blobs.push(blob);
       return 'blob:study-config';
@@ -480,9 +484,9 @@ describe('StudyFormDialog configuration export and import', () => {
       expect(exported.study.participantPolicy?.responsibleInstitution).toBe(POLICY.responsibleInstitution);
       expect(exported.study).not.toHaveProperty('loadedParticipantPolicy');
     } finally {
-      URL.createObjectURL = originalCreateObjectURL;
-      URL.revokeObjectURL = originalRevokeObjectURL;
-      HTMLAnchorElement.prototype.click = originalClick;
+      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      if (originalClick) Object.defineProperty(HTMLAnchorElement.prototype, 'click', originalClick);
     }
   });
 });

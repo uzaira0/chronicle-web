@@ -51,8 +51,9 @@ import {
   isKnownHealthConnectRecordType,
   STUDY_FEATURES,
 } from '@/lib/study-constants';
-import { studyDurationToDays } from '@/lib/study-form-helpers';
+import { studyDurationToDays, studyLimitsPartial, studyLimitsUnchanged } from '@/lib/study-form-helpers';
 import { cn } from '@/lib/utils';
+import { knownSettingsRevision, StudySettingsConflictError } from '@/state/settings-revision';
 import {
   type DataCollectionSettingSummary,
   type StudyLimits,
@@ -87,6 +88,9 @@ type StudyFormData = {
   // The study's ParticipantPolicy setting exactly as loaded, so the write path can tell an
   // untouched policy (skip the PATCH — it may be locked by enrollment) from an edited one.
   loadedParticipantPolicy?: unknown;
+  // The three limit inputs as loaded, so an edit that leaves them alone skips the admin-only
+  // limits PUT (which also re-derives the study end date from "now" on every write).
+  loadedLimits?: Pick<StudyFormData, 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays'> | undefined;
   // Per-active-module "required for participation" flag (keyed by CollectionModuleId).
   // Meaningful only when the module is enabled; the enrollment wizard makes a required
   // module mandatory to accept and locks it in the on-device Data Sharing surface.
@@ -142,7 +146,7 @@ const MODULE_MODES: ReadonlyArray<{ hintKey: string; labelKey: string; selectedC
     value: 'optional',
     labelKey: 'study_form.mode_optional',
     hintKey: 'study_form.mode_optional_hint',
-    selectedClass: 'bg-[var(--eq-info-bg)] text-[var(--eq-info)]',
+    selectedClass: 'bg-info-bg text-info',
   },
   {
     value: 'disabled',
@@ -398,6 +402,7 @@ function getInitialFormData(
     features: modules,
     group: study?.group || '',
     healthConnectRecordTypes: initialHealthConnectRecordTypes(dataCollection),
+    loadedLimits: { dataRetentionDays, participantLimit, studyDurationDays },
     loadedModules: initialLoadedModules(dataCollection),
     loadedParticipantPolicy: participantPolicy,
     moduleDispositions: initialModuleDispositions(dataCollection),
@@ -420,7 +425,9 @@ function getInitialFormData(
 
 type StudyFormDialogProps = {
   mode: 'create' | 'edit';
-  onSubmit: (data: StudyFormData) => Promise<void>;
+  // `settingsRevision` is the settings ETag the form was loaded from (edit mode), so the
+  // save sends If-Match for exactly the snapshot on screen.
+  onSubmit: (data: StudyFormData, context: { settingsRevision?: string | undefined }) => Promise<void>;
   study?: StudySummary;
 };
 
@@ -637,7 +644,7 @@ function HealthConnectScopeControl({
         ))}
       </div>
       {unknownRecordTypes.length > 0 && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-400">
+        <div className="rounded-md border border-warning/50 bg-warning-bg px-3 py-2 text-xs text-warning">
           {t('study_form.hc_unknown_types', { types: unknownRecordTypes.join(', ') })}
         </div>
       )}
@@ -791,7 +798,7 @@ function DataCollectionModuleRow({
       {showHealthConnectWarning && (
         <>
           <HealthConnectScopeControl onToggle={onHealthConnectRecordTypeToggle} selected={healthConnectRecordTypes} />
-          <div className="rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-400">
+          <div className="rounded-md border border-warning/50 bg-warning-bg px-3 py-2.5 text-xs text-warning">
             {t('study_form.hc_warning')}
           </div>
         </>
@@ -995,32 +1002,92 @@ function DataCollectionModulesSection(ctx: DataCollectionRowContext) {
   );
 }
 
+type LimitField = 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays';
+
+function StudyLimitsFieldset({
+  form,
+  onChange,
+}: {
+  form: StudyFormData;
+  onChange: (field: LimitField, value: string) => void;
+}) {
+  const { t } = useTranslator();
+  return (
+    <fieldset className="space-y-4">
+      <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        {t('study_form.limits_legend')}
+      </legend>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="participant-limit">{t('study_form.participant_limit')}</Label>
+          <Input
+            id="participant-limit"
+            min={1}
+            onChange={(e) => onChange('participantLimit', e.target.value)}
+            placeholder="100"
+            type="number"
+            value={form.participantLimit}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="study-duration">{t('study_form.duration_days')}</Label>
+          <Input
+            id="study-duration"
+            min={1}
+            onChange={(e) => onChange('studyDurationDays', e.target.value)}
+            placeholder="365"
+            type="number"
+            value={form.studyDurationDays}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="data-retention">{t('study_form.retention_days')}</Label>
+          <Input
+            id="data-retention"
+            min={1}
+            onChange={(e) => onChange('dataRetentionDays', e.target.value)}
+            placeholder="730"
+            type="number"
+            value={form.dataRetentionDays}
+          />
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
 export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps) {
   const [open, setOpen] = useState(false);
   const { t } = useTranslator();
   const failedKey = submitFailureKey(mode);
   // Edit-mode reads only fire once the dialog is open and we have a study id.
-  const skipStudyReads = shouldSkipStudyReads(mode, study?.id, open);
+  // Every open refetches, so the form never starts from another page's cached settings.
+  const readOptions = { refetchOnMountOrArgChange: true, skip: shouldSkipStudyReads(mode, study?.id, open) };
   const {
     data: limits,
     isError: isLimitsError,
     isFetching: isLimitsFetching,
-  } = useGetStudyLimitsQuery(study?.id ?? '', { skip: skipStudyReads });
+    refetch: refetchLimits,
+  } = useGetStudyLimitsQuery(study?.id ?? '', readOptions);
   const {
     data: dataCollection,
     isError: isDataCollectionError,
     isFetching: isDataCollectionFetching,
-  } = useGetStudyDataCollectionSettingQuery(study?.id ?? '', { skip: skipStudyReads });
+    refetch: refetchDataCollection,
+  } = useGetStudyDataCollectionSettingQuery(study?.id ?? '', readOptions);
   const {
     data: studySettings,
     isError: isStudySettingsError,
     isFetching: isStudySettingsFetching,
-  } = useGetStudySettingsQuery(study?.id ?? '', { skip: skipStudyReads });
+    refetch: refetchStudySettings,
+  } = useGetStudySettingsQuery(study?.id ?? '', readOptions);
   const [form, setForm] = useState<StudyFormData>(() => getInitialFormData(study));
   const [formInitialized, setFormInitialized] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initializedForOpen = useRef(false);
+  const settingsRevision = useRef<string | undefined>(undefined);
   const submissionInFlight = useRef(false);
   const studyReadState = resolveStudyReadState(
     mode,
@@ -1031,7 +1098,8 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
   useEffect(() => {
     if (!open || studyReadState !== 'ready' || initializedForOpen.current) return;
     setForm(getInitialFormData(study, limits, dataCollection, studySettings?.ParticipantPolicy));
-    setError(null);
+    // The reads above just settled, so the last settings ETag seen is the one this form shows.
+    settingsRevision.current = study?.id ? knownSettingsRevision(study.id) : undefined;
     initializedForOpen.current = true;
     setFormInitialized(true);
   }, [open, studyReadState, study, limits, dataCollection, studySettings?.ParticipantPolicy]);
@@ -1040,6 +1108,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
     if (nextOpen) {
       initializedForOpen.current = false;
       setFormInitialized(false);
+      setError(null);
     }
     setOpen(nextOpen);
   };
@@ -1109,15 +1178,28 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
     // double click can therefore enter this handler twice while `isSubmitting` is
     // still false. Acquire the ref-backed fence synchronously before awaiting.
     if (!formInitialized || studyReadState !== 'ready' || !isFormComplete(form) || submissionInFlight.current) return;
+    if (!studyLimitsUnchanged(form) && studyLimitsPartial(form)) {
+      setError(t('study_form.limits_incomplete'));
+      return;
+    }
     submissionInFlight.current = true;
 
     setError(null);
     setIsSubmitting(true);
     try {
-      await onSubmit(form);
+      await onSubmit(form, { settingsRevision: settingsRevision.current });
       setOpen(false);
     } catch (err) {
       setError(getErrorMessage(err, t(failedKey)));
+      if (err instanceof StudySettingsConflictError) {
+        // Someone else saved first: reload the form from the current settings, as the
+        // conflict message promises, instead of letting a second Save resend stale values.
+        initializedForOpen.current = false;
+        setFormInitialized(false);
+        void refetchLimits();
+        void refetchDataCollection();
+        void refetchStudySettings();
+      }
     } finally {
       submissionInFlight.current = false;
       setIsSubmitting(false);
@@ -1127,7 +1209,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <StudyDialogTrigger mode={mode} />
-      <DialogContent className="max-h-[90vh] w-[min(95vw,72rem)] overflow-y-auto pb-0">
+      <DialogContent className="max-h-[90vh] w-11/12 max-w-6xl overflow-y-auto pb-0">
         <DialogTitle>{mode === 'create' ? t('study_form.create') : t('study_form.edit_title')}</DialogTitle>
         <DialogDescription>
           {mode === 'create' ? t('study_form.create_description') : t('study_form.edit_description')}
@@ -1281,47 +1363,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
             )}
 
             {/* Section 3: Study Limits */}
-            <fieldset className="space-y-4">
-              <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                {t('study_form.limits_legend')}
-              </legend>
-
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="participant-limit">{t('study_form.participant_limit')}</Label>
-                  <Input
-                    id="participant-limit"
-                    min={1}
-                    onChange={(e) => update('participantLimit', e.target.value)}
-                    placeholder="100"
-                    type="number"
-                    value={form.participantLimit}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="study-duration">{t('study_form.duration_days')}</Label>
-                  <Input
-                    id="study-duration"
-                    min={1}
-                    onChange={(e) => update('studyDurationDays', e.target.value)}
-                    placeholder="365"
-                    type="number"
-                    value={form.studyDurationDays}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="data-retention">{t('study_form.retention_days')}</Label>
-                  <Input
-                    id="data-retention"
-                    min={1}
-                    onChange={(e) => update('dataRetentionDays', e.target.value)}
-                    placeholder="730"
-                    type="number"
-                    value={form.dataRetentionDays}
-                  />
-                </div>
-              </div>
-            </fieldset>
+            <StudyLimitsFieldset form={form} onChange={update} />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
 

@@ -23,7 +23,12 @@ import {
   buildStudyLimits,
   buildStudyPayload,
 } from '@/lib/study-form-helpers';
-import { studyConfigurationNavigationState } from '@/lib/study-navigation';
+import {
+  saveStep,
+  settingWrites,
+  studyConfigurationNavigationState,
+  writeSettingsInOrder,
+} from '@/lib/study-navigation';
 import { useAppSelector } from '@/state/store';
 import {
   type StudySummary,
@@ -75,12 +80,12 @@ function StudyTableRow({ study }: { study: StudySummary & { id: string } }) {
           <p className="line-clamp-1 max-w-xl text-xs text-muted-foreground" title={study.description ?? undefined}>
             {study.description || t('common.no_description')}
           </p>
-          <code className="font-mono text-[11px] text-muted-foreground">{study.id}</code>
+          <code className="font-mono text-2xs text-muted-foreground">{study.id}</code>
         </div>
       </TableCell>
       {/* Truncated: the shared study contact is a long address that otherwise wrapped to
           two lines and widened the column past what the study title had. */}
-      <TableCell className="max-w-[200px] truncate text-sm" title={study.contact ?? undefined}>
+      <TableCell className="max-w-50 truncate text-sm" title={study.contact ?? undefined}>
         {study.contact || t('common.not_set')}
       </TableCell>
       <TableCell>
@@ -111,6 +116,7 @@ export function StudiesPage() {
     error: studiesError,
     isError,
     isLoading: isStudiesLoading,
+    refetch: refetchStudies,
   } = useGetAllStudiesQuery(undefined, {
     skip: session.status !== 'authenticated',
   });
@@ -143,45 +149,34 @@ export function StudiesPage() {
   const handleCreateStudy = async (form: StudyFormData) => {
     const studyId = await createStudy(buildStudyPayload(form)).unwrap();
 
-    // Best-effort post-create config (the study already exists). The settings
-    // PATCHes each do a read-merge-write of the full settings map, so they must run
-    // sequentially — running them in parallel would clobber one another. Limits is a
-    // disjoint write and runs in parallel with the settings sequence.
-    const sensorSetting = buildSensorSetting(form);
-    const iosSensorSetting = buildIosSensorSetting(form);
-    const dataCollection = buildDataCollectionSetting(form);
-    const participantPolicy = buildStudyParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM);
+    // Best-effort post-create config (the study already exists). The settings PATCHes run
+    // in order and continue past a failure (writeSettingsInOrder); limits is a disjoint
+    // write and runs in parallel. Every step that did not save is named on the study page.
     const limits = buildStudyLimits(form);
-    const writeSettings = async () => {
-      await updateStudySettings({
-        studyId,
-        settingType: 'ParticipantPolicy',
-        setting: participantPolicy,
-      }).unwrap();
-      if (sensorSetting) {
-        await updateStudySettings({ studyId, settingType: 'AndroidSensor', setting: sensorSetting }).unwrap();
-      }
-      if (iosSensorSetting) {
-        await updateStudySettings({ studyId, settingType: 'Sensor', setting: iosSensorSetting }).unwrap();
-      }
-      if (dataCollection) {
-        await updateStudySettings({ studyId, settingType: 'DataCollection', setting: dataCollection }).unwrap();
-      }
-    };
-    const configurationResults = await Promise.allSettled([
-      writeSettings(),
-      limits ? setStudyLimits({ studyId, limits }).unwrap() : null,
+    const writes = settingWrites({
+      AndroidSensor: buildSensorSetting(form),
+      DataCollection: buildDataCollectionSetting(form),
+      ParticipantPolicy: buildStudyParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM),
+      Sensor: buildIosSensorSetting(form),
+    });
+    const [settings, limitsFailure] = await Promise.all([
+      writeSettingsInOrder(writes, (write) => updateStudySettings({ studyId, ...write }).unwrap()),
+      saveStep('limits', limits ? setStudyLimits({ studyId, limits }).unwrap() : null),
     ]);
 
     await navigate(`/studies/${studyId}`, {
-      state: studyConfigurationNavigationState(configurationResults),
+      state: studyConfigurationNavigationState([...settings.failures, ...limitsFailure].map((failure) => failure.step)),
     });
   };
+
+  const createStudyDialog = <StudyFormDialog mode="create" onSubmit={handleCreateStudy} />;
+  // An empty catalog points at creating the first study; an empty search does not.
+  const emptyCatalogAction = searchQuery.trim() === '' && createStudyDialog;
 
   return (
     <div className="space-y-6">
       <SectionHeader
-        actions={<StudyFormDialog mode="create" onSubmit={handleCreateStudy} />}
+        actions={createStudyDialog}
         description={t('studies.description')}
         eyebrow={t('studies.eyebrow')}
         icon={<Library className="h-3.5 w-3.5" />}
@@ -235,11 +230,13 @@ export function StudiesPage() {
           description={getErrorMessage(studiesError, t('common.unable_to_load_studies'))}
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
+          onRetry={refetchStudies}
           title={t('common.failed_to_load_studies')}
           tone="destructive"
         />
       ) : filteredStudies.length === 0 ? (
         <StatePanel
+          actions={emptyCatalogAction}
           className="max-w-none"
           description={t('studies.no_results_description')}
           eyebrow={t('studies.no_results_eyebrow')}

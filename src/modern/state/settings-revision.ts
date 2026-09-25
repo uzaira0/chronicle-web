@@ -26,6 +26,11 @@ export function forgetSettingsRevision(studyId: string): void {
 
 export const SETTINGS_CONFLICT_STATUS = 412;
 
+/** Thrown by the study save when a settings PATCH hit 412; the edit form reloads on it. */
+export class StudySettingsConflictError extends Error {
+  override name = 'StudySettingsConflictError';
+}
+
 export function isSettingsConflict(error: unknown): boolean {
   return (
     typeof error === 'object' &&

@@ -27,6 +27,8 @@ const DISCLOSURE_FIELDS = [
   { field: 'retentionAndDeletion', key: 'retention' },
 ] as const satisfies ReadonlyArray<{ field: PolicyField; key: string }>;
 
+const ALWAYS_RECORDED_HINT_ID = 'participant-policy-dataUseAndSharing-hint';
+
 function FieldError({ errors, field, value }: { errors: ParticipantPolicyErrors; field: PolicyField; value: string }) {
   const error = value.trim() ? errors[field] : undefined;
   return error ? (
@@ -101,7 +103,11 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
               {t(`policy_fields.${key}`)}
             </Label>
             <Textarea
-              aria-describedby={describedBy(field)}
+              aria-describedby={
+                [field === 'dataUseAndSharing' && ALWAYS_RECORDED_HINT_ID, describedBy(field)]
+                  .filter(Boolean)
+                  .join(' ') || undefined
+              }
               aria-invalid={Boolean(errors[field])}
               id={`participant-policy-${field}`}
               maxLength={8_000}
@@ -110,6 +116,11 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
               required
               value={value[field]}
             />
+            {field === 'dataUseAndSharing' && (
+              <p className="text-xs leading-5 text-muted-foreground" id={ALWAYS_RECORDED_HINT_ID}>
+                {t('policy_fields.data_use_always_recorded_hint')}
+              </p>
+            )}
             <FieldError errors={errors} field={field} value={value[field]} />
           </div>
         ))}

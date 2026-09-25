@@ -32,6 +32,7 @@ function fullForm(): Required<StudyFormData> {
     features: ['CHRONICLE_DATA_COLLECTION', 'CHRONICLE_SURVEYS', 'TIME_USE_DIARY'],
     group: 'cohort-b',
     healthConnectRecordTypes: ['steps', 'heart_rate', 'future_metric'],
+    loadedLimits: { dataRetentionDays: '90', participantLimit: '25', studyDurationDays: '365' },
     loadedModules: { some_future_module: { enabled: true } },
     loadedParticipantPolicy: { version: 'server-copy' },
     moduleDispositions: perModule((_, i) => (i % 2 ? 'hold_pending' : 'discard_and_stop')),
@@ -101,6 +102,7 @@ describe('study configuration file', () => {
     expect(parsed.format).toBe(STUDY_CONFIG_FORMAT);
     expect(parsed.version).toBe(STUDY_CONFIG_VERSION);
     expect(parsed.exportedAt).toBe('2026-09-17T12:00:00.000Z');
+    expect(parsed.study).not.toHaveProperty('loadedLimits');
     expect(parsed.study).not.toHaveProperty('loadedModules');
     expect(parsed.study).not.toHaveProperty('loadedParticipantPolicy');
 
@@ -119,10 +121,12 @@ describe('study configuration file', () => {
     const current: StudyFormData = {
       ...fullForm(),
       title: 'Current title',
+      loadedLimits: { dataRetentionDays: '', participantLimit: '5', studyDurationDays: '' },
       loadedModules: { current_module: {} },
       loadedParticipantPolicy: undefined,
     };
     const applied = applyStudyConfig(current, imported);
+    expect(applied.loadedLimits).toEqual({ dataRetentionDays: '', participantLimit: '5', studyDurationDays: '' });
     expect(applied.title).toBe('Portable study');
     expect(applied.loadedModules).toEqual({ current_module: {} });
     expect(applied.loadedParticipantPolicy).toBeUndefined();

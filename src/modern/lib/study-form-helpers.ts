@@ -203,6 +203,22 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   };
 }
 
+const LIMIT_FIELDS = ['participantLimit', 'studyDurationDays', 'dataRetentionDays'] as const;
+
+/** True when the three limit inputs still hold what the form loaded (empty on create). */
+export function studyLimitsUnchanged(form: StudyFormData): boolean {
+  return LIMIT_FIELDS.every((field) => form[field].trim() === (form.loadedLimits?.[field] ?? ''));
+}
+
+/**
+ * True when some but not all limits are set. The endpoint binds an omitted key to the
+ * StudyLimits default (e.g. 25 participants), so a partial set would not mean "no limit".
+ */
+export function studyLimitsPartial(form: StudyFormData): boolean {
+  const set = LIMIT_FIELDS.filter((field) => parseInt(form[field], 10) > 0).length;
+  return set > 0 && set < LIMIT_FIELDS.length;
+}
+
 // Null means "no request": the limits endpoint binds an empty body to the StudyLimits
 // defaults rather than clearing, so there is no wire representation of "no limit" yet.
 export function buildStudyLimits(form: StudyFormData): Record<string, unknown> | null {

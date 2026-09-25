@@ -962,7 +962,6 @@ describe('buildStudyLimits() — additional variations', () => {
   });
 });
 
-
 // Regression: `modules` is written whole, so an older dashboard rebuilding it from its own
 // COLLECTION_MODULES list silently deleted any module a newer server had introduced.
 describe('buildDataCollectionSetting() — unknown modules', () => {
