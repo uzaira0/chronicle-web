@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
 
 import {
   normalizeParticipantList,
@@ -656,7 +657,6 @@ describe('studyOperationsApi', () => {
     'archiveStudy',
     'cancelScheduledDeletion',
     'unarchiveStudy',
-    'destroyStudy',
     'scheduleStudyDeletion',
     'createStudy',
     'setStudyLimits',
@@ -678,7 +678,6 @@ describe('studyOperationsApi', () => {
     'getStudyQuestionnaires',
     'getStudySensorAvailability',
     'getStudySettingsAudit',
-    'getStudyExport',
     'getStudySummary',
     'getStudyTudSubmissionGroups',
     'listStudyExports',
@@ -688,11 +687,6 @@ describe('studyOperationsApi', () => {
     'updateQuestionnaire',
     'updateStudy',
     'getStudySettings',
-    'getOrgStudies',
-    'verifyParticipant',
-    'checkAuthorizations',
-    'getOrganizations',
-    'syncUser',
     'getAppUsageSurveyData',
     'submitAppUsageSurvey',
     'submitTimeUseDiary',
@@ -701,6 +695,23 @@ describe('studyOperationsApi', () => {
   for (const name of endpointNames) {
     it(`has endpoint "${name}"`, () => {
       expect(studyOperationsApi.endpoints[name]).toBeDefined();
+    });
+  }
+});
+
+// ai-built-code W2: an endpoint nobody calls is dead code that still has to be kept in sync
+// with the server. Every endpoint must be referenced by app code outside this API module.
+describe('studyOperationsApi endpoint consumers', () => {
+  const appSources = [...new Bun.Glob('src/modern/**/*.{ts,tsx}').scanSync({ cwd: process.cwd() })]
+    .filter((path) => !/\.(test|spec)\.tsx?$/.test(path) && !path.endsWith('state/study-operations-api.ts'))
+    .map((path) => readFileSync(path, 'utf8'))
+    .join('\n');
+
+  for (const name of Object.keys(studyOperationsApi.endpoints)) {
+    it(`"${name}" has a caller`, () => {
+      const hook = name[0]?.toUpperCase() + name.slice(1);
+      const used = new RegExp(`\\buse(Lazy)?${hook}(Query|Mutation)\\b|endpoints\\.${name}\\b`).test(appSources);
+      expect(used).toBe(true);
     });
   }
 });

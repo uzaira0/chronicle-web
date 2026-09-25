@@ -25,7 +25,7 @@ import { ParticipantNotesEditor } from '@/components/participant-notes-editor';
 import { QrEnrollmentModal } from '@/components/qr-enrollment-modal';
 import { SectionHeader } from '@/components/section-header';
 import { nextSort, SortableTableHead, type SortState } from '@/components/sortable-table-head';
-import { StatePanel } from '@/components/state-panel';
+import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -63,6 +63,8 @@ import {
   useLazyGetDeletionOperationQuery,
   useRegisterParticipantMutation,
 } from '@/state/study-operations-api';
+
+const PARTICIPANT_PAGE_SIZE = 100;
 
 type ModalState =
   | { type: 'none' }
@@ -264,7 +266,7 @@ function hasIosDevice(devices: StudyDeviceInstance[]) {
 function StatusMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-background p-2">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 break-words text-sm font-medium">{value}</p>
     </div>
   );
@@ -509,13 +511,16 @@ function ParticipantRowBody({
     <Fragment>
       <TableRow data-state={isSelected ? 'selected' : undefined}>
         <TableCell>
-          <input
-            aria-label={t('participants.select_participant', { id: participant.participantId })}
-            checked={isSelected}
-            className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-            onChange={() => toggleSelected(participant.participantId)}
-            type="checkbox"
-          />
+          {/* The label gives the 16px box a 44px hit area (WCAG 2.5.5). */}
+          <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+            <input
+              aria-label={t('participants.select_participant', { id: participant.participantId })}
+              checked={isSelected}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              onChange={() => toggleSelected(participant.participantId)}
+              type="checkbox"
+            />
+          </label>
         </TableCell>
         <TableCell className="px-1">
           <button
@@ -523,7 +528,7 @@ function ParticipantRowBody({
             aria-label={t(isExpanded ? 'participants.collapse_row' : 'participants.expand_row', {
               id: participant.participantId,
             })}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={() => toggleExpanded(participant.participantId)}
             type="button"
           >
@@ -640,6 +645,7 @@ export function StudyParticipantsPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<ModalState>({ type: 'none' });
+  const [visibleCount, setVisibleCount] = useState(PARTICIPANT_PAGE_SIZE);
   const [getDeletionOperation, deletionStatusRequest] = useLazyGetDeletionOperationQuery();
 
   const hasExpandedRows = expandedRows.size > 0;
@@ -699,6 +705,9 @@ export function StudyParticipantsPage() {
       return direction * a.participantId.localeCompare(b.participantId);
     });
   }, [searchedParticipants, sort, stats]);
+  // Limit: client-side paging only; the full list is still fetched. Server paging if studies reach thousands.
+  const visibleParticipants = filteredParticipants.slice(0, visibleCount);
+  const hiddenCount = filteredParticipants.length - visibleParticipants.length;
 
   const handleSort = useCallback((key: ParticipantSortKey) => {
     setSort((prev) => nextSort(prev, key));
@@ -810,12 +819,11 @@ export function StudyParticipantsPage() {
     }
   };
 
+  // Select all acts on the rows on screen, so a bulk action never reaches rows nobody saw.
+  const allVisibleSelected =
+    visibleParticipants.length > 0 && visibleParticipants.every((p) => selectedIds.has(p.participantId));
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredParticipants.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredParticipants.map((p) => p.participantId)));
-    }
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleParticipants.map((p) => p.participantId)));
   };
 
   const isLoading = isParticipantsLoading || isStatsLoading;
@@ -963,13 +971,7 @@ export function StudyParticipantsPage() {
       )}
 
       {isLoading ? (
-        <StatePanel
-          className="max-w-none"
-          description={t('participants.loading_description')}
-          eyebrow={t('common.loading')}
-          icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-          title={t('participants.loading_title')}
-        />
+        <TableSkeleton label={t('participants.loading_title')} />
       ) : isParticipantsError ? (
         <StatePanel
           className="max-w-none"
@@ -984,16 +986,18 @@ export function StudyParticipantsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10">
-                  <input
-                    aria-label={t('participants.select_all')}
-                    checked={filteredParticipants.length > 0 && selectedIds.size === filteredParticipants.length}
-                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-                    onChange={toggleSelectAll}
-                    type="checkbox"
-                  />
+                <TableHead className="w-12">
+                  <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
+                    <input
+                      aria-label={t('participants.select_all')}
+                      checked={allVisibleSelected}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                      onChange={toggleSelectAll}
+                      type="checkbox"
+                    />
+                  </label>
                 </TableHead>
-                <TableHead className="w-8">
+                <TableHead className="w-12">
                   <span className="sr-only">{t('participants.expand_row_header')}</span>
                 </TableHead>
                 <SortableTableHead onSort={handleSort} sort={sort} sortKey="id">
@@ -1016,7 +1020,7 @@ export function StudyParticipantsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredParticipants.map((participant) => (
+                visibleParticipants.map((participant) => (
                   <ParticipantRow
                     colCount={colCount}
                     handleSingleDelete={handleSingleDelete}
@@ -1040,6 +1044,13 @@ export function StudyParticipantsPage() {
               )}
             </TableBody>
           </Table>
+          {hiddenCount > 0 && (
+            <div className="flex justify-center border-t border-border p-3">
+              <Button onClick={() => setVisibleCount((count) => count + PARTICIPANT_PAGE_SIZE)} variant="outline">
+                {t('participants.show_more', { hidden: hiddenCount, step: PARTICIPANT_PAGE_SIZE })}
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 
@@ -1093,7 +1104,7 @@ export function StudyParticipantsPage() {
         }}
         open={modal.type === 'delete-confirm'}
       >
-        <DialogContent className="w-[min(92vw,28rem)]">
+        <DialogContent className="w-11/12 max-w-md">
           <DialogTitle className="text-destructive">
             {modal.type === 'delete-confirm' && modal.participantIds.length > 1
               ? t('participants.delete_title_many')

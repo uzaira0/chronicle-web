@@ -1,10 +1,11 @@
-import { ChevronDown, ChevronUp, CircleAlert, History, LoaderCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, CircleAlert, History } from 'lucide-react';
 import { Fragment, useCallback, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
-import { StatePanel } from '@/components/state-panel';
+import { StatePanel, TableSkeleton } from '@/components/state-panel';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTranslator } from '@/i18n';
@@ -48,7 +49,7 @@ function SettingsAuditEntryRows({
                 <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   {t('settings_audit.before')}
                 </span>
-                <pre className="max-h-[300px] overflow-auto rounded-md bg-muted p-3 text-[10px] leading-relaxed">
+                <pre className="max-h-75 overflow-auto rounded-md bg-muted p-3 text-3xs leading-relaxed">
                   {entry.beforeValue != null ? JSON.stringify(entry.beforeValue, null, 2) : t('common.none_paren')}
                 </pre>
               </div>
@@ -56,7 +57,7 @@ function SettingsAuditEntryRows({
                 <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   {t('settings_audit.after')}
                 </span>
-                <pre className="max-h-[300px] overflow-auto rounded-md bg-muted p-3 text-[10px] leading-relaxed">
+                <pre className="max-h-75 overflow-auto rounded-md bg-muted p-3 text-3xs leading-relaxed">
                   {entry.afterValue != null ? JSON.stringify(entry.afterValue, null, 2) : t('common.none_paren')}
                 </pre>
               </div>
@@ -86,12 +87,12 @@ function AcknowledgmentsCard({ entries }: { entries: CollectionAcknowledgmentEnt
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[180px]">{t('settings_audit.col_recorded')}</TableHead>
+            <TableHead className="w-45">{t('settings_audit.col_recorded')}</TableHead>
             <TableHead>{t('settings_audit.col_participant')}</TableHead>
             <TableHead>{t('settings_audit.col_accepted')}</TableHead>
             <TableHead>{t('settings_audit.col_declined')}</TableHead>
-            <TableHead className="w-[140px]">{t('settings_audit.col_trigger')}</TableHead>
-            <TableHead className="w-[160px]">{t('settings_audit.col_device')}</TableHead>
+            <TableHead className="w-35">{t('settings_audit.col_trigger')}</TableHead>
+            <TableHead className="w-40">{t('settings_audit.col_device')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -124,6 +125,8 @@ function AcknowledgmentsCard({ entries }: { entries: CollectionAcknowledgmentEnt
   );
 }
 
+const AUDIT_PAGE_SIZE = 100;
+
 export function StudySettingsAuditPage() {
   const { studyId = '' } = useParams<{ studyId: string }>();
   const { t } = useTranslator();
@@ -137,6 +140,7 @@ export function StudySettingsAuditPage() {
   const { data: acknowledgments = [] } = useGetStudyCollectionAcknowledgmentsQuery({ studyId }, { skip: !studyId });
 
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(AUDIT_PAGE_SIZE);
 
   const toggleRow = useCallback((id: string) => {
     setExpandedRow((prev) => (prev === id ? null : id));
@@ -157,13 +161,7 @@ export function StudySettingsAuditPage() {
       />
 
       {isLoading ? (
-        <StatePanel
-          className="max-w-none"
-          description={t('settings_audit.loading_description')}
-          eyebrow={t('common.loading')}
-          icon={<LoaderCircle className="h-5 w-5 animate-spin" />}
-          title={t('settings_audit.loading_title')}
-        />
+        <TableSkeleton label={t('settings_audit.loading_title')} />
       ) : isError ? (
         <StatePanel
           className="max-w-none"
@@ -178,11 +176,11 @@ export function StudySettingsAuditPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[180px]">{t('settings_audit.col_timestamp')}</TableHead>
+                <TableHead className="w-45">{t('settings_audit.col_timestamp')}</TableHead>
                 <TableHead>{t('settings_audit.col_changed_by')}</TableHead>
                 <TableHead>{t('settings_audit.col_setting')}</TableHead>
                 <TableHead>{t('settings_audit.col_summary')}</TableHead>
-                <TableHead className="w-[40px]"></TableHead>
+                <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -193,17 +191,26 @@ export function StudySettingsAuditPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                auditEntries.map((entry) => (
-                  <SettingsAuditEntryRows
-                    entry={entry}
-                    expandedRow={expandedRow}
-                    key={entry.id}
-                    toggleRow={toggleRow}
-                  />
-                ))
+                auditEntries
+                  .slice(0, visibleCount)
+                  .map((entry) => (
+                    <SettingsAuditEntryRows
+                      entry={entry}
+                      expandedRow={expandedRow}
+                      key={entry.id}
+                      toggleRow={toggleRow}
+                    />
+                  ))
               )}
             </TableBody>
           </Table>
+          {auditEntries.length > visibleCount && (
+            <div className="flex justify-center border-t border-border p-3">
+              <Button onClick={() => setVisibleCount((count) => count + AUDIT_PAGE_SIZE)} variant="outline">
+                {t('settings_audit.show_more', { hidden: auditEntries.length - visibleCount, step: AUDIT_PAGE_SIZE })}
+              </Button>
+            </div>
+          )}
         </Card>
       )}
 

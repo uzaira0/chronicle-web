@@ -905,7 +905,15 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update a specific study setting */
+        /**
+         * Update a specific study setting
+         * @description Applies a delta to exactly one setting type. The server merges into the row-locked
+         *     authoritative settings map, so a write of type X never rewrites any other type.
+         *
+         *     Pass `If-Match` with the `settingsRevision` this edit was based on to make the write
+         *     conditional; a stale revision returns 412 with the current state. Every successful write
+         *     increments the revision and returns it in `ETag`.
+         */
         patch: operations["updateStudySettings"];
         trace?: never;
     };
@@ -1840,6 +1848,22 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * @description Returned with HTTP 412 when an `If-Match` settings precondition no longer matches. Carries
+         *     the current state so the client can re-render without issuing another GET and racing again.
+         */
+        StudySettingsPreconditionFailure: {
+            /**
+             * Format: int64
+             * @description The study's current settings revision.
+             */
+            settingsRevision: number;
+            /** @description The study's current settings map. */
+            settings: {
+                [key: string]: components["schemas"]["StudySetting"];
+            };
+            message?: string;
+        };
+        /**
          * @description Returned by mobile enrollment endpoints. The request identifies a
          *     pseudonymous app-device instance; the response identifies both the
          *     deduped server device record and the individual enrollment event.
@@ -1999,10 +2023,31 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description Hardware-sensor sampling policy (chronicle-models AndroidSensorSetting). Every field is optional on input; the server applies the listed default. */
         AndroidSensorSetting: {
-            sensors?: string[];
-            samplingRate?: number;
+            /** @description Enabled sensors; empty when omitted. */
+            sensors?: components["schemas"]["AndroidSensorType"][];
+            /**
+             * Format: int32
+             * @description Sampling rate in Hz.
+             * @default 5
+             */
+            samplingRateHz: number;
+            /**
+             * Format: int32
+             * @description Seconds of sampling in each duty cycle.
+             * @default 30
+             */
+            dutyCycleActiveSeconds: number;
+            /**
+             * Format: int32
+             * @description Length of one duty cycle, in seconds.
+             * @default 300
+             */
+            dutyCyclePeriodSeconds: number;
         };
+        /** @enum {string} */
+        AndroidSensorType: "accelerometer" | "gyroscope" | "magnetometer" | "gravity" | "linearAcceleration" | "rotationVector" | "stepCounter" | "light" | "proximity" | "significantMotion" | "tiltDetector" | "screenOrientation" | "samsungGripWifi" | "samsungMotion";
         ChronicleDataCollectionSettings: {
             [key: string]: unknown;
         };
@@ -2010,7 +2055,7 @@ export interface components {
          * @description Stable lowercase snake_case identifier for a data collection module (design §1A.2 / §1A.3). Reserved IDs freeze the namespace for future modules. Unknown IDs are ignored on read, never fatal.
          * @enum {string}
          */
-        CollectionModuleId: "usage_events" | "device_lifecycle" | "user_identification" | "upload_telemetry" | "sensor_availability" | "battery_telemetry" | "interaction_events" | "in_app_activity_class" | "sensor_accelerometer" | "sensor_gyroscope" | "sensor_magnetometer" | "sensor_gravity" | "sensor_linear_acceleration" | "sensor_rotation_vector" | "sensor_step_counter" | "sensor_light" | "sensor_proximity" | "sensor_significant_motion" | "sensor_tilt_detector" | "sensor_screen_orientation" | "sensor_samsung_grip_wifi" | "sensor_samsung_motion" | "time_use_diary" | "questionnaire" | "app_inventory" | "audio_activity" | "audio_content" | "notification_activity" | "hardware_sensors" | "sleep" | "activity_recognition" | "health_connect" | "connectivity_state" | "app_network_usage" | "device_settings" | "gaze_tracking" | "interaction_content" | "location" | "communication_log";
+        CollectionModuleId: "usage_events" | "device_lifecycle" | "user_identification" | "upload_telemetry" | "sensor_availability" | "battery_telemetry" | "interaction_events" | "in_app_activity_class" | "sensor_accelerometer" | "sensor_gyroscope" | "sensor_magnetometer" | "sensor_gravity" | "sensor_linear_acceleration" | "sensor_rotation_vector" | "sensor_step_counter" | "sensor_light" | "sensor_proximity" | "sensor_significant_motion" | "sensor_tilt_detector" | "sensor_screen_orientation" | "sensor_samsung_grip_wifi" | "sensor_samsung_motion" | "time_use_diary" | "questionnaire" | "app_inventory" | "audio_activity" | "audio_content" | "notification_activity" | "hardware_sensors" | "sleep" | "activity_recognition" | "health_connect" | "connectivity_state" | "app_network_usage" | "device_settings" | "ambient_audio" | "gaze_tracking" | "interaction_content" | "location" | "communication_log";
         /** @description How often a collection or upload action runs. */
         CollectionCadence: {
             /**
@@ -2222,7 +2267,7 @@ export interface components {
             participantTags?: string[];
         };
         /** @enum {string} */
-        ParticipationStatus: "ENROLLED" | "NOT_ENROLLED" | "PAUSED" | "UNKNOWN";
+        ParticipationStatus: "ENROLLED" | "NOT_ENROLLED" | "PAUSED" | "COLLECTION_COMPLETED" | "UNKNOWN";
         ParticipantStats: {
             participantId?: string;
             /** Format: uuid */
@@ -2791,9 +2836,9 @@ export interface components {
             /** Format: date */
             day: string;
             /** @enum {string} */
-            moduleFamily: "USAGE_LIFECYCLE" | "BATTERY" | "DEVICE_TELEMETRY";
+            moduleFamily: "USAGE_LIFECYCLE" | "BATTERY" | "DEVICE_TELEMETRY" | "SENSOR" | "APP_RUNTIME";
             /** @enum {string} */
-            issueCode: "DESTINATION_MISSING" | "DESTINATION_IDENTITY_MISMATCH" | "DESTINATION_SOURCE_DEVICE_MISSING" | "DESTINATION_SETUP_INCOMPLETE" | "DESTINATION_DISABLED" | "DESTINATION_NONCANONICAL" | "DESTINATION_CREDENTIAL_INCOMPLETE" | "HTTP_SERVER_ERROR" | "HTTP_CLIENT_ERROR" | "TIMEOUT" | "DNS_FAILURE" | "TLS_FAILURE" | "CONNECTION_FAILURE" | "UPLOAD_FAILURE";
+            issueCode: "DESTINATION_MISSING" | "DESTINATION_IDENTITY_MISMATCH" | "DESTINATION_SOURCE_DEVICE_MISSING" | "DESTINATION_SETUP_INCOMPLETE" | "DESTINATION_DISABLED" | "DESTINATION_NONCANONICAL" | "DESTINATION_CREDENTIAL_INCOMPLETE" | "HTTP_SERVER_ERROR" | "HTTP_CLIENT_ERROR" | "TIMEOUT" | "DNS_FAILURE" | "TLS_FAILURE" | "CONNECTION_FAILURE" | "UPLOAD_FAILURE" | "SENSOR_SAMPLE_QUARANTINED" | "SENSOR_DEAD_LETTER_DROPPED" | "APP_CRASH" | "APP_CRASH_NATIVE" | "APP_ANR";
             count: number;
             /** Format: date-time */
             firstOccurredAt: string;
@@ -3153,6 +3198,16 @@ export interface components {
         questionnaireId: string;
         settingType: string;
         principalId: string;
+        /**
+         * @description Optimistic-concurrency precondition. Supply the quoted `settingsRevision` taken from the
+         *     `ETag` of the settings response this edit was based on, e.g. `"7"`. The write is applied
+         *     only if the study's settings revision still matches; otherwise the server returns 412 with
+         *     the current revision and settings.
+         *
+         *     Omitting the header (or sending `*`) skips the check, which is what older mobile and iOS
+         *     clients do.
+         */
+        ifMatchSettingsRevision: string;
     };
     requestBodies: never;
     headers: never;
@@ -4460,6 +4515,11 @@ export interface operations {
             /** @description Map of setting type to setting value */
             200: {
                 headers: {
+                    /**
+                     * @description The study's current settings revision, quoted (e.g. `"7"`). Send it back as
+                     *     `If-Match` on a settings write to make that write conditional on this read.
+                     */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4485,6 +4545,8 @@ export interface operations {
             /** @description The study setting */
             200: {
                 headers: {
+                    /** @description The study's current settings revision, quoted (e.g. `"7"`). */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4496,7 +4558,18 @@ export interface operations {
     updateStudySettings: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optimistic-concurrency precondition. Supply the quoted `settingsRevision` taken from the
+                 *     `ETag` of the settings response this edit was based on, e.g. `"7"`. The write is applied
+                 *     only if the study's settings revision still matches; otherwise the server returns 412 with
+                 *     the current revision and settings.
+                 *
+                 *     Omitting the header (or sending `*`) skips the check, which is what older mobile and iOS
+                 *     clients do.
+                 */
+                "If-Match"?: components["parameters"]["ifMatchSettingsRevision"];
+            };
             path: {
                 studyId: components["parameters"]["studyId"];
                 settingType: components["parameters"]["settingType"];
@@ -4512,9 +4585,25 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description The study's settings revision after this write, quoted (e.g. `"8"`). */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /**
+             * @description The `If-Match` revision no longer matches; another client changed the study's
+             *     settings. The body carries the current revision and settings.
+             */
+            412: {
+                headers: {
+                    /** @description The study's current settings revision, quoted. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudySettingsPreconditionFailure"];
+                };
             };
         };
     };

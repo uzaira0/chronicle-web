@@ -1,4 +1,4 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi, type FetchBaseQueryError, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import {
   type ConsentTrigger,
   PARTICIPATION_STATUSES,
@@ -11,6 +11,7 @@ import { getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
 import { triggerBlobDownload } from '@/lib/download';
 import { getParticipantCsrfToken } from '@/lib/participant-access';
 import type { StudyParticipantPolicySetting } from '@/lib/participant-policy';
+import { DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, timeoutSignal } from '@/lib/request-timeout';
 import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } from './settings-revision';
 
 // Canonical status/policy value sets come from the generated LinkML contract module —
@@ -479,7 +480,13 @@ export async function fetchWithCsrf(url: string, init?: RequestInit): Promise<Re
     headers.set('X-Chronicle-Form-CSRF', participantCsrfToken);
     if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
   }
-  return fetch(url, { credentials: 'include', ...init, headers });
+  return fetch(url, { credentials: 'include', ...init, headers, signal: init?.signal ?? timeoutSignal() });
+}
+
+// A caller-held key makes a user retry of the same logical submission dedupe server-side;
+// without one, prepareHeaders mints a fresh key per request (replay protection only).
+function idempotencyHeaders(idempotencyKey: string | undefined): Record<string, string> | undefined {
+  return idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
 }
 
 function httpError(response: Response, text: string) {
@@ -487,7 +494,51 @@ function httpError(response: Response, text: string) {
 }
 
 function networkError(err: unknown) {
-  return { error: { status: 'FETCH_ERROR' as const, error: String(err) } };
+  const timedOut = typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'TimeoutError';
+  return { error: { status: timedOut ? ('TIMEOUT_ERROR' as const) : ('FETCH_ERROR' as const), error: String(err) } };
+}
+
+// The server caps every list page (PaginationDefaults: default 100, max 500; the settings audit
+// and acknowledgment lists max 200). Read pages until one comes back short, so a study larger
+// than one page is never silently truncated to its first page.
+const MAX_LIST_PAGES = 200; // Limit: 100k rows at 500 a page; past that a list needs server-side search
+type PageResult = { data?: unknown; error?: FetchBaseQueryError };
+type PageFetch = (url: string) => unknown; // the endpoint's bound baseQuery
+
+function pageSize(page: unknown): number {
+  if (Array.isArray(page)) return page.length;
+  return isRecord(page) ? Object.keys(page).length : 0;
+}
+
+async function readAllPages(
+  fetchPage: PageFetch,
+  path: string,
+  limit: number,
+): Promise<{ data: unknown[] } | { error: FetchBaseQueryError }> {
+  const pages: unknown[] = [];
+  for (let page = 0; page < MAX_LIST_PAGES; page++) {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(page * limit) });
+    const result = (await fetchPage(`${path}${path.includes('?') ? '&' : '?'}${params.toString()}`)) as PageResult;
+    if (result.error) return { error: result.error };
+    pages.push(result.data);
+    if (pageSize(result.data) < limit) break;
+  }
+  return { data: pages };
+}
+
+/** Array pages joined; a malformed page is passed through as-is for the caller's validation. */
+function concatPages(pages: unknown[]): unknown {
+  return pages.every(Array.isArray) ? pages.flat() : pages.find((page) => !Array.isArray(page));
+}
+
+async function readAllRows<T>(
+  fetchPage: PageFetch,
+  path: string,
+  limit: number,
+  normalize: (rows: unknown) => T = (rows) => rows as T,
+): Promise<{ data: T } | { error: FetchBaseQueryError }> {
+  const result = await readAllPages(fetchPage, path, limit);
+  return 'error' in result ? result : { data: normalize(concatPages(result.data)) };
 }
 
 function parsingError(response: Response, error: string) {
@@ -505,6 +556,7 @@ export const studyOperationsApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: '/chronicle/api/web',
     credentials: 'include',
+    timeout: REQUEST_TIMEOUT_MS,
     prepareHeaders: (headers) => {
       // The backend resolves its MessageSource locale from Accept-Language, so server-sent
       // error text follows the dashboard language rather than the browser default.
@@ -618,7 +670,10 @@ export const studyOperationsApi = createApi({
     }),
     getParticipantStats: builder.query<ParticipantStatsMap, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
-      query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/stats`,
+      queryFn: async (studyId, _api, _extra, baseQuery) => {
+        const result = await readAllPages(baseQuery, `/study/${encodeURIComponent(studyId)}/participants/stats`, 500);
+        return 'error' in result ? result : { data: Object.assign({}, ...result.data) as ParticipantStatsMap };
+      },
     }),
     getIosUploadStatus: builder.query<IosUploadStatusMap, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
@@ -630,39 +685,27 @@ export const studyOperationsApi = createApi({
     }),
     getStudyParticipants: builder.query<Participant[], string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Participants' }],
-      query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants`,
-      transformResponse: normalizeParticipantList,
+      queryFn: (studyId, _api, _extra, baseQuery) =>
+        readAllRows(baseQuery, `/study/${encodeURIComponent(studyId)}/participants`, 500, normalizeParticipantList),
     }),
     getStudyQuestionnaires: builder.query<QuestionnaireRecord[], string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Questionnaires' }],
       query: (studyId) => `/survey/${encodeURIComponent(studyId)}/questionnaire`,
       transformResponse: normalizeQuestionnaireList,
     }),
-    getStudySettingsAudit: builder.query<
-      StudySettingsAuditEntry[],
-      { limit?: number; offset?: number; studyId: string }
-    >({
+    getStudySettingsAudit: builder.query<StudySettingsAuditEntry[], { studyId: string }>({
       providesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Audit' }],
-      query: ({ limit = 50, offset = 0, studyId }) => {
-        const params = new URLSearchParams({
-          limit: limit.toString(),
-          offset: offset.toString(),
-        });
-        return `/study/${encodeURIComponent(studyId)}/settings/audit?${params.toString()}`;
-      },
+      queryFn: ({ studyId }, _api, _extra, baseQuery) =>
+        readAllRows<StudySettingsAuditEntry[]>(baseQuery, `/study/${encodeURIComponent(studyId)}/settings/audit`, 200),
     }),
-    getStudyCollectionAcknowledgments: builder.query<
-      CollectionAcknowledgmentEntry[],
-      { limit?: number; offset?: number; studyId: string }
-    >({
+    getStudyCollectionAcknowledgments: builder.query<CollectionAcknowledgmentEntry[], { studyId: string }>({
       providesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Audit' }],
-      query: ({ limit = 50, offset = 0, studyId }) => {
-        const params = new URLSearchParams({
-          limit: limit.toString(),
-          offset: offset.toString(),
-        });
-        return `/study/${encodeURIComponent(studyId)}/settings/acknowledgments?${params.toString()}`;
-      },
+      queryFn: ({ studyId }, _api, _extra, baseQuery) =>
+        readAllRows<CollectionAcknowledgmentEntry[]>(
+          baseQuery,
+          `/study/${encodeURIComponent(studyId)}/settings/acknowledgments`,
+          200,
+        ),
     }),
     getStudySummary: builder.query<StudySummary, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
@@ -678,7 +721,7 @@ export const studyOperationsApi = createApi({
               { id: 'LIST', type: 'Study' as const },
             ]
           : [{ id: 'LIST', type: 'Study' as const }],
-      query: () => '/study',
+      queryFn: (_arg, _api, _extra, baseQuery) => readAllRows<StudySummary[]>(baseQuery, '/study', 500),
     }),
     getStudyTudSubmissionGroups: builder.query<
       StudySubmissionGroup[],
@@ -782,13 +825,6 @@ export const studyOperationsApi = createApi({
         url: `/study/${encodeURIComponent(studyId)}/unarchive`,
       }),
     }),
-    destroyStudy: builder.mutation<unknown, string>({
-      invalidatesTags: ['Study'],
-      query: (studyId) => ({
-        method: 'DELETE',
-        url: `/study/${encodeURIComponent(studyId)}`,
-      }),
-    }),
     scheduleStudyDeletion: builder.mutation<unknown, { deleteAfter: string; studyId: string }>({
       invalidatesTags: (_r, _e, { studyId }) => [
         { id: studyId, type: 'Study' },
@@ -819,6 +855,7 @@ export const studyOperationsApi = createApi({
           if (endDate) params.set('endDate', endDate);
           const response = await fetchWithCsrf(
             `/chronicle/api/web/study/${encodeURIComponent(studyId)}/participants/data?${params.toString()}`,
+            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
           );
           if (!response.ok) return httpError(response, await response.text());
           triggerBlobDownload(await response.blob(), filename || `${studyId}-${dataType}.csv`);
@@ -836,17 +873,10 @@ export const studyOperationsApi = createApi({
         url: `/study/${encodeURIComponent(studyId)}/export/async`,
       }),
     }),
-    getStudyExport: builder.query<StudyExportJobInfo, { exportId: string; studyId: string }>({
-      providesTags: (_r, _e, { exportId, studyId }) => [
-        { id: studyId, type: 'Exports' },
-        { id: exportId, type: 'Exports' },
-      ],
-      query: ({ exportId, studyId }) => `/study/${encodeURIComponent(studyId)}/export/${encodeURIComponent(exportId)}`,
-    }),
-    listStudyExports: builder.query<StudyExportJobInfo[], { limit?: number; offset?: number; studyId: string }>({
+    listStudyExports: builder.query<StudyExportJobInfo[], { studyId: string }>({
       providesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Exports' }],
-      query: ({ limit = 20, offset = 0, studyId }) =>
-        `/study/${encodeURIComponent(studyId)}/export?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
+      queryFn: ({ studyId }, _api, _extra, baseQuery) =>
+        readAllRows<StudyExportJobInfo[]>(baseQuery, `/study/${encodeURIComponent(studyId)}/export`, 500),
     }),
     downloadStudyExport: builder.mutation<
       null,
@@ -856,6 +886,7 @@ export const studyOperationsApi = createApi({
         try {
           const response = await fetchWithCsrf(
             `/chronicle/api/web/study/${encodeURIComponent(studyId)}/export/${encodeURIComponent(exportId)}/download`,
+            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
           );
           if (!response.ok) return httpError(response, await response.text());
           const extension = format === 'EXCEL' ? 'xlsx' : format.toLowerCase();
@@ -892,6 +923,7 @@ export const studyOperationsApi = createApi({
           if (endDate) params.set('endDate', endDate);
           const response = await fetchWithCsrf(
             `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/participants/data?${params.toString()}`,
+            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
           );
           if (!response.ok) return httpError(response, await response.text());
           triggerBlobDownload(await response.blob(), filename || `${studyId}-time-use-diary-${dataType}.csv`);
@@ -913,6 +945,7 @@ export const studyOperationsApi = createApi({
           const params = new URLSearchParams({ dataType, endDate, startDate });
           const response = await fetchWithCsrf(
             `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/data?${params.toString()}`,
+            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
           );
           if (!response.ok) return httpError(response, await response.text());
           triggerBlobDownload(await response.blob(), filename || `tud-${studyId}-${dataType}.csv`);
@@ -930,6 +963,7 @@ export const studyOperationsApi = createApi({
         try {
           const response = await fetchWithCsrf(
             `/chronicle/v3/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}/data?type=csv`,
+            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
           );
           if (!response.ok) return httpError(response, await response.text());
           triggerBlobDownload(await response.blob(), filename || `${studyId}-questionnaire-${questionnaireId}.csv`);
@@ -995,43 +1029,6 @@ export const studyOperationsApi = createApi({
         return body;
       },
     }),
-    getOrgStudies: builder.query<StudySummary[], string>({
-      providesTags: (result) =>
-        result
-          ? [
-              ...result
-                .filter((s): s is StudySummary & { id: string } => typeof s.id === 'string')
-                .map(({ id }) => ({ id, type: 'Study' as const })),
-              { id: 'LIST', type: 'Study' as const },
-            ]
-          : [{ id: 'LIST', type: 'Study' as const }],
-      query: (organizationId) => `/study/organization/${encodeURIComponent(organizationId)}`,
-    }),
-    verifyParticipant: builder.query<boolean, { studyId: string; participantId: string }>({
-      query: ({ studyId, participantId }) =>
-        `/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/verify`,
-    }),
-    checkAuthorizations: builder.mutation<unknown[], Record<string, unknown>[]>({
-      query: (checks) => ({
-        body: checks,
-        method: 'POST',
-        url: '/authorizations/',
-      }),
-    }),
-    getOrganizations: builder.query<unknown[], void>({
-      query: () => '/organization/',
-    }),
-    syncUser: builder.query<unknown, void>({
-      queryFn: async () => {
-        try {
-          const response = await fetchWithCsrf('/datastore/principal/sync');
-          if (!response.ok) return httpError(response, await response.text());
-          return { data: await response.json().catch(() => null) };
-        } catch (err) {
-          return networkError(err);
-        }
-      },
-    }),
     getAppUsageSurveyData: builder.query<
       AppUsageEntry[],
       { studyId: string; participantId: string; startDate: string; endDate: string }
@@ -1043,9 +1040,13 @@ export const studyOperationsApi = createApi({
       transformResponse: (payload: unknown): AppUsageEntry[] =>
         Array.isArray(payload) ? (payload as AppUsageEntry[]) : [],
     }),
-    submitAppUsageSurvey: builder.mutation<unknown, { studyId: string; participantId: string; data: AppUsageEntry[] }>({
-      query: ({ studyId, participantId, data }) => ({
+    submitAppUsageSurvey: builder.mutation<
+      unknown,
+      { studyId: string; participantId: string; data: AppUsageEntry[]; idempotencyKey?: string }
+    >({
+      query: ({ studyId, participantId, data, idempotencyKey }) => ({
         body: data,
+        headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
         url: `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage`,
       }),
@@ -1058,10 +1059,11 @@ export const studyOperationsApi = createApi({
     }),
     submitTimeUseDiary: builder.mutation<
       unknown,
-      { studyId: string; participantId: string; data: ParticipantTimeUseDiaryResponse[] }
+      { studyId: string; participantId: string; data: ParticipantTimeUseDiaryResponse[]; idempotencyKey?: string }
     >({
-      query: ({ studyId, participantId, data }) => ({
+      query: ({ studyId, participantId, data, idempotencyKey }) => ({
         body: data,
+        headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
         url: `/time-use-diary/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}`,
       }),
@@ -1088,10 +1090,12 @@ export const studyOperationsApi = createApi({
         participantId: string;
         questionnaireId: string;
         responses: ParticipantQuestionnaireResponse[];
+        idempotencyKey?: string;
       }
     >({
-      query: ({ studyId, participantId, questionnaireId, responses }) => ({
+      query: ({ studyId, participantId, questionnaireId, responses, idempotencyKey }) => ({
         body: responses,
+        headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
         url: `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
       }),
@@ -1118,7 +1122,6 @@ export const {
   useArchiveStudyMutation,
   useCancelScheduledDeletionMutation,
   useUnarchiveStudyMutation,
-  useDestroyStudyMutation,
   useScheduleStudyDeletionMutation,
   useCreateStudyMutation,
   useSetStudyLimitsMutation,
@@ -1133,7 +1136,6 @@ export const {
   useDownloadParticipantTudDataMutation,
   useDownloadStudyTudDataMutation,
   useDownloadQuestionnaireResponsesMutation,
-  useGetStudyExportQuery,
   useListStudyExportsQuery,
   useGetAllStudiesQuery,
   useGetComplianceViolationsQuery,
@@ -1150,11 +1152,6 @@ export const {
   useGetStudyCollectionAcknowledgmentsQuery,
   useGetStudySettingsQuery,
   useGetStudySummaryQuery,
-  useGetOrgStudiesQuery,
-  useVerifyParticipantQuery,
-  useCheckAuthorizationsMutation,
-  useGetOrganizationsQuery,
-  useSyncUserQuery,
   useGetAppUsageSurveyDataQuery,
   useGetAppUsageFrequencyQuery,
   useSubmitAppUsageSurveyMutation,
