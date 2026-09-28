@@ -8,6 +8,7 @@ import {
   COLLECTION_DATA_DISPOSITIONS,
   COLLECTION_MODULE_CONTRACTS,
   type CollectionDataDisposition as ContractCollectionDataDisposition,
+  INTERVAL_GATED_COLLECTION_MODULE_IDS,
   type IosSensorType,
   type StudyFeature,
 } from '@/generated/chronicle-contracts';
@@ -431,15 +432,11 @@ export const DEFAULT_SENSOR_DUTY_PERIOD = '300';
 
 // The pull/periodic modules whose collection interval (CollectionCadence.intervalSeconds)
 // the Android side actually honors. Only these get the per-module "Collection interval"
-// control in the study form; every other module ignores it. Mirrors the modules that read
-// CollectionModuleSetting.collectionCadence on the device.
-export const INTERVAL_CONFIGURABLE_MODULES: ReadonlySet<CollectionModuleId> = new Set<CollectionModuleId>([
-  'connectivity_state',
-  'device_settings',
-  'app_network_usage',
-  'health_connect',
-  'battery_telemetry',
-]);
+// control in the study form; every other module ignores it. Generated from the same
+// chronicle-models list the device gates on (CollectionCadenceModules).
+export const INTERVAL_CONFIGURABLE_MODULES: ReadonlySet<CollectionModuleId> = new Set<CollectionModuleId>(
+  INTERVAL_GATED_COLLECTION_MODULE_IDS,
+);
 
 // Default collection interval (seconds) for an interval-configurable module — 15 minutes,
 // matching the device's effective sampling floor (WorkManager's ~15 min minimum cadence).
