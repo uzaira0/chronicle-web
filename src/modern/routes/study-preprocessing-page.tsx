@@ -9,7 +9,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { isPreprocessingGuiAvailable, PREPROCESSING_GUI_PATH, preprocessingGuiUrl } from '@/lib/preprocessing-gui';
+import {
+  HOSTED_PREPROCESSING_GUI_URL,
+  isPreprocessingGuiAvailable,
+  PREPROCESSING_GUI_PATH,
+  preprocessingGuiUrl,
+} from '@/lib/preprocessing-gui';
 import { useGetStudySummaryQuery } from '@/state/study-operations-api';
 
 type GuiAvailability = 'checking' | 'available' | 'unavailable';
@@ -73,7 +78,12 @@ export function StudyPreprocessingPage() {
       <SectionHeader
         size="compact"
         actions={
-          guiIsAvailable ? (
+          guiAvailability === 'checking' ? (
+            <Button disabled>
+              <ExternalLink className="h-4 w-4" />
+              {t('preprocessing.checking_gui')}
+            </Button>
+          ) : guiIsAvailable ? (
             <Button asChild>
               <a href={guiUrl} rel="noreferrer">
                 <ExternalLink className="h-4 w-4" />
@@ -81,9 +91,11 @@ export function StudyPreprocessingPage() {
               </a>
             </Button>
           ) : (
-            <Button disabled title={t('preprocessing.not_in_deployment')}>
-              <ExternalLink className="h-4 w-4" />
-              {guiAvailability === 'checking' ? t('preprocessing.checking_gui') : t('preprocessing.gui_unavailable')}
+            <Button asChild>
+              <a href={HOSTED_PREPROCESSING_GUI_URL} rel="noreferrer" target="_blank">
+                <ExternalLink className="h-4 w-4" />
+                {t('preprocessing.open_gui')}
+              </a>
             </Button>
           )
         }
@@ -106,10 +118,7 @@ export function StudyPreprocessingPage() {
         </div>
         <div className="mt-4 max-w-3xl space-y-2 text-sm text-muted-foreground">
           {guiAvailability === 'unavailable' ? (
-            <p>
-              {t('preprocessing.unavailable_before_path')} <span className="font-mono">{PREPROCESSING_GUI_PATH}</span>{' '}
-              {t('preprocessing.unavailable_after_path')}
-            </p>
+            <p>{t('preprocessing.hosted_note')}</p>
           ) : (
             <p>
               {t('preprocessing.served_before_path')} <span className="font-mono">{PREPROCESSING_GUI_PATH}</span>.

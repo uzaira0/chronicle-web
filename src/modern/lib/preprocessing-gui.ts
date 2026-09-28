@@ -1,4 +1,7 @@
 export const PREPROCESSING_GUI_PATH = '/chronicle/preprocessing-gui/';
+// The same app, published on GitHub Pages. It processes files in the browser, so deployments
+// that do not run the service (the self-host bundle) link here instead.
+export const HOSTED_PREPROCESSING_GUI_URL = 'https://uzaira0.github.io/chronicle-android-raw-data-preprocessing-app/';
 
 export function preprocessingGuiUrl(studyId: string, studyTitle?: string) {
   const params = new URLSearchParams({ studyId });
