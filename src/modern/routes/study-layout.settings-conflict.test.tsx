@@ -84,7 +84,9 @@ function renderStudyWithServer() {
     revision: 1,
     limitsFails: false,
     limitsPuts: [] as Record<string, unknown>[],
+    limitsIfMatch: [] as (string | null)[],
     patches: [] as { ifMatch: string | null; settingType: string; body: Record<string, unknown> }[],
+    detailsPatches: [] as { ifMatch: string | null; revision: number }[],
   };
   window.location.href = 'http://localhost/';
   Object.defineProperty(globalThis, 'fetch', {
@@ -108,6 +110,17 @@ function renderStudyWithServer() {
       }
       if (method === 'PUT' && url.endsWith(`/limits/study/${STUDY_ID}`)) {
         server.limitsPuts.push((await request.clone().json()) as Record<string, unknown>);
+        server.limitsIfMatch.push(request.headers.get('If-Match'));
+        if (server.limitsFails) return new Response('limits store down', { status: 500 });
+        if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
+        server.revision += 1;
+        return json(LIMITS, { etag: `"${server.revision}"` });
+      }
+      if (method === 'PATCH' && url.includes(`/study/${STUDY_ID}?retrieve=true`)) {
+        server.detailsPatches.push({ ifMatch: request.headers.get('If-Match'), revision: server.revision });
+        if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
+        server.revision += 1;
+        return json({ id: STUDY_ID, title: 'Conflict Study' }, { etag: `"${server.revision}"` });
       }
       return method === 'PATCH'
         ? json({ id: STUDY_ID, title: 'Conflict Study' })
@@ -143,6 +156,25 @@ async function openEditDialog() {
 }
 
 describe('study edit dialog after a settings 412', () => {
+  test('a settings conflict prevents stale details and limits writes', async () => {
+    const { server } = renderStudyWithServer();
+    const { dialog, save } = await openEditDialog();
+    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
+    server.revision = 2;
+    save();
+    await within(dialog).findByText(/changed by someone else/);
+    expect(server.detailsPatches).toHaveLength(0);
+    expect(server.limitsPuts).toHaveLength(0);
+  });
+
+  test('details uses the revision returned by the last settings patch', async () => {
+    const { server } = renderStudyWithServer();
+    const { dialog, save } = await openEditDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
+    save();
+    await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
+    expect(server.detailsPatches[0]?.ifMatch).toBe(`"${server.detailsPatches[0]?.revision}"`);
+  });
   test('reloads the form from the current settings and saves them under the new revision', async () => {
     const { server } = renderStudyWithServer();
     const { dialog, policyVersion, save } = await openEditDialog();
@@ -232,6 +264,7 @@ describe('study edit dialog limits', () => {
     fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
     await saveAndSettle(save, server);
     expect(server.limitsPuts).toEqual([{ ...LIMITS, participantLimit: 12 }]);
+    expect(server.limitsIfMatch).toEqual([`"${server.revision - 1}"`]);
   });
 
   test('a partly filled limit set is refused with a form error instead of binding server defaults', async () => {

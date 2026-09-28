@@ -311,27 +311,37 @@ export function StudyLayout() {
 
     // If-Match starts at the revision the form was loaded from, not whatever this tab saw last.
     let ifMatch = settingsRevision;
-    const [details, settings, limitsFailure] = await Promise.all([
-      saveStep('details', updateStudy({ studyId, study: buildStudyPayload(form) }).unwrap()),
-      // Each successful PATCH returns the next revision (remembered by its transformResponse),
-      // so the chain stays current across the sequence. A 412 stops the sequence: later
-      // writes would otherwise clobber whoever won the race.
-      writeSettingsInOrder(
-        writes,
-        async (write) => {
-          const result = await updateStudySettings({ studyId, ifMatch, ...write }).unwrap();
-          ifMatch = knownSettingsRevision(studyId);
-          return result;
-        },
-        isSettingsConflict,
-      ),
-      saveStep('limits', limits ? setStudyLimits({ studyId, limits }).unwrap() : null),
-    ]);
-    const [first, ...rest] = [...details, ...settings.failures, ...limitsFailure];
-    if (!first) return;
+    if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+    // Every write is ordered behind the form's revision precondition. A failed setting
+    // cannot let stale details or limits reach the server.
+    const settings = await writeSettingsInOrder(
+      writes,
+      async (write) => {
+        const result = await updateStudySettings({ studyId, ifMatch, ...write }).unwrap();
+        ifMatch = knownSettingsRevision(studyId);
+        return result;
+      },
+      isSettingsConflict,
+    );
     if (settings.stopped) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-    const steps = stepList([first, ...rest].map((failure) => failure.step));
-    throw new Error(`${t('study_layout.changes_not_saved', { steps })} ${getErrorMessage(first.error, '')}`.trim());
+    if (settings.failures.length) {
+      const steps = stepList(settings.failures.map((failure) => failure.step));
+      throw new Error(`${t('study_layout.changes_not_saved', { steps })} ${getErrorMessage(settings.failures[0]?.error, '')}`.trim());
+    }
+    const details = await saveStep('details', updateStudy({ studyId, study: buildStudyPayload(form), ifMatch }).unwrap());
+    if (details.length) {
+      if (isSettingsConflict(details[0]?.error)) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+      throw new Error(`${t('study_layout.changes_not_saved', { steps: stepList(['details']) })} ${getErrorMessage(details[0]?.error, '')}`.trim());
+    }
+    ifMatch = knownSettingsRevision(studyId);
+    if (limits) {
+      if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+      const limitsFailure = await saveStep('limits', setStudyLimits({ studyId, limits, ifMatch }).unwrap());
+      if (limitsFailure.length) {
+        if (isSettingsConflict(limitsFailure[0]?.error)) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+        throw new Error(`${t('study_layout.changes_not_saved', { steps: stepList(['limits']) })} ${getErrorMessage(limitsFailure[0]?.error, '')}`.trim());
+      }
+    }
   };
 
   const handleArchive = async () => {
