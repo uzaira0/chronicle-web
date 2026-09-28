@@ -211,6 +211,13 @@ export type IosUploadStatus = {
 
 export type IosUploadStatusMap = Record<string, IosUploadStatus>;
 
+export type AndroidDataDrop = {
+  issueCode: 'SENSOR_AGE_EXPIRED' | 'SENSOR_CAPACITY_DROPPED' | 'SENSOR_DEAD_LETTER_DROPPED' | 'USAGE_QUEUE_EVICTED';
+  count: number;
+  lastOccurredAt: string;
+};
+export type AndroidDataDropMap = Record<string, AndroidDataDrop[]>;
+
 export type DeviceEnrollmentEvent = {
   enrolledAt?: string;
   enrollmentId?: string;
@@ -679,6 +686,10 @@ export const studyOperationsApi = createApi({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/ios/upload-status`,
     }),
+    getAndroidDataDrops: builder.query<AndroidDataDropMap, string>({
+      providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
+      query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/android/data-drops`,
+    }),
     getStudyDevices: builder.query<StudyDeviceInstancesMap, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Devices' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/devices`,
@@ -1139,6 +1150,7 @@ export const {
   useListStudyExportsQuery,
   useGetAllStudiesQuery,
   useGetComplianceViolationsQuery,
+  useGetAndroidDataDropsQuery,
   useGetIosUploadStatusQuery,
   useGetParticipantStatsQuery,
   useGetStudyDevicesQuery,

@@ -16,6 +16,9 @@ const studyOperationsApiModule = await import('@/state/study-operations-api');
 await mock.module('@/state/study-operations-api', () => ({
   ...studyOperationsApiModule,
   useDeleteStudyParticipantsMutation: mutation,
+  useGetAndroidDataDropsQuery: query({
+    'p-000': [{ count: 12, issueCode: 'USAGE_QUEUE_EVICTED', lastOccurredAt: '2026-09-20T10:00:00Z' }],
+  }),
   useGetIosUploadStatusQuery: query({}),
   useGetParticipantStatsQuery: query({}),
   useGetStudyCollectionAcknowledgmentsQuery: query([]),
@@ -67,5 +70,19 @@ describe('StudyParticipantsPage pagination', () => {
     // Rows revealed afterwards were never seen, so they must not already be selected.
     fireEvent.click(screen.getByRole('button', { name: 'Show 100 more (150 hidden)' }));
     expect(participantRows().filter((box) => (box as HTMLInputElement).checked)).toHaveLength(100);
+  });
+
+  test('an expanded row shows data the device discarded', () => {
+    render(
+      <MemoryRouter initialEntries={['/studies/study-1/participants']}>
+        <Routes>
+          <Route element={<StudyParticipantsPage />} path="/studies/:studyId/participants" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getAllByLabelText(/expand row/i)[0] as HTMLElement);
+    expect(screen.getByText('Data discarded on the device')).toBeTruthy();
+    expect(screen.getByText('Usage events (device storage low)')).toBeTruthy();
   });
 });

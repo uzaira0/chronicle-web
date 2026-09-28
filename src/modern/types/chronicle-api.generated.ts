@@ -1106,6 +1106,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chronicle/v3/study/{studyId}/participants/android/data-drops": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get data Android devices discarded locally in the last 30 days */
+        get: operations["getAndroidDataDrops"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chronicle/v3/study/{studyId}/participants/data": {
         parameters: {
             query?: never;
@@ -2280,6 +2297,14 @@ export interface components {
             iosLastPing?: string;
             tudSubmissionCount?: number;
         };
+        AndroidDataDrop: {
+            /** @enum {string} */
+            issueCode: "SENSOR_AGE_EXPIRED" | "SENSOR_CAPACITY_DROPPED" | "SENSOR_DEAD_LETTER_DROPPED" | "USAGE_QUEUE_EVICTED";
+            /** Format: int64 */
+            count: number;
+            /** Format: date-time */
+            lastOccurredAt: string;
+        };
         IosUploadStatus: {
             participantId: string;
             /** Format: int64 */
@@ -2838,7 +2863,7 @@ export interface components {
             /** @enum {string} */
             moduleFamily: "USAGE_LIFECYCLE" | "BATTERY" | "DEVICE_TELEMETRY" | "SENSOR" | "APP_RUNTIME";
             /** @enum {string} */
-            issueCode: "DESTINATION_MISSING" | "DESTINATION_IDENTITY_MISMATCH" | "DESTINATION_SOURCE_DEVICE_MISSING" | "DESTINATION_SETUP_INCOMPLETE" | "DESTINATION_DISABLED" | "DESTINATION_NONCANONICAL" | "DESTINATION_CREDENTIAL_INCOMPLETE" | "HTTP_SERVER_ERROR" | "HTTP_CLIENT_ERROR" | "TIMEOUT" | "DNS_FAILURE" | "TLS_FAILURE" | "CONNECTION_FAILURE" | "UPLOAD_FAILURE" | "SENSOR_SAMPLE_QUARANTINED" | "SENSOR_DEAD_LETTER_DROPPED" | "APP_CRASH" | "APP_CRASH_NATIVE" | "APP_ANR";
+            issueCode: "DESTINATION_MISSING" | "DESTINATION_IDENTITY_MISMATCH" | "DESTINATION_SOURCE_DEVICE_MISSING" | "DESTINATION_SETUP_INCOMPLETE" | "DESTINATION_DISABLED" | "DESTINATION_NONCANONICAL" | "DESTINATION_CREDENTIAL_INCOMPLETE" | "HTTP_SERVER_ERROR" | "HTTP_CLIENT_ERROR" | "TIMEOUT" | "DNS_FAILURE" | "TLS_FAILURE" | "CONNECTION_FAILURE" | "UPLOAD_FAILURE" | "SENSOR_SAMPLE_QUARANTINED" | "SENSOR_DEAD_LETTER_DROPPED" | "APP_CRASH" | "APP_CRASH_NATIVE" | "APP_ANR" | "SENSOR_AGE_EXPIRED" | "SENSOR_CAPACITY_DROPPED" | "USAGE_QUEUE_EVICTED";
             count: number;
             /** Format: date-time */
             firstOccurredAt: string;
@@ -4836,6 +4861,30 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: components["schemas"]["IosUploadStatus"];
+                    };
+                };
+            };
+        };
+    };
+    getAndroidDataDrops: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Map of participant ID to local drop counts by reason */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["AndroidDataDrop"][];
                     };
                 };
             };

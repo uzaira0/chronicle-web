@@ -44,6 +44,7 @@ import { formatDisplayDateTime } from '@/lib/format';
 import { getStatusVariant } from '@/lib/participant-status';
 import { ANDROID_SENSOR_TYPES, SENSOR_MODULE_IDS } from '@/lib/study-constants';
 import {
+  type AndroidDataDrop,
   type AndroidDeviceSensorAvailability,
   type CollectionAcknowledgmentEntry,
   type DataDeletionOperation,
@@ -52,6 +53,7 @@ import {
   type ParticipantStats,
   type StudyDeviceInstance,
   useDeleteStudyParticipantsMutation,
+  useGetAndroidDataDropsQuery,
   useGetIosUploadStatusQuery,
   useGetParticipantStatsQuery,
   useGetStudyCollectionAcknowledgmentsQuery,
@@ -103,6 +105,7 @@ type ParticipantRowProps = {
   participantDevices: StudyDeviceInstance[];
   participantSensors: AndroidDeviceSensorAvailability[];
   iosUploadStatus?: IosUploadStatus | undefined;
+  androidDataDrops: AndroidDataDrop[];
   ps?: ParticipantStats | undefined;
   selectedAndroidSensors: string[];
   hardwareSensorsEnabled: boolean;
@@ -322,6 +325,33 @@ function IosUploadStatusPanel({
   );
 }
 
+function AndroidDataDropsPanel({ drops }: { drops: AndroidDataDrop[] }) {
+  const { t } = useTranslator();
+  if (drops.length === 0) return null;
+  return (
+    <div className="space-y-2 rounded-lg border border-warning/40 bg-card/70 p-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('participants.android_data_drops')}
+        </p>
+        <p className="text-xs text-muted-foreground">{t('participants.android_data_drops_note')}</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {drops.map((drop) => (
+          <StatusMetric
+            key={drop.issueCode}
+            label={t(`participants.data_drop_${drop.issueCode.toLowerCase()}`)}
+            value={t('participants.data_drop_value', {
+              count: drop.count.toLocaleString(),
+              time: formatDisplayDateTime(drop.lastOccurredAt),
+            })}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SensorBucket({
   sensors,
   title,
@@ -356,6 +386,7 @@ function ParticipantExpandedDetails({
   participantDevices,
   participantSensors,
   iosUploadStatus,
+  androidDataDrops,
   selectedAndroidSensors,
 }: {
   hardwareSensorsEnabled: boolean;
@@ -364,6 +395,7 @@ function ParticipantExpandedDetails({
   participantDevices: StudyDeviceInstance[];
   participantSensors: AndroidDeviceSensorAvailability[];
   iosUploadStatus?: IosUploadStatus | undefined;
+  androidDataDrops: AndroidDataDrop[];
   selectedAndroidSensors: string[];
 }) {
   const { t } = useTranslator();
@@ -408,6 +440,7 @@ function ParticipantExpandedDetails({
       )}
 
       <IosUploadStatusPanel participantDevices={participantDevices} status={iosUploadStatus} />
+      <AndroidDataDropsPanel drops={androidDataDrops} />
 
       {sensorProfiles.length > 0 && (
         <>
@@ -500,6 +533,7 @@ function ParticipantRowBody({
   participantDevices,
   participantSensors,
   iosUploadStatus,
+  androidDataDrops,
   ps,
   selectedAndroidSensors,
   setModal,
@@ -605,6 +639,7 @@ function ParticipantRowBody({
               participantDevices={participantDevices}
               participantSensors={participantSensors}
               iosUploadStatus={iosUploadStatus}
+              androidDataDrops={androidDataDrops}
               selectedAndroidSensors={selectedAndroidSensors}
             />
           </TableCell>
@@ -651,6 +686,7 @@ export function StudyParticipantsPage() {
   const hasExpandedRows = expandedRows.size > 0;
   const { data: devices = {} } = useGetStudyDevicesQuery(studyId, { skip: !studyId || !hasExpandedRows });
   const { data: iosUploadStatus = {} } = useGetIosUploadStatusQuery(studyId, { skip: !studyId || !hasExpandedRows });
+  const { data: androidDataDrops = {} } = useGetAndroidDataDropsQuery(studyId, { skip: !studyId || !hasExpandedRows });
   const { data: dataCollectionSetting } = useGetStudyDataCollectionSettingQuery(studyId, { skip: !studyId });
   const { data: sensorAvailability = [] } = useGetStudySensorAvailabilityQuery(studyId, {
     skip: !studyId || !hasExpandedRows,
@@ -1034,6 +1070,7 @@ export function StudyParticipantsPage() {
                     participantDevices={devices[participant.participantId] ?? EMPTY_ARRAY}
                     participantSensors={sensorAvailabilityMap[participant.participantId] ?? EMPTY_ARRAY}
                     iosUploadStatus={iosUploadStatus[participant.participantId]}
+                    androidDataDrops={androidDataDrops[participant.participantId] ?? EMPTY_ARRAY}
                     ps={stats[participant.participantId]}
                     selectedAndroidSensors={selectedAndroidSensors}
                     setModal={stableSetModal}

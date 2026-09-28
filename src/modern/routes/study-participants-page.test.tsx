@@ -31,6 +31,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
+            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -64,6 +65,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
+            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -95,6 +97,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
+            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -122,6 +125,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
+            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -184,6 +188,7 @@ describe('StudyParticipantsPage - row re-renders', () => {
         <TableBody>
           {participants.map((participant) => (
             <ParticipantRow
+              androidDataDrops={EMPTY}
               colCount={11}
               handleSingleDelete={noop}
               hardwareSensorsEnabled={false}
