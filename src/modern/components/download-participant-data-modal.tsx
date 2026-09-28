@@ -11,6 +11,7 @@ import { participantDataTypesForModules } from '@/lib/participant-data-types';
 import type { StudyModule } from '@/lib/study-constants';
 import {
   type TimeUseDiaryDataType,
+  exportRangeExceedsLimit,
   useDownloadParticipantDataMutation,
   useDownloadParticipantTudDataMutation,
 } from '@/state/study-operations-api';
@@ -64,6 +65,10 @@ export function DownloadParticipantDataModal({
   const handleDownload = async () => {
     if (!selectedType) return;
     setError(null);
+    if (exportRangeExceedsLimit(startDate, endDate)) {
+      setError(t('download_modal.range_too_long'));
+      return;
+    }
 
     // Two endpoints, not one: TUD goes to TimeUseDiaryController with its own enum,
     // everything else to StudyController's participants/data.
@@ -158,6 +163,7 @@ export function DownloadParticipantDataModal({
               <Label htmlFor="download-end">{t('download_modal.end_optional')}</Label>
               <Input id="download-end" onChange={(e) => setEndDate(e.target.value)} type="date" value={endDate} />
             </div>
+            <p className="text-xs text-muted-foreground sm:col-span-2">{t('download_modal.date_range_hint')}</p>
           </div>
 
           {/* Custom filename */}
@@ -178,7 +184,7 @@ export function DownloadParticipantDataModal({
               {t('common.cancel')}
             </Button>
             <Button
-              disabled={!selectedType || busy}
+              disabled={!selectedType || busy || !startDate || !endDate}
               onClick={() => {
                 handleDownload().catch((err) => {
                   setError(getErrorMessage(err, t('common.download_failed')));
