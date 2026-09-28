@@ -191,10 +191,9 @@ describe('normalizeParticipantList()', () => {
     expect(result[0]?.participantTags).toEqual(['tag1']);
   });
 
-  it('filters out entries without participantId', () => {
-    const result = normalizeParticipantList([{ participantId: 'p-1' }, { candidate: { id: 'c-2' } }, {}]);
-
-    expect(result).toHaveLength(1);
+  it('rejects the page when an entry lacks participantId', () => {
+    expect(() => normalizeParticipantList([{ participantId: 'p-1' }, { candidate: { id: 'c-2' } }, {}]))
+      .toThrow(/participantId/);
   });
 
   it('defaults candidate to { id: "" } when missing', () => {
@@ -531,9 +530,8 @@ describe('normalizeParticipantList() — exhaustive edge cases', () => {
     expect(() => normalizeParticipantList(input)).toThrow('Expected array');
   });
 
-  it('filters entries with participantId = 0 (falsy)', () => {
-    const result = normalizeParticipantList([{ participantId: 0 }]);
-    expect(result).toHaveLength(0);
+  it('rejects entries with participantId = 0 (falsy)', () => {
+    expect(() => normalizeParticipantList([{ participantId: 0 }])).toThrow(/participantId/);
   });
 
   it('includes entries with participantId = "0" (truthy string)', () => {
@@ -542,19 +540,16 @@ describe('normalizeParticipantList() — exhaustive edge cases', () => {
     expect(result[0]?.participantId).toBe('0');
   });
 
-  it('filters entries with participantId = false', () => {
-    const result = normalizeParticipantList([{ participantId: false }]);
-    expect(result).toHaveLength(0);
+  it('rejects entries with participantId = false', () => {
+    expect(() => normalizeParticipantList([{ participantId: false }])).toThrow(/participantId/);
   });
 
-  it('filters entries with participantId = null', () => {
-    const result = normalizeParticipantList([{ participantId: null }]);
-    expect(result).toHaveLength(0);
+  it('rejects entries with participantId = null', () => {
+    expect(() => normalizeParticipantList([{ participantId: null }])).toThrow(/participantId/);
   });
 
-  it('filters entries with participantId = ""', () => {
-    const result = normalizeParticipantList([{ participantId: '' }]);
-    expect(result).toHaveLength(0);
+  it('rejects entries with participantId = ""', () => {
+    expect(() => normalizeParticipantList([{ participantId: '' }])).toThrow(/participantId/);
   });
 
   it('converts numeric participantId to string', () => {
@@ -629,10 +624,8 @@ describe('normalizeParticipantList() — exhaustive edge cases', () => {
     expect(result.map((p) => p.participantId)).toEqual(['c', 'a', 'b']);
   });
 
-  it('handles mixed valid/invalid entries (objects only)', () => {
-    const result = normalizeParticipantList([{ participantId: 'p-1' }, {}, { participantId: 'p-2' }, { noId: true }]);
-    expect(result).toHaveLength(2);
-    expect(result[0]?.participantId).toBe('p-1');
-    expect(result[1]?.participantId).toBe('p-2');
+  it('rejects mixed valid and invalid entries as a whole page', () => {
+    expect(() => normalizeParticipantList([{ participantId: 'p-1' }, {}, { participantId: 'p-2' }, { noId: true }]))
+      .toThrow(/participantId/);
   });
 });

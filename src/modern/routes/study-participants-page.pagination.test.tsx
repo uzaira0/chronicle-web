@@ -16,8 +16,22 @@ const studyOperationsApiModule = await import('@/state/study-operations-api');
 await mock.module('@/state/study-operations-api', () => ({
   ...studyOperationsApiModule,
   useDeleteStudyParticipantsMutation: mutation,
-  useGetAndroidDataDropsQuery: query({
-    'p-000': [{ count: 12, issueCode: 'USAGE_QUEUE_EVICTED', lastOccurredAt: '2026-09-20T10:00:00Z' }],
+  useDownloadParticipantDataMutation: mutation,
+  useGetAndroidDiagnosticsQuery: query({
+    items: [{
+      participantId: 'p-000',
+      deviceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      day: '2026-09-20',
+      codes: [{
+        eventId: 'loss-1',
+        moduleFamily: 'USAGE_LIFECYCLE',
+        issueCode: 'USAGE_QUEUE_EVICTED',
+        occurrenceCount: 12,
+        firstOccurredAt: '2026-09-20T10:00:00Z',
+        lastOccurredAt: '2026-09-20T10:00:00Z',
+      }],
+    }],
+    nextCursor: null,
   }),
   useGetIosUploadStatusQuery: query({}),
   useGetParticipantStatsQuery: query({}),
@@ -82,7 +96,7 @@ describe('StudyParticipantsPage pagination', () => {
     );
 
     fireEvent.click(screen.getAllByLabelText(/expand row/i)[0] as HTMLElement);
-    expect(screen.getByText('Data discarded on the device')).toBeTruthy();
-    expect(screen.getByText('Usage events (device storage low)')).toBeTruthy();
+    expect(screen.getByText('Android diagnostics history')).toBeTruthy();
+    expect(screen.getByText(/USAGE_QUEUE_EVICTED/)).toBeTruthy();
   });
 });

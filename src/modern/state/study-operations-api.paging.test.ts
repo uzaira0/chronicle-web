@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { configureStore } from '@reduxjs/toolkit';
+import { getErrorMessage } from '@/lib/errors';
 
 import { studyOperationsApi } from './study-operations-api';
 
@@ -160,5 +161,30 @@ describe('list endpoints read every server page', () => {
       (reason: unknown) => reason,
     );
     expect(error).toMatchObject({ status: 500 });
+  });
+
+  it('rejects a full final page at the list-page cap', async () => {
+    serve('/chronicle/api/web/study/s1/participants',
+      range(100_001).map((i) => ({ participantId: `p-${i}`, participationStatus: 'ENROLLED' })));
+    const error = await read(studyOperationsApi.endpoints.getStudyParticipants, 's1').then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+    expect(error).not.toBeNull();
+    expect(requested).toHaveLength(200);
+  });
+
+  it('fails the participant query visibly when any row lacks participantId', async () => {
+    serve('/chronicle/api/web/study/s1/participants', [
+      { participantId: 'p-1', participationStatus: 'ENROLLED' },
+      { participationStatus: 'ENROLLED' },
+    ]);
+    const error = await read(studyOperationsApi.endpoints.getStudyParticipants, 's1').then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+    expect(error).toMatchObject({ status: 'CUSTOM_ERROR' });
+    expect((error as { error: string }).error).toContain('participantId');
+    expect(getErrorMessage(error, 'Failed to load participants')).toContain('contract error');
   });
 });

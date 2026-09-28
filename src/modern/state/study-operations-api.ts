@@ -7,7 +7,7 @@ import {
   STUDY_LIFECYCLE_STATUSES,
   type StudyLifecycleStatus,
 } from '@/generated/chronicle-contracts';
-import { getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
+import { createTranslator, getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
 import { triggerBlobDownload } from '@/lib/download';
 import { getParticipantCsrfToken } from '@/lib/participant-access';
 import type { StudyParticipantPolicySetting } from '@/lib/participant-policy';
@@ -211,12 +211,62 @@ export type IosUploadStatus = {
 
 export type IosUploadStatusMap = Record<string, IosUploadStatus>;
 
-export type AndroidDataDrop = {
-  issueCode: 'SENSOR_AGE_EXPIRED' | 'SENSOR_CAPACITY_DROPPED' | 'SENSOR_DEAD_LETTER_DROPPED' | 'USAGE_QUEUE_EVICTED';
-  count: number;
+export type AndroidDiagnosticCodeSummary = {
+  eventId: string;
+  moduleFamily: string;
+  issueCode: string;
+  occurrenceCount: number;
+  firstOccurredAt: string;
   lastOccurredAt: string;
+  httpStatus?: number | null;
+  errorType?: string | null;
 };
-export type AndroidDataDropMap = Record<string, AndroidDataDrop[]>;
+
+export type DataQualityAlertHistoryItem = {
+  alertId: string;
+  alertType: string;
+  score: number;
+  createdAt: string;
+};
+
+export type AndroidDiagnosticsHistoryRow = {
+  participantId: string;
+  deviceId?: string | null;
+  day: string;
+  codes: AndroidDiagnosticCodeSummary[];
+  dataQualityAlert?: DataQualityAlertHistoryItem | null;
+};
+
+export type AndroidDiagnosticsPage = {
+  items: AndroidDiagnosticsHistoryRow[];
+  nextCursor?: string | null;
+};
+
+function androidDiagnosticsUrl(filters: {
+  studyId: string;
+  participantId?: string;
+  deviceId?: string;
+  fromDay?: string;
+  toDay?: string;
+  moduleFamily?: string;
+  issueCode?: string;
+  cursor?: string;
+  limit?: number;
+}) {
+  const { studyId, ...queryValues } = filters;
+  const entries = Object.entries({
+    participantId: queryValues.participantId,
+    deviceId: queryValues.deviceId,
+    from: queryValues.fromDay,
+    to: queryValues.toDay,
+    moduleFamily: queryValues.moduleFamily,
+    issueCode: queryValues.issueCode,
+    cursor: queryValues.cursor,
+    limit: queryValues.limit,
+  }).flatMap(([key, value]) => (value === undefined || value === '' ? [] : [[key, String(value)] as [string, string]]));
+  const query = new URLSearchParams(entries).toString();
+  return `/study/${encodeURIComponent(studyId)}/participants/android/diagnostics${query ? `?${query}` : ''}`;
+}
 
 export type DeviceEnrollmentEvent = {
   enrolledAt?: string;
@@ -449,14 +499,15 @@ function normalizeCandidate(value: unknown): Candidate {
 /** @internal Exported for testing only. */
 export function normalizeParticipantList(payload: unknown): Participant[] {
   if (!Array.isArray(payload)) {
-    throw new Error(`[normalizeParticipantList] Expected array, received ${typeof payload}`);
+    throw new Error(createTranslator(getCurrentLanguage()).t('participants.response_contract_expected_array'));
   }
-  return payload
-    .filter(
-      (participant): participant is Record<string, unknown> =>
-        isRecord(participant) && Boolean(participant.participantId),
-    )
-    .map((participant) => ({
+  let unknownStatuses = 0;
+  const participants = payload.map((participant, index) => {
+    if (!isRecord(participant) || !participant.participantId) {
+      throw new Error(createTranslator(getCurrentLanguage()).t('participants.response_contract_missing_id', { index: String(index) }));
+    }
+    if (!isParticipationStatus(participant.participationStatus)) unknownStatuses += 1;
+    return {
       candidate: normalizeCandidate(participant.candidate),
       participantId: String(participant.participantId),
       participantNotes:
@@ -469,7 +520,12 @@ export function normalizeParticipantList(payload: unknown): Participant[] {
       participationStatus: isParticipationStatus(participant.participationStatus)
         ? participant.participationStatus
         : 'UNKNOWN',
-    }));
+    };
+  });
+  if (unknownStatuses && typeof globalThis.console?.warn === 'function') {
+    console.warn(`[normalizeParticipantList] ${unknownStatuses} row(s) had an unknown participation status`);
+  }
+  return participants;
 }
 
 function getCsrfToken(): string | null {
@@ -494,6 +550,31 @@ export async function fetchWithCsrf(url: string, init?: RequestInit): Promise<Re
 // without one, prepareHeaders mints a fresh key per request (replay protection only).
 function idempotencyHeaders(idempotencyKey: string | undefined): Record<string, string> | undefined {
   return idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+}
+
+const EXPORT_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Date inputs give `YYYY-MM-DD`; the export endpoints bind ISO date-times. A day becomes local
+ * midnight, and an end day becomes the following midnight so the chosen day is included.
+ */
+export function toExportDateTime(value: string, exclusiveEnd = false): string {
+  if (!EXPORT_DAY.test(value)) return value;
+  const date = new Date(`${value}T00:00:00`);
+  if (exclusiveEnd) date.setDate(date.getDate() + 1);
+  const offsetMinutes = -date.getTimezoneOffset();
+  const pad = (number: number) => String(number).padStart(2, '0');
+  const offset = `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T00:00:00${offset}`;
+}
+
+/** The synchronous server cap is 31 elapsed days between local midnights. */
+export function exportRangeExceedsLimit(startDay: string, endDay: string): boolean {
+  if (!EXPORT_DAY.test(startDay) || !EXPORT_DAY.test(endDay)) return false;
+  const start = new Date(`${startDay}T00:00:00`);
+  const end = new Date(`${endDay}T00:00:00`);
+  end.setDate(end.getDate() + 1);
+  return end.getTime() - start.getTime() > 31 * 86_400_000;
 }
 
 function httpError(response: Response, text: string) {
@@ -528,9 +609,9 @@ async function readAllPages(
     const result = (await fetchPage(`${path}${path.includes('?') ? '&' : '?'}${params.toString()}`)) as PageResult;
     if (result.error) return { error: result.error };
     pages.push(result.data);
-    if (pageSize(result.data) < limit) break;
+    if (pageSize(result.data) < limit) return { data: pages };
   }
-  return { data: pages };
+  return { error: { status: 'CUSTOM_ERROR', error: `List exceeds ${MAX_LIST_PAGES} full pages; use a narrower query or export.` } };
 }
 
 /** Array pages joined; a malformed page is passed through as-is for the caller's validation. */
@@ -545,7 +626,12 @@ async function readAllRows<T>(
   normalize: (rows: unknown) => T = (rows) => rows as T,
 ): Promise<{ data: T } | { error: FetchBaseQueryError }> {
   const result = await readAllPages(fetchPage, path, limit);
-  return 'error' in result ? result : { data: normalize(concatPages(result.data)) };
+  if ('error' in result) return result;
+  try {
+    return { data: normalize(concatPages(result.data)) };
+  } catch (error) {
+    return { error: { status: 'CUSTOM_ERROR', error: error instanceof Error ? error.message : String(error) } };
+  }
 }
 
 function parsingError(response: Response, error: string) {
@@ -619,16 +705,17 @@ export const studyOperationsApi = createApi({
         return body;
       },
     }),
-    setStudyLimits: builder.mutation<unknown, { studyId: string; limits: Record<string, unknown> }>({
+    setStudyLimits: builder.mutation<unknown, { studyId: string; limits: Record<string, unknown>; ifMatch?: string }>({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Study' }],
-      queryFn: async ({ studyId, limits }) => {
+      queryFn: async ({ studyId, limits, ifMatch }) => {
         try {
           const response = await fetchWithCsrf(`/chronicle/api/web/limits/study/${encodeURIComponent(studyId)}`, {
             body: JSON.stringify(limits),
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(ifMatch ? { 'If-Match': ifMatch } : {}) },
             method: 'PUT',
           });
           if (!response.ok) return httpError(response, await response.text());
+          rememberSettingsRevision(studyId, response.headers);
           const data: unknown = await response.json().catch(() => null);
           return { data };
         } catch (err) {
@@ -686,9 +773,24 @@ export const studyOperationsApi = createApi({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/ios/upload-status`,
     }),
-    getAndroidDataDrops: builder.query<AndroidDataDropMap, string>({
-      providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
-      query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/android/data-drops`,
+    getAndroidDiagnostics: builder.query<
+      AndroidDiagnosticsPage,
+      {
+        studyId: string;
+        participantId?: string;
+        deviceId?: string;
+        fromDay?: string;
+        toDay?: string;
+        moduleFamily?: string;
+        issueCode?: string;
+        cursor?: string;
+        limit?: number;
+      }
+    >({
+      providesTags: (_result, _error, { studyId, participantId }) => [
+        { id: `${studyId}:${participantId ?? 'all'}`, type: 'ParticipantStats' },
+      ],
+      query: androidDiagnosticsUrl,
     }),
     getStudyDevices: builder.query<StudyDeviceInstancesMap, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Devices' }],
@@ -792,16 +894,21 @@ export const studyOperationsApi = createApi({
         url: `/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
       }),
     }),
-    updateStudy: builder.mutation<StudySummary | null, { study: StudyUpdatePayload; studyId: string }>({
+    updateStudy: builder.mutation<StudySummary | null, { study: StudyUpdatePayload; studyId: string; ifMatch?: string }>({
       invalidatesTags: (_result, _error, { studyId }) => [
         { id: studyId, type: 'Study' },
         { id: 'LIST', type: 'Study' },
       ],
-      query: ({ study, studyId }) => ({
+      query: ({ study, studyId, ifMatch }) => ({
         body: study,
+        headers: ifMatch ? { 'If-Match': ifMatch } : undefined,
         method: 'PATCH',
         url: `/study/${encodeURIComponent(studyId)}?retrieve=true`,
       }),
+      transformResponse: (body: StudySummary | null, meta, { studyId }) => {
+        rememberSettingsRevision(studyId, meta?.response?.headers);
+        return body;
+      },
     }),
     archiveStudy: builder.mutation<unknown, string>({
       invalidatesTags: (_r, _e, studyId) => [
@@ -862,8 +969,8 @@ export const studyOperationsApi = createApi({
         try {
           const params = new URLSearchParams({ dataType });
           for (const pid of participantIds) params.append('participantId', pid);
-          if (startDate) params.set('startDate', startDate);
-          if (endDate) params.set('endDate', endDate);
+          if (startDate) params.set('startDate', toExportDateTime(startDate));
+          if (endDate) params.set('endDate', toExportDateTime(endDate, true));
           const response = await fetchWithCsrf(
             `/chronicle/api/web/study/${encodeURIComponent(studyId)}/participants/data?${params.toString()}`,
             { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
@@ -930,8 +1037,8 @@ export const studyOperationsApi = createApi({
         try {
           const params = new URLSearchParams({ dataType });
           for (const pid of participantIds) params.append('participantId', pid);
-          if (startDate) params.set('startDate', startDate);
-          if (endDate) params.set('endDate', endDate);
+          if (startDate) params.set('startDate', toExportDateTime(startDate));
+          if (endDate) params.set('endDate', toExportDateTime(endDate, true));
           const response = await fetchWithCsrf(
             `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/participants/data?${params.toString()}`,
             { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
@@ -1150,7 +1257,7 @@ export const {
   useListStudyExportsQuery,
   useGetAllStudiesQuery,
   useGetComplianceViolationsQuery,
-  useGetAndroidDataDropsQuery,
+  useGetAndroidDiagnosticsQuery,
   useGetIosUploadStatusQuery,
   useGetParticipantStatsQuery,
   useGetStudyDevicesQuery,

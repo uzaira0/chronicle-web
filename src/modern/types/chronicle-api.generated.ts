@@ -1113,8 +1113,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get data Android devices discarded locally in the last 30 days */
+        /** Get retained data Android devices discarded locally */
         get: operations["getAndroidDataDrops"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/participants/android/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get retained Android upload diagnostic and data-quality alert history */
+        get: operations["getAndroidDiagnostics"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2304,6 +2321,41 @@ export interface components {
             count: number;
             /** Format: date-time */
             lastOccurredAt: string;
+        };
+        AndroidDiagnosticCodeSummary: {
+            eventId: string;
+            moduleFamily: string;
+            issueCode: string;
+            /** Format: int64 */
+            occurrenceCount: number;
+            /** Format: date-time */
+            firstOccurredAt: string;
+            /** Format: date-time */
+            lastOccurredAt: string;
+            httpStatus?: number | null;
+            errorType?: string | null;
+        };
+        DataQualityAlertHistoryItem: {
+            /** Format: uuid */
+            alertId: string;
+            alertType: string;
+            /** Format: double */
+            score: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AndroidDiagnosticsHistoryRow: {
+            participantId: string;
+            /** Format: uuid */
+            deviceId?: string | null;
+            /** Format: date */
+            day: string;
+            codes: components["schemas"]["AndroidDiagnosticCodeSummary"][];
+            dataQualityAlert?: components["schemas"]["DataQualityAlertHistoryItem"] | null;
+        };
+        AndroidDiagnosticsPage: {
+            items: components["schemas"]["AndroidDiagnosticsHistoryRow"][];
+            nextCursor?: string | null;
         };
         IosUploadStatus: {
             participantId: string;
@@ -4886,6 +4938,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: components["schemas"]["AndroidDataDrop"][];
                     };
+                };
+            };
+        };
+    };
+    getAndroidDiagnostics: {
+        parameters: {
+            query?: {
+                participantId?: string;
+                deviceId?: string;
+                /** @description Inclusive diagnostic day or UTC calendar day of alert creation. */
+                from?: string;
+                /** @description Inclusive diagnostic day or UTC calendar day of alert creation. */
+                to?: string;
+                moduleFamily?: string;
+                issueCode?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stable keyset page of per-day/per-device diagnostics and redacted alerts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AndroidDiagnosticsPage"];
                 };
             };
         };

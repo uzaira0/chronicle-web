@@ -513,9 +513,8 @@ describe('normalizeParticipantList — edge cases', () => {
     expect(normalizeParticipantList([])).toEqual([]);
   });
 
-  it('filters out entries without participantId', () => {
-    const result = normalizeParticipantList([{ candidate: { id: 'c-1' } }, {}]);
-    expect(result).toEqual([]);
+  it('rejects entries without participantId', () => {
+    expect(() => normalizeParticipantList([{ candidate: { id: 'c-1' } }, {}])).toThrow(/participantId/);
   });
 
   it('preserves entries with participantId', () => {
@@ -580,19 +579,16 @@ describe('normalizeParticipantList — edge cases', () => {
     expect(result[0]?.candidate.name).toBe('Alice');
   });
 
-  it('filters entries where participantId is null', () => {
-    const result = normalizeParticipantList([{ participantId: null }]);
-    expect(result).toEqual([]);
+  it('rejects entries where participantId is null', () => {
+    expect(() => normalizeParticipantList([{ participantId: null }])).toThrow(/participantId/);
   });
 
-  it('filters entries where participantId is empty string', () => {
-    const result = normalizeParticipantList([{ participantId: '' }]);
-    expect(result).toEqual([]);
+  it('rejects entries where participantId is empty string', () => {
+    expect(() => normalizeParticipantList([{ participantId: '' }])).toThrow(/participantId/);
   });
 
-  it('filters entries where participantId is 0', () => {
-    const result = normalizeParticipantList([{ participantId: 0 }]);
-    expect(result).toEqual([]);
+  it('rejects entries where participantId is 0', () => {
+    expect(() => normalizeParticipantList([{ participantId: 0 }])).toThrow(/participantId/);
   });
 
   it('preserves participationStatus when provided', () => {

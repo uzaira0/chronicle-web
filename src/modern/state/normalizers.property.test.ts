@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import fc from 'fast-check';
 
 import { validIsoDateArb } from '../test/arbitraries';
@@ -355,23 +355,24 @@ describe('normalizer properties', () => {
     );
   });
 
-  it('normalizeParticipantList filters items without participantId', () => {
-    fc.assert(
-      fc.property(
-        fc.array(
-          fc.record({
-            participantId: fc.oneof(fc.constant(''), fc.constant(null), fc.string({ minLength: 1 })),
-            participationStatus: fc.constantFrom('ENROLLED', 'PAUSED'),
-            participantTags: fc.array(fc.string()),
-            candidate: fc.record({ id: fc.string() }),
-          }),
-        ),
-        (input) => {
-          const result = normalizeParticipantList(input);
-          expect(result.length).toBeLessThanOrEqual(input.length);
-        },
-      ),
+  it('normalizeParticipantList rejects a row without participantId', () => {
+    expect(() => normalizeParticipantList([{ participantId: '', participationStatus: 'ENROLLED' }])).toThrow(
+      /participantId/,
     );
+  });
+
+  it('counts unknown statuses without dropping their participants', () => {
+    const warning = spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const rows = normalizeParticipantList([
+        { participantId: 'p-1', participationStatus: 'NEW_SERVER_STATUS' },
+        { participantId: 'p-2', participationStatus: 'ENROLLED' },
+      ]);
+      expect(rows.map((row) => row.participationStatus)).toEqual(['UNKNOWN', 'ENROLLED']);
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining('1 row(s)'));
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it('normalizeParticipantList output length equals count of truthy participantId inputs', () => {

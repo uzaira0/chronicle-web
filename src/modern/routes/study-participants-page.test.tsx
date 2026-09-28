@@ -14,6 +14,7 @@ await mock.module('@/components/participant-activity-cell', () => ({
     return RealActivityCell(props);
   },
 }));
+await mock.module('@/components/android-diagnostics-panel', () => ({ AndroidDiagnosticsPanel: () => null }));
 const { ParticipantRow } = await import('./study-participants-page');
 
 const mockParticipant = {
@@ -31,7 +32,6 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
-            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -39,6 +39,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
             isExpanded={false}
             isSelected={false}
             participant={mockParticipant}
+            studyId="study-test"
             participantAcknowledgments={[]}
             participantDevices={[]}
             participantSensors={[]}
@@ -65,7 +66,6 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
-            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -73,6 +73,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
             isExpanded={false}
             isSelected={false}
             participant={mockParticipant}
+            studyId="study-test"
             participantAcknowledgments={[]}
             participantDevices={[]}
             participantSensors={[]}
@@ -97,7 +98,6 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
-            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -105,6 +105,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
             isExpanded={true}
             isSelected={false}
             participant={mockParticipant}
+            studyId="study-test"
             participantAcknowledgments={[]}
             participantDevices={[]}
             participantSensors={[]}
@@ -125,7 +126,6 @@ describe('StudyParticipantsPage - Accessibility', () => {
       <Table>
         <TableBody>
           <ParticipantRow
-            androidDataDrops={[]}
             colCount={11}
             handleSingleDelete={() => {}}
             hardwareSensorsEnabled={false}
@@ -142,6 +142,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
             isExpanded={true}
             isSelected={false}
             participant={mockParticipant}
+            studyId="study-test"
             participantAcknowledgments={[]}
             participantDevices={[{ deviceType: 'Ios' }]}
             participantSensors={[]}
@@ -188,7 +189,6 @@ describe('StudyParticipantsPage - row re-renders', () => {
         <TableBody>
           {participants.map((participant) => (
             <ParticipantRow
-              androidDataDrops={EMPTY}
               colCount={11}
               handleSingleDelete={noop}
               hardwareSensorsEnabled={false}
@@ -197,6 +197,7 @@ describe('StudyParticipantsPage - row re-renders', () => {
               isSelected={selected.has(participant.participantId)}
               key={participant.participantId}
               participant={participant}
+              studyId="study-test"
               participantAcknowledgments={EMPTY}
               participantDevices={EMPTY}
               participantSensors={EMPTY}

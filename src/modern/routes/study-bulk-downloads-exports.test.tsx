@@ -11,6 +11,7 @@ const questionnaireCalls: unknown[] = [];
 const exportCalls: unknown[] = [];
 // The study's DataCollection setting; undefined = not loaded, so nothing starts deselected.
 let dataCollectionSetting: { modules: Record<string, { enabled: boolean }> } | undefined;
+let studyModules: Record<string, Record<string, never>> = { CHRONICLE_DATA_COLLECTION: {}, TIME_USE_DIARY: {} };
 
 const studyOperationsApiModule = await import('@/state/study-operations-api');
 
@@ -47,7 +48,7 @@ await mock.module('@/state/study-operations-api', () => ({
   useGetStudySummaryQuery: () => ({
     data: {
       id: 'study-1',
-      modules: { CHRONICLE_DATA_COLLECTION: {}, TIME_USE_DIARY: {} },
+      modules: studyModules,
       title: 'Export Study',
     },
     error: undefined,
@@ -71,6 +72,7 @@ const { StudyBulkDownloadsPage } = await import('./study-bulk-downloads-page');
 afterEach(() => {
   cleanup();
   dataCollectionSetting = undefined;
+  studyModules = { CHRONICLE_DATA_COLLECTION: {}, TIME_USE_DIARY: {} };
 });
 
 function renderPage() {
@@ -105,6 +107,8 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
       'Connectivity State',
       'App Network Usage',
       'Device Settings',
+      'Upload Diagnostics',
+      'Data Quality Alerts',
     ]) {
       expect(screen.getByRole('button', { name: label })).toBeDefined();
     }
@@ -136,8 +140,25 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
           'ConnectivityState',
           'AppNetworkUsage',
           'DeviceSettings',
+          'UploadDiagnostics',
+          'DataQualityAlerts',
         ],
       },
+      studyId: 'study-1',
+    });
+  });
+
+  test('offers and includes retained diagnostics when no collection module is enabled', async () => {
+    studyModules = {};
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Upload Diagnostics' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Data Quality Alerts' })).toBeDefined();
+    act(() => screen.getByRole('button', { name: 'Start export' }).click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(exportCalls.at(-1)).toMatchObject({
+      request: { dataTypes: ['UploadDiagnostics', 'DataQualityAlerts'] },
       studyId: 'study-1',
     });
   });

@@ -24,10 +24,14 @@ export const PARTICIPANT_DATA_TYPE_LABELS: Readonly<Record<ParticipantDataType, 
   ConnectivityState: 'Connectivity State',
   AppNetworkUsage: 'App Network Usage',
   DeviceSettings: 'Device Settings',
+  UploadDiagnostics: 'Upload Diagnostics',
+  DataQualityAlerts: 'Data Quality Alerts',
 };
 
 export const PARTICIPANT_DATA_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: ParticipantDataType }> =
   PARTICIPANT_DATA_TYPES.map((value) => ({ label: PARTICIPANT_DATA_TYPE_LABELS[value], value }));
+
+const ALWAYS_AVAILABLE_TYPES = new Set<ParticipantDataType>(['UploadDiagnostics', 'DataQualityAlerts']);
 
 const LEGACY_SENSOR_MODULES: Readonly<Partial<Record<ParticipantDataType, string>>> = {
   AndroidSensor: 'ANDROID_SENSOR',
@@ -38,7 +42,10 @@ export function participantDataTypesForModules(modules: readonly string[]) {
   const enabledModules = new Set(modules);
   const hasUnifiedCollection = enabledModules.has('CHRONICLE_DATA_COLLECTION');
   return PARTICIPANT_DATA_TYPE_OPTIONS.filter(
-    ({ value }) => hasUnifiedCollection || enabledModules.has(LEGACY_SENSOR_MODULES[value] ?? ''),
+    ({ value }) =>
+      ALWAYS_AVAILABLE_TYPES.has(value) ||
+      hasUnifiedCollection ||
+      enabledModules.has(LEGACY_SENSOR_MODULES[value] ?? ''),
   );
 }
 

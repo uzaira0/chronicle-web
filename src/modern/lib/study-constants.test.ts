@@ -65,6 +65,8 @@ describe('generated contract coverage (tranche 4)', () => {
       'ConnectivityState',
       'AppNetworkUsage',
       'DeviceSettings',
+      'UploadDiagnostics',
+      'DataQualityAlerts',
     ]);
   });
 

@@ -298,20 +298,6 @@ exports[`normalizer snapshots normalizeParticipantList participant with missing 
 ]
 `;
 
-exports[`normalizer snapshots normalizeParticipantList filters out items without participantId 1`] = `
-[
-  {
-    "candidate": {
-      "id": "c-4",
-    },
-    "participantId": "p-4",
-    "participantNotes": undefined,
-    "participantTags": [],
-    "participationStatus": "UNKNOWN",
-  },
-]
-`;
-
 exports[`normalizer snapshots normalizeParticipantList non-array participantTags defaults to empty array 1`] = `
 [
   {
