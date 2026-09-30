@@ -82,6 +82,7 @@ function serveRead(url: string, revision: number, failLimits = false): Response 
 function renderStudyWithServer() {
   const server = {
     revision: 1,
+    sensorAdminOnly: false,
     limitsFails: false,
     limitsPuts: [] as Record<string, unknown>[],
     limitsIfMatch: [] as (string | null)[],
@@ -104,6 +105,9 @@ function renderStudyWithServer() {
           ifMatch,
           settingType: settingsPatch[1],
         });
+        if (server.sensorAdminOnly && settingsPatch[1] === 'Sensor') {
+          return new Response('admin only', { status: 403 });
+        }
         if (ifMatch !== etag) return json({ title: 'settings_conflict' }, { status: 412 });
         server.revision += 1;
         return json({}, { etag: `"${server.revision}"` });
@@ -275,5 +279,17 @@ describe('study edit dialog limits', () => {
     expect(await within(dialog).findByText(/Fill in all three study limits, or leave all three empty/)).toBeTruthy();
     expect(server.limitsPuts).toEqual([]);
     expect(server.patches).toEqual([]);
+  });
+});
+
+describe('study edit dialog iOS sensor setting', () => {
+  test('a non-admin title-only edit on a study with iOS sensors off saves details without Sensor PATCH', async () => {
+    const { server } = renderStudyWithServer();
+    server.sensorAdminOnly = true;
+    const { dialog, save } = await openEditDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
+    save();
+    await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
+    expect(server.patches.some((patch) => patch.settingType === 'Sensor')).toBe(false);
   });
 });

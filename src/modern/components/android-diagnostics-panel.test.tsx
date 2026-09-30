@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, mock, setSystemTime, test } from 'bun:test';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const queryCalls: unknown[] = [];
@@ -90,6 +90,7 @@ await mock.module('@/state/study-operations-api', () => ({
 const { AndroidDiagnosticsPanel } = await import('./android-diagnostics-panel');
 
 afterEach(() => {
+  setSystemTime();
   cleanup();
   queryCalls.length = 0;
   downloadCalls.length = 0;
@@ -112,6 +113,7 @@ describe('AndroidDiagnosticsPanel', () => {
     expect(screen.getByText(/Choose a range of at most 31 days/)).toBeDefined();
   });
   test('shows grouped full history, filters pages, and downloads participant diagnostics', async () => {
+    setSystemTime(new Date('2026-10-02T12:00:00'));
     render(<AndroidDiagnosticsPanel participantId="participant-1" studyId="study-1" />);
 
     for (const category of ['Data loss', 'Quarantined', 'Upload failures', 'App crashes', 'Collection paused']) {
@@ -130,6 +132,7 @@ describe('AndroidDiagnosticsPanel', () => {
     expect(screen.getByText(/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/)).toBeDefined();
 
     fireEvent.change(screen.getByLabelText('From day'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('To day'), { target: { value: '2026-09-25' } });
     fireEvent.change(screen.getByLabelText('Device ID'), {
       target: { value: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
     });
@@ -156,6 +159,6 @@ describe('AndroidDiagnosticsPanel', () => {
       startDate: '2026-09-01',
       studyId: 'study-1',
     });
-    expect((downloadCalls.at(-1) as { endDate?: string }).endDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect((downloadCalls.at(-1) as { endDate?: string }).endDate).toBe('2026-09-25');
   });
 });

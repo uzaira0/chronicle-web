@@ -10,6 +10,14 @@ describe('toExportDateTime', () => {
     expect(toExportDateTime('2026-09-07', true)).toMatch(/^2026-09-08T00:00:00[+-]\d\d:\d\d$/);
   });
 
+  test('uses the real first instant when America/Santiago skips midnight', () => {
+    if (process.env.TZ !== 'America/Santiago') return;
+    const end = toExportDateTime('2026-09-05', true);
+    expect(end).toBe('2026-09-06T01:00:00-03:00');
+    expect(new Date(end).getTime()).toBe(new Date(2026, 8, 6).getTime());
+    expect(toExportDateTime('2026-09-08')).toBe('2026-09-08T00:00:00-03:00');
+  });
+
   test('passes an existing date-time through unchanged', () => {
     expect(toExportDateTime('2026-09-01T00:00:00Z')).toBe('2026-09-01T00:00:00Z');
   });

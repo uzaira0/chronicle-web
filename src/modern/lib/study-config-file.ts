@@ -58,7 +58,11 @@ const NON_PORTABLE_FIELDS = [
 
 export type PortableStudyConfig = Omit<
   StudyFormData,
-  'loadedLimits' | 'loadedModules' | 'loadedParticipantPolicy' | (typeof NON_PORTABLE_FIELDS)[number]
+  | 'loadedIosSensorSetting'
+  | 'loadedLimits'
+  | 'loadedModules'
+  | 'loadedParticipantPolicy'
+  | (typeof NON_PORTABLE_FIELDS)[number]
 >;
 
 const STRING_FIELDS = [
@@ -122,6 +126,7 @@ const OFFERED_FEATURES = new Set<string>(STUDY_FEATURES.map(({ value }) => value
 export function toPortableStudyConfig(form: StudyFormData): PortableStudyConfig {
   const portable: StudyFormData = { ...form, participantPolicy: participantPolicyToForm(form.participantPolicy) };
   delete portable.loadedLimits;
+  delete portable.loadedIosSensorSetting;
   delete portable.loadedModules;
   delete portable.loadedParticipantPolicy;
   for (const field of NON_PORTABLE_FIELDS) delete portable[field];
@@ -314,6 +319,7 @@ export function applyStudyConfig(current: StudyFormData, imported: PortableStudy
     features: [...imported.features, ...current.features.filter((feature) => !OFFERED_FEATURES.has(feature))],
     ...(keepsCurrentParticipantPolicy(current) ? { participantPolicy: current.participantPolicy } : {}),
     loadedLimits: current.loadedLimits,
+    loadedIosSensorSetting: current.loadedIosSensorSetting,
     loadedModules: current.loadedModules,
     loadedParticipantPolicy: current.loadedParticipantPolicy,
   };

@@ -7,6 +7,7 @@ import {
   buildStudyLimits,
   buildStudyPayload,
   daysToStudyDuration,
+  iosSensorSettingUnchanged,
   studyDurationToDays,
 } from './study-form-helpers';
 
@@ -189,6 +190,32 @@ describe('buildIosSensorSetting()', () => {
       'com.openlattice.chronicle.sensorkit.SensorSetting',
       [],
     ]);
+  });
+
+  it('skips an unchanged disabled iOS setting during study editing', () => {
+    expect(iosSensorSettingUnchanged(makeForm({ loadedIosSensorSetting: { enabled: false, sensors: [] } }))).toBe(true);
+  });
+
+  it('writes Sensor when the iOS selection changes', () => {
+    const form = makeForm({
+      features: ['IOS_SENSOR'],
+      loadedIosSensorSetting: { enabled: true, sensors: ['pedometer'] },
+      selectedIosSensors: ['accelerometer'],
+    });
+    expect(iosSensorSettingUnchanged(form)).toBe(false);
+    expect(buildIosSensorSetting(form, true)).toEqual([
+      'com.openlattice.chronicle.sensorkit.SensorSetting',
+      ['accelerometer'],
+    ]);
+  });
+
+  it('writes Sensor when the iOS feature changes', () => {
+    const form = makeForm({
+      features: ['IOS_SENSOR'],
+      loadedIosSensorSetting: { enabled: false, sensors: [] },
+      selectedIosSensors: ['pedometer'],
+    });
+    expect(iosSensorSettingUnchanged(form)).toBe(false);
   });
 });
 

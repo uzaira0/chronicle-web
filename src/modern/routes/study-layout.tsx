@@ -46,6 +46,7 @@ import {
   buildSensorSetting,
   buildStudyLimits,
   buildStudyPayload,
+  iosSensorSettingUnchanged,
   studyLimitsUnchanged,
 } from '@/lib/study-form-helpers';
 import {
@@ -306,7 +307,7 @@ export function StudyLayout() {
       AndroidSensor: buildSensorSetting(form),
       DataCollection: buildDataCollectionSetting(form),
       ParticipantPolicy: participantPolicy,
-      Sensor: buildIosSensorSetting(form, true),
+      Sensor: iosSensorSettingUnchanged(form) ? null : buildIosSensorSetting(form, true),
     });
 
     // If-Match starts at the revision the form was loaded from, not whatever this tab saw last.

@@ -65,6 +65,15 @@ export function buildIosSensorSetting(form: StudyFormData, clearWhenDisabled = f
   ];
 }
 
+export function iosSensorSettingUnchanged(form: StudyFormData): boolean {
+  const loaded = form.loadedIosSensorSetting;
+  if (!loaded) return false;
+  const enabled = form.features.includes('IOS_SENSOR');
+  if (enabled !== loaded.enabled) return false;
+  const selected = form.selectedIosSensors ?? [];
+  return selected.length === loaded.sensors.length && selected.every((sensor) => loaded.sensors.includes(sensor));
+}
+
 // A per-sensor hardware module's own sampling rate + duty cycle (per-sensor consent
 // redesign), read from the per-sensor form fields with the model defaults (5 Hz / 30 s /
 // 300 s). The single owning sensor is named in `sensors`.

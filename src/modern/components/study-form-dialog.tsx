@@ -91,6 +91,8 @@ type StudyFormData = {
   // The three limit inputs as loaded, so an edit that leaves them alone skips the admin-only
   // limits PUT (which also re-derives the study end date from "now" on every write).
   loadedLimits?: Pick<StudyFormData, 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays'> | undefined;
+  // The iOS setting as loaded, so unchanged edits skip its admin-only PATCH.
+  loadedIosSensorSetting?: { enabled: boolean; sensors: string[] } | undefined;
   // Per-active-module "required for participation" flag (keyed by CollectionModuleId).
   // Meaningful only when the module is enabled; the enrollment wizard makes a required
   // module mandatory to accept and locks it in the on-device Data Sharing surface.
@@ -403,6 +405,7 @@ function getInitialFormData(
     group: study?.group || '',
     healthConnectRecordTypes: initialHealthConnectRecordTypes(dataCollection),
     loadedLimits: { dataRetentionDays, participantLimit, studyDurationDays },
+    loadedIosSensorSetting: { enabled: modules.includes('IOS_SENSOR'), sensors: [...selectedIosSensors] },
     loadedModules: initialLoadedModules(dataCollection),
     loadedParticipantPolicy: participantPolicy,
     moduleDispositions: initialModuleDispositions(dataCollection),

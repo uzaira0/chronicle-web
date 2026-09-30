@@ -554,26 +554,32 @@ function idempotencyHeaders(idempotencyKey: string | undefined): Record<string, 
 
 const EXPORT_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+function exportDayBoundary(value: string, exclusiveEnd: boolean): Date {
+  const [year = 0, month = 1, day = 1] = value.split('-').map(Number);
+  const boundary = new Date(0);
+  boundary.setFullYear(year, month - 1, day + (exclusiveEnd ? 1 : 0));
+  boundary.setHours(0, 0, 0, 0);
+  return boundary;
+}
+
 /**
- * Date inputs give `YYYY-MM-DD`; the export endpoints bind ISO date-times. A day becomes local
- * midnight, and an end day becomes the following midnight so the chosen day is included.
+ * Date inputs give `YYYY-MM-DD`; the export endpoints bind ISO date-times. Resolve each
+ * local day boundary, including days when midnight is skipped by a clock change.
  */
 export function toExportDateTime(value: string, exclusiveEnd = false): string {
   if (!EXPORT_DAY.test(value)) return value;
-  const date = new Date(`${value}T00:00:00`);
-  if (exclusiveEnd) date.setDate(date.getDate() + 1);
+  const date = exportDayBoundary(value, exclusiveEnd);
   const offsetMinutes = -date.getTimezoneOffset();
   const pad = (number: number) => String(number).padStart(2, '0');
   const offset = `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T00:00:00${offset}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${offset}`;
 }
 
-/** The synchronous server cap is 31 elapsed days between local midnights. */
+/** The synchronous server cap is 31 elapsed days between local day boundaries. */
 export function exportRangeExceedsLimit(startDay: string, endDay: string): boolean {
   if (!EXPORT_DAY.test(startDay) || !EXPORT_DAY.test(endDay)) return false;
-  const start = new Date(`${startDay}T00:00:00`);
-  const end = new Date(`${endDay}T00:00:00`);
-  end.setDate(end.getDate() + 1);
+  const start = exportDayBoundary(startDay, false);
+  const end = exportDayBoundary(endDay, true);
   return end.getTime() - start.getTime() > 31 * 86_400_000;
 }
 
