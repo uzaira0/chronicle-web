@@ -923,6 +923,7 @@
     "duration_days": "Study Duration (days)",
     "retention_days": "Data Retention (days)",
     "limits_incomplete": "Fill in all three study limits, or leave all three empty.",
+    "limits_cannot_remove": "This study's limits cannot be removed, only changed. Fill in all three study limits before saving.",
     "hc_scope_error": "Select at least one Health Connect record type or disable Health Connect.",
     "export_config": "Export configuration",
     "import_config": "Import configuration",

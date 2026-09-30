@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+import { buildIosSensorSetting, iosSensorSettingUnchanged } from '@/lib/study-form-helpers';
+
 let dataCollectionQuery: Record<string, unknown> = {};
 let limitsQuery: Record<string, unknown> = {};
 let studySettingsQuery: Record<string, unknown> = {};
@@ -170,6 +172,41 @@ describe('StudyFormDialog participant policy', () => {
     view.rerender(<StudyFormDialog mode="edit" onSubmit={onSubmit} study={EDIT_STUDY} />);
 
     expect(screen.getByLabelText<HTMLTextAreaElement>(/^Study Purpose/).value).toBe('Unsaved local purpose');
+  });
+});
+
+describe('StudyFormDialog legacy iOS sensors', () => {
+  test.each([
+    { name: 'legacy sensors', sensors: ['deviceUsage'] },
+    { name: 'an empty sensor list', sensors: [] },
+  ])('a title edit preserves $name when the setting cannot be edited', async ({ sensors }) => {
+    studySettingsQuery = { data: { ParticipantPolicy: POLICY } };
+    const submissions: StudyFormData[] = [];
+    const onSubmit = mock((form: StudyFormData) => {
+      submissions.push(form);
+      return Promise.resolve();
+    });
+    const study = {
+      ...EDIT_STUDY,
+      modules: { IOS_SENSOR: {} },
+      settings: { Sensor: ['com.openlattice.chronicle.sensorkit.SensorSetting', [...sensors]] as [string, string[]] },
+    };
+    render(<StudyFormDialog mode="edit" onSubmit={onSubmit} study={study} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
+    fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Renamed study' } });
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save Changes' });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const submitted = submissions[0];
+    if (!submitted) throw new Error('title edit was not submitted');
+    expect(submitted.title).toBe('Renamed study');
+    expect(submitted.selectedIosSensors).toEqual([...sensors]);
+    expect(buildIosSensorSetting(submitted)).toEqual(study.settings.Sensor);
+    expect(iosSensorSettingUnchanged(submitted)).toBe(true);
   });
 });
 

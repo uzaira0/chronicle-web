@@ -53,7 +53,7 @@ afterEach(() => {
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
 });
 
-function serveRead(url: string, revision: number, failLimits = false): Response {
+function serveRead(url: string, revision: number, failLimits = false, iosSensors?: string[]): Response {
   const etag = `"${revision}"`;
   if (url.endsWith(`/study/${STUDY_ID}/lifecycle`)) return json('ACTIVE');
   // GET, and the limits PUT: the partial-failure test makes only that write fail.
@@ -71,15 +71,15 @@ function serveRead(url: string, revision: number, failLimits = false): Response 
     return json({
       contact: 'study-team@example.org',
       id: STUDY_ID,
-      modules: { CHRONICLE_DATA_COLLECTION: {} },
-      settings: {},
+      modules: iosSensors ? { IOS_SENSOR: {} } : { CHRONICLE_DATA_COLLECTION: {} },
+      settings: iosSensors ? { Sensor: ['com.openlattice.chronicle.sensorkit.SensorSetting', iosSensors] } : {},
       title: 'Conflict Study',
     });
   }
   return new Response('not found', { status: 404 });
 }
 
-function renderStudyWithServer() {
+function renderStudyWithServer(iosSensors?: string[]) {
   const server = {
     revision: 1,
     readRevision: undefined as number | undefined,
@@ -130,7 +130,7 @@ function renderStudyWithServer() {
       }
       return method === 'PATCH'
         ? json({ id: STUDY_ID, title: 'Conflict Study' })
-        : serveRead(url, server.readRevision ?? server.revision, method === 'PUT' && server.limitsFails);
+        : serveRead(url, server.readRevision ?? server.revision, method === 'PUT' && server.limitsFails, iosSensors);
     },
     writable: true,
   });
@@ -338,9 +338,72 @@ describe('study edit dialog limits', () => {
     expect(server.limitsPuts).toEqual([]);
     expect(server.patches).toEqual([]);
   });
+
+  test('clearing all loaded limits blocks saving with an inline explanation', async () => {
+    const { server } = renderStudyWithServer();
+    const { dialog, save } = await openEditDialog();
+    for (const label of ['Participant Limit', 'Study Duration (days)', 'Data Retention (days)']) {
+      fireEvent.change(within(dialog).getByLabelText(label), { target: { value: '' } });
+    }
+    save();
+    expect(await within(dialog).findByText(/limits cannot be removed, only changed/)).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(server.limitsPuts).toEqual([]);
+    expect(server.patches).toEqual([]);
+    expect(server.detailsPatches).toEqual([]);
+  });
+
+  test('importing empty limits over loaded limits blocks saving with the same inline explanation', async () => {
+    const { server } = renderStudyWithServer();
+    const { dialog, save } = await openEditDialog();
+    const config = {
+      format: 'chronicle-study-config',
+      version: 1,
+      exportedAt: '2026-09-29T00:00:00Z',
+      study: {
+        contact: 'study-team@example.org',
+        dataRetentionDays: '',
+        description: '',
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        group: '',
+        notificationsEnabled: false,
+        participantLimit: '',
+        studyDurationDays: '',
+        title: 'Imported Study',
+        version: '',
+      },
+    };
+    const file = new File([JSON.stringify(config)], 'empty-limits.json', { type: 'application/json' });
+    await act(async () => {
+      fireEvent.change(within(dialog).getByTestId('study-config-file'), { target: { files: [file] } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(within(dialog).getByRole('status').textContent).toContain('empty-limits.json');
+    for (const label of ['Participant Limit', 'Study Duration (days)', 'Data Retention (days)']) {
+      expect(within(dialog).getByLabelText<HTMLInputElement>(label).value).toBe('');
+    }
+    save();
+    expect(await within(dialog).findByText(/limits cannot be removed, only changed/)).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(server.limitsPuts).toEqual([]);
+    expect(server.patches).toEqual([]);
+    expect(server.detailsPatches).toEqual([]);
+  });
 });
 
 describe('study edit dialog iOS sensor setting', () => {
+  test('a non-admin title-only edit with legacy iOS sensors saves without Sensor PATCH', async () => {
+    const { server } = renderStudyWithServer(['deviceUsage']);
+    server.sensorAdminOnly = true;
+    const { dialog, save } = await openEditDialog();
+    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
+    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Save Changes' }).disabled).toBe(false);
+    save();
+    await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
+    expect(server.detailsPatches).toHaveLength(1);
+    expect(server.patches.some((patch) => patch.settingType === 'Sensor')).toBe(false);
+  });
+
   test('a non-admin title-only edit on a study with iOS sensors off saves details without Sensor PATCH', async () => {
     const { server } = renderStudyWithServer();
     server.sensorAdminOnly = true;

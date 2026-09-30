@@ -47,11 +47,16 @@ import {
   dispositionsForModule,
   HEALTH_CONNECT_RECORD_TYPES,
   INTERVAL_CONFIGURABLE_MODULES,
-  IOS_SENSOR_TYPES,
   isKnownHealthConnectRecordType,
   STUDY_FEATURES,
 } from '@/lib/study-constants';
-import { studyDurationToDays, studyLimitsPartial, studyLimitsUnchanged } from '@/lib/study-form-helpers';
+import {
+  buildStudyLimits,
+  iosSensorSettingUnchanged,
+  studyDurationToDays,
+  studyLimitsPartial,
+  studyLimitsUnchanged,
+} from '@/lib/study-form-helpers';
 import { cn } from '@/lib/utils';
 import { knownSettingsRevision, StudySettingsConflictError } from '@/state/settings-revision';
 import {
@@ -382,11 +387,8 @@ function getInitialFormData(
   const modules = study?.modules ? Object.keys(study.modules) : ['CHRONICLE_DATA_COLLECTION'];
   const sensorSettings = study?.settings?.AndroidSensor;
   const iosSensorSettings = study?.settings?.Sensor;
-  const offeredIosSensors = new Set<string>(IOS_SENSOR_TYPES.map(({ value }) => value));
   const selectedIosSensors = Array.isArray(iosSensorSettings?.[1])
-    ? iosSensorSettings[1].filter(
-        (sensor): sensor is string => typeof sensor === 'string' && offeredIosSensors.has(sensor),
-      )
+    ? iosSensorSettings[1].filter((sensor): sensor is string => typeof sensor === 'string')
     : [];
 
   const participantLimit = limits?.participantLimit ? String(limits.participantLimit) : '';
@@ -438,7 +440,9 @@ export type { StudyFormData };
 
 function isFormComplete(form: StudyFormData): boolean {
   const iosSensorSelectionComplete =
-    !form.features.includes('IOS_SENSOR') || (form.selectedIosSensors?.length ?? 0) > 0;
+    !form.features.includes('IOS_SENSOR') ||
+    iosSensorSettingUnchanged(form) ||
+    (form.selectedIosSensors?.length ?? 0) > 0;
   const participantPolicyComplete =
     Object.keys(validateParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM)).length === 0;
   const healthConnectScopeComplete =
@@ -1181,6 +1185,10 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
     // double click can therefore enter this handler twice while `isSubmitting` is
     // still false. Acquire the ref-backed fence synchronously before awaiting.
     if (!formInitialized || studyReadState !== 'ready' || !isFormComplete(form) || submissionInFlight.current) return;
+    if (!studyLimitsUnchanged(form) && !buildStudyLimits(form)) {
+      setError(t('study_form.limits_cannot_remove'));
+      return;
+    }
     if (!studyLimitsUnchanged(form) && studyLimitsPartial(form)) {
       setError(t('study_form.limits_incomplete'));
       return;

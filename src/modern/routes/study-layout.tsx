@@ -294,9 +294,7 @@ export function StudyLayout() {
     const participantPolicy = participantPolicyUnchanged(policyForm, form.loadedParticipantPolicy)
       ? null
       : buildStudyParticipantPolicy(policyForm);
-    // An empty body is not a "clear" on the wire: the limits endpoint binds `{}` to the
-    // StudyLimits defaults (25 participants, 1y duration, 90d retention), so emptying every
-    // field must skip the write until the API grows an explicit "no limit" representation.
+    // The dialog rejects clearing existing limits: the API has no "no limit" representation.
     // Untouched limits are not re-sent either: the PUT is admin-only and re-derives the
     // study end date from "now", so a title edit would otherwise move it (and 403 for others).
     const limits = studyLimitsUnchanged(form) ? null : buildStudyLimits(form);
