@@ -4979,9 +4979,14 @@ export interface operations {
         parameters: {
             query: {
                 dataType: string;
-                participantIds?: string[];
-                startDateTime?: string;
-                endDateTime?: string;
+                participantId: string[];
+                /** @description Lower bound of a positive range of at most 31 elapsed days. */
+                startDate: string;
+                /** @description Upper bound of the bounded export range. */
+                endDate: string;
+                responseType?: "csv" | "json";
+                fileName?: string;
+                sensorTypes?: string[];
             };
             header?: never;
             path: {
@@ -4991,13 +4996,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Participant data rows */
+            /** @description Participant data rows in the selected responseType (CSV by default). */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": Record<string, never>[];
+                    "text/csv": string;
                 };
             };
         };
