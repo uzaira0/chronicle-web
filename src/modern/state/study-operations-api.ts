@@ -571,10 +571,13 @@ function exportDayBoundary(value: string, exclusiveEnd: boolean): Date {
 export function toExportDateTime(value: string, exclusiveEnd = false): string {
   if (!EXPORT_DAY.test(value)) return value;
   const date = exportDayBoundary(value, exclusiveEnd);
-  const offsetMinutes = -date.getTimezoneOffset();
+  const skippedMidnight = exclusiveEnd && (date.getHours() !== 0 || date.getMinutes() !== 0);
+  // Keep the instant, expressing a skipped-midnight end with the offset just before the boundary.
+  const offsetMinutes = -(skippedMidnight ? new Date(date.getTime() - 1) : date).getTimezoneOffset();
+  const wallTime = new Date(date.getTime() + offsetMinutes * 60_000);
   const pad = (number: number) => String(number).padStart(2, '0');
   const offset = `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${offset}`;
+  return `${wallTime.getUTCFullYear()}-${pad(wallTime.getUTCMonth() + 1)}-${pad(wallTime.getUTCDate())}T${pad(wallTime.getUTCHours())}:${pad(wallTime.getUTCMinutes())}:${pad(wallTime.getUTCSeconds())}${offset}`;
 }
 
 /** The synchronous server cap is 31 elapsed days between local day boundaries. */

@@ -10,11 +10,17 @@ describe('toExportDateTime', () => {
     expect(toExportDateTime('2026-09-07', true)).toMatch(/^2026-09-08T00:00:00[+-]\d\d:\d\d$/);
   });
 
-  test('uses the real first instant when America/Santiago skips midnight', () => {
+  test('expresses the skipped-midnight exclusive end with the preceding offset at the same instant', () => {
     if (process.env.TZ !== 'America/Santiago') return;
     const end = toExportDateTime('2026-09-05', true);
-    expect(end).toBe('2026-09-06T01:00:00-03:00');
+    expect(end).toBe('2026-09-06T00:00:00-04:00');
     expect(new Date(end).getTime()).toBe(new Date(2026, 8, 6).getTime());
+    expect(toExportDateTime('2026-09-06')).toBe('2026-09-06T01:00:00-03:00');
+  });
+
+  test('keeps the boundary offset for an ordinary exclusive end day', () => {
+    if (process.env.TZ !== 'America/Santiago') return;
+    expect(toExportDateTime('2026-09-07', true)).toBe('2026-09-08T00:00:00-03:00');
     expect(toExportDateTime('2026-09-08')).toBe('2026-09-08T00:00:00-03:00');
   });
 
