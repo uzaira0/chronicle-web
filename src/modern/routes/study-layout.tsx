@@ -59,7 +59,7 @@ import {
   writeSettingsInOrder,
 } from '@/lib/study-navigation';
 import { cn } from '@/lib/utils';
-import { isSettingsConflict, knownSettingsRevision, StudySettingsConflictError } from '@/state/settings-revision';
+import { isSettingsConflict, StudySettingsConflictError } from '@/state/settings-revision';
 import {
   type StudyLifecycleStatus,
   useArchiveStudyMutation,
@@ -318,23 +318,26 @@ export function StudyLayout() {
     const settings = await writeSettingsInOrder(
       writes,
       async (write) => {
+        if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
         const result = await updateStudySettings({ studyId, ifMatch, ...write }).unwrap();
-        ifMatch = knownSettingsRevision(studyId);
+        ifMatch = result.settingsRevision;
         return result;
       },
-      isSettingsConflict,
+      (error) => isSettingsConflict(error) || error instanceof StudySettingsConflictError,
     );
     if (settings.stopped) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
     if (settings.failures.length) {
       const steps = stepList(settings.failures.map((failure) => failure.step));
       throw new Error(`${t('study_layout.changes_not_saved', { steps })} ${getErrorMessage(settings.failures[0]?.error, '')}`.trim());
     }
-    const details = await saveStep('details', updateStudy({ studyId, study: buildStudyPayload(form), ifMatch }).unwrap());
+    if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+    const details = await saveStep('details', updateStudy({ studyId, study: buildStudyPayload(form), ifMatch }).unwrap().then((result) => {
+      ifMatch = result.settingsRevision;
+    }));
     if (details.length) {
       if (isSettingsConflict(details[0]?.error)) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
       throw new Error(`${t('study_layout.changes_not_saved', { steps: stepList(['details']) })} ${getErrorMessage(details[0]?.error, '')}`.trim());
     }
-    ifMatch = knownSettingsRevision(studyId);
     if (limits) {
       if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
       const limitsFailure = await saveStep('limits', setStudyLimits({ studyId, limits, ifMatch }).unwrap());

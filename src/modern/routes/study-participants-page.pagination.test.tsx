@@ -1,6 +1,12 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
+import type { ParticipantStatsMap } from '@/state/study-operations-api';
+
+const stats: ParticipantStatsMap = {};
+afterEach(() => {
+  for (const id of Object.keys(stats)) delete stats[id];
+});
 
 const participants = Array.from({ length: 250 }, (_, index) => ({
   candidate: { id: `c-${index}` },
@@ -34,7 +40,7 @@ await mock.module('@/state/study-operations-api', () => ({
     nextCursor: null,
   }),
   useGetIosUploadStatusQuery: query({}),
-  useGetParticipantStatsQuery: query({}),
+  useGetParticipantStatsQuery: query(stats),
   useGetStudyCollectionAcknowledgmentsQuery: query([]),
   useGetStudyDataCollectionSettingQuery: query(undefined),
   useGetStudyDevicesQuery: query({}),
@@ -53,6 +59,28 @@ const participantRows = () =>
     .filter((box) => /select participant/i.test(box.getAttribute('aria-label') ?? ''));
 
 describe('StudyParticipantsPage pagination', () => {
+  test('sorts a diary calendar date against an upload instant in local time', () => {
+    const midnight = new Date(2024, 0, 1);
+    const uploadIsEarlier = midnight.getTimezoneOffset() > 0;
+    const upload = new Date(midnight.getTime() + (uploadIsEarlier ? -1 : 1) * 3_600_000).toISOString();
+    const emptyStats = { studyId: 'study-1', androidUniqueDates: [], iosUniqueDates: [], tudUniqueDates: [] };
+    stats['p-000'] = { ...emptyStats, participantId: 'p-000', tudLastDate: '2024-01-01' };
+    stats['p-001'] = { ...emptyStats, participantId: 'p-001', androidLastPing: upload };
+    render(
+      <MemoryRouter initialEntries={['/studies/study-1/participants']}>
+        <Routes>
+          <Route element={<StudyParticipantsPage />} path="/studies/:studyId/participants" />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const activity = screen.getByRole('button', { name: 'Collection activity' });
+    fireEvent.click(activity);
+    fireEvent.click(activity);
+    const firstIds = participantRows().slice(0, 2).map((box) => box.getAttribute('aria-label'));
+    const order = uploadIsEarlier ? ['p-000', 'p-001'] : ['p-001', 'p-000'];
+    expect(firstIds).toEqual(order.map((id) => `Select participant ${id}`));
+  });
+
   test('renders 100 rows at a time and reveals the rest on demand', () => {
     render(
       <MemoryRouter initialEntries={['/studies/study-1/participants']}>

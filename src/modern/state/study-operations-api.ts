@@ -18,6 +18,8 @@ import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } 
 // re-exported here so existing consumers keep importing them from this API surface.
 export type { ParticipantDataType, ParticipationStatus, StudyLifecycleStatus };
 
+type StudyWriteResult<T> = { data: T; settingsRevision: string | undefined };
+
 export type QuestionnaireQuestion = {
   choices: string[];
   title: string;
@@ -685,7 +687,7 @@ export const studyOperationsApi = createApi({
       }),
     }),
     updateStudySettings: builder.mutation<
-      unknown,
+      StudyWriteResult<unknown>,
       {
         studyId: string;
         settingType: string;
@@ -708,10 +710,10 @@ export const studyOperationsApi = createApi({
       },
       transformResponse: (body: unknown, meta, { studyId }) => {
         rememberSettingsRevision(studyId, meta?.response?.headers);
-        return body;
+        return { data: body, settingsRevision: meta?.response?.headers.get('etag') ?? undefined };
       },
     }),
-    setStudyLimits: builder.mutation<unknown, { studyId: string; limits: Record<string, unknown>; ifMatch?: string }>({
+    setStudyLimits: builder.mutation<StudyWriteResult<unknown>, { studyId: string; limits: Record<string, unknown>; ifMatch?: string }>({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Study' }],
       queryFn: async ({ studyId, limits, ifMatch }) => {
         try {
@@ -723,7 +725,7 @@ export const studyOperationsApi = createApi({
           if (!response.ok) return httpError(response, await response.text());
           rememberSettingsRevision(studyId, response.headers);
           const data: unknown = await response.json().catch(() => null);
-          return { data };
+          return { data: { data, settingsRevision: response.headers.get('etag') ?? undefined } };
         } catch (err) {
           return networkError(err);
         }
@@ -900,7 +902,7 @@ export const studyOperationsApi = createApi({
         url: `/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
       }),
     }),
-    updateStudy: builder.mutation<StudySummary | null, { study: StudyUpdatePayload; studyId: string; ifMatch?: string }>({
+    updateStudy: builder.mutation<StudyWriteResult<StudySummary | null>, { study: StudyUpdatePayload; studyId: string; ifMatch?: string }>({
       invalidatesTags: (_result, _error, { studyId }) => [
         { id: studyId, type: 'Study' },
         { id: 'LIST', type: 'Study' },
@@ -913,7 +915,7 @@ export const studyOperationsApi = createApi({
       }),
       transformResponse: (body: StudySummary | null, meta, { studyId }) => {
         rememberSettingsRevision(studyId, meta?.response?.headers);
-        return body;
+        return { data: body, settingsRevision: meta?.response?.headers.get('etag') ?? undefined };
       },
     }),
     archiveStudy: builder.mutation<unknown, string>({

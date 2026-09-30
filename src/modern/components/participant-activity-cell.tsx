@@ -1,5 +1,5 @@
 import { useTranslator } from '@/i18n';
-import { formatDisplayDate, formatDisplayDateTime } from '@/lib/format';
+import { formatDisplayDate, formatDisplayDateTime, parseDisplayDate } from '@/lib/format';
 import type { ParticipantStats } from '@/state/study-operations-api';
 
 const STALE_AFTER_DAYS = 7;
@@ -14,7 +14,7 @@ type ActivityStream = {
 
 function daysSince(value: string | null | undefined): number | null {
   if (!value) return null;
-  const then = new Date(value).getTime();
+  const then = parseDisplayDate(value).getTime();
   if (Number.isNaN(then)) return null;
   return Math.floor((Date.now() - then) / 86_400_000);
 }

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
+import { configureStore, type Middleware } from '@reduxjs/toolkit';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
-import { forgetSettingsRevision } from '@/state/settings-revision';
+import { forgetSettingsRevision, knownSettingsRevision } from '@/state/settings-revision';
 import { studyOperationsApi } from '@/state/study-operations-api';
 
 // Other route tests replace hooks of this module with fixtures, and bun keeps module mocks
@@ -82,6 +82,8 @@ function serveRead(url: string, revision: number, failLimits = false): Response 
 function renderStudyWithServer() {
   const server = {
     revision: 1,
+    readRevision: undefined as number | undefined,
+    afterWrite: null as (() => Promise<void>) | null,
     sensorAdminOnly: false,
     limitsFails: false,
     limitsPuts: [] as Record<string, unknown>[],
@@ -128,12 +130,25 @@ function renderStudyWithServer() {
       }
       return method === 'PATCH'
         ? json({ id: STUDY_ID, title: 'Conflict Study' })
-        : serveRead(url, server.revision, method === 'PUT' && server.limitsFails);
+        : serveRead(url, server.readRevision ?? server.revision, method === 'PUT' && server.limitsFails);
     },
     writable: true,
   });
+  // Hold the save continuation while a real settings GET settles after the mutation.
+  const pauseWrites: Middleware = () => (next) => (action) => {
+    const result = next(action) as { arg?: { endpointName?: string }; reset?: () => void; unwrap?: () => Promise<unknown> } | undefined;
+    if (result?.reset && result.unwrap && ['updateStudySettings', 'updateStudy', 'setStudyLimits'].includes(result.arg?.endpointName ?? '')) {
+      const unwrap = result.unwrap;
+      result.unwrap = async () => {
+        const data = await unwrap();
+        await server.afterWrite?.();
+        return data;
+      };
+    }
+    return result;
+  };
   const store = configureStore({
-    middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
+    middleware: (getDefault) => getDefault().prepend(pauseWrites).concat(studyOperationsApi.middleware),
     reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
   });
 
@@ -178,6 +193,49 @@ describe('study edit dialog after a settings 412', () => {
     save();
     await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
     expect(server.detailsPatches[0]?.ifMatch).toBe(`"${server.detailsPatches[0]?.revision}"`);
+  });
+
+  test('chains each mutation response token despite overlapping GETs remembering a newer revision', async () => {
+    const { server, store } = renderStudyWithServer();
+    const { dialog, policyVersion, save } = await openEditDialog();
+    fireEvent.change(policyVersion(), { target: { value: 'my-policy' } });
+    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
+    server.readRevision = 50;
+    server.afterWrite = async () => {
+      await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
+      const read = store.dispatch(studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }));
+      await read.unwrap();
+      read.unsubscribe();
+      expect(knownSettingsRevision(STUDY_ID)).toBe('"50"');
+    };
+    save();
+    await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
+    expect(server.patches.length).toBeGreaterThan(1);
+    expect(server.patches.map((p) => p.ifMatch)).toEqual(server.patches.map((_p, index) => `"${1 + index}"`));
+    expect(server.detailsPatches[0]?.ifMatch).toBe(`"${1 + server.patches.length}"`);
+    expect(server.limitsIfMatch).toEqual([`"${2 + server.patches.length}"`]);
+  });
+
+  test('a concurrent edit between PATCHes still causes 412 and reloads the form', async () => {
+    const { server, store } = renderStudyWithServer();
+    const { dialog, policyVersion, save } = await openEditDialog();
+    fireEvent.change(policyVersion(), { target: { value: 'my-policy' } });
+    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
+    server.afterWrite = async () => {
+      server.afterWrite = null;
+      server.revision += 1;
+      await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
+      const read = store.dispatch(studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }));
+      await read.unwrap();
+      read.unsubscribe();
+      expect(knownSettingsRevision(STUDY_ID)).toBe('"3"');
+    };
+    save();
+    await within(dialog).findByText(/changed by someone else/);
+    await waitFor(() => expect(policyVersion().value).toBe('policy-v3'));
+    expect(server.patches.map((p) => p.ifMatch)).toEqual(['"1"', '"2"']);
+    expect(server.detailsPatches).toEqual([]);
+    expect(server.limitsPuts).toEqual([]);
   });
   test('reloads the form from the current settings and saves them under the new revision', async () => {
     const { server } = renderStudyWithServer();

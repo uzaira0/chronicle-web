@@ -28,11 +28,16 @@ function memoize<T>(value: string, op: (v: string) => T, cache: Map<string, T>):
   return result;
 }
 
+export function parseDisplayDate(value: string): Date {
+  // Date-only values are local calendar dates; offset date-times remain instants.
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
+}
+
 export function formatDisplayDate(value: string) {
   return memoize(
     value,
     (v) => {
-      const parsed = new Date(v);
+      const parsed = parseDisplayDate(v);
       return Number.isNaN(parsed.getTime()) ? v : mediumDateFormatter.format(parsed);
     },
     dateCache,
@@ -43,7 +48,7 @@ export function formatDisplayDateTime(value: string) {
   return memoize(
     value,
     (v) => {
-      const parsed = new Date(v);
+      const parsed = parseDisplayDate(v);
       return Number.isNaN(parsed.getTime()) ? v : mediumDateTimeFormatter.format(parsed);
     },
     dateTimeCache,

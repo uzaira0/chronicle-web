@@ -41,7 +41,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { formatDisplayDateTime } from '@/lib/format';
+import { formatDisplayDateTime, parseDisplayDate } from '@/lib/format';
 import { getStatusVariant } from '@/lib/participant-status';
 import { ANDROID_SENSOR_TYPES, SENSOR_MODULE_IDS } from '@/lib/study-constants';
 import {
@@ -698,7 +698,7 @@ export function StudyParticipantsPage() {
     const lastActivity = (participantId: string): number | null => {
       const ps = stats[participantId];
       const times = [ps?.androidLastPing, ps?.iosLastPing, ps?.tudLastDate]
-        .map((value) => (value ? new Date(value).getTime() : Number.NaN))
+        .map((value) => (value ? parseDisplayDate(value).getTime() : Number.NaN))
         .filter((value) => !Number.isNaN(value));
       return times.length > 0 ? Math.max(...times) : null;
     };
