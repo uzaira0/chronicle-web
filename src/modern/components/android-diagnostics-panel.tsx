@@ -44,7 +44,7 @@ function localDay(date: Date): string {
 }
 
 function categoryFor(code: string): DiagnosticCategory {
-  if (code === 'COLLECTION_PAUSED_STORAGE') return 'collection_paused';
+  if (code === 'COLLECTION_PAUSED_STORAGE' || code === 'COLLECTION_ACCESS_MISSING') return 'collection_paused';
   if (code === 'APP_CRASH' || code === 'APP_CRASH_NATIVE' || code === 'APP_ANR') return 'app_crashes';
   if (code.includes('QUARANTINED') || code === 'DIRECT_BOOT_CORRUPT_RECORD') return 'quarantined';
   if (

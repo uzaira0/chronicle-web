@@ -57,6 +57,14 @@ await mock.module('@/state/study-operations-api', () => ({
                 firstOccurredAt: '2026-09-25T09:07:00Z',
                 lastOccurredAt: '2026-09-25T09:07:00Z',
               },
+              {
+                eventId: 'event-access',
+                moduleFamily: 'INTERACTION',
+                issueCode: 'COLLECTION_ACCESS_MISSING',
+                occurrenceCount: 1,
+                firstOccurredAt: '2026-09-25T09:08:00Z',
+                lastOccurredAt: '2026-09-25T09:08:00Z',
+              },
             ],
           },
           {
@@ -100,7 +108,9 @@ describe('AndroidDiagnosticsPanel', () => {
   test('defaults to 30 inclusive days and rejects a range over 31 days', async () => {
     render(<AndroidDiagnosticsPanel participantId="participant-1" studyId="study-1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Download diagnostics' }));
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     const defaults = downloadCalls.at(-1) as { startDate: string; endDate: string };
     const start = new Date(`${defaults.startDate}T12:00:00`);
     const end = new Date(`${defaults.endDate}T12:00:00`);
@@ -125,6 +135,7 @@ describe('AndroidDiagnosticsPanel', () => {
       'CONNECTION_FAILURE',
       'APP_CRASH',
       'COLLECTION_PAUSED_STORAGE',
+      'COLLECTION_ACCESS_MISSING',
       'LOW_QUALITY',
     ]) {
       expect(screen.getByText(new RegExp(code))).toBeDefined();
