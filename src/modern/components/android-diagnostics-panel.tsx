@@ -1,5 +1,5 @@
 import { Download, LoaderCircle } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -174,19 +174,31 @@ export function AndroidDiagnosticsPanel({ participantId, studyId }: { participan
   const [fromDay, setFromDay] = useState('');
   const [toDay, setToDay] = useState('');
   const [deviceId, setDeviceId] = useState('');
+  const [settledDeviceId, setSettledDeviceId] = useState('');
   const [moduleFamily, setModuleFamily] = useState('');
   const [issueCode, setIssueCode] = useState('');
+  const [settledIssueCode, setSettledIssueCode] = useState('');
   const [pageCursors, setPageCursors] = useState<(string | undefined)[]>([undefined]);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const cursor = pageCursors[pageCursors.length - 1];
+  useEffect(() => {
+    if (deviceId.trim() === settledDeviceId && issueCode.trim() === settledIssueCode) return;
+    const timeout = window.setTimeout(() => {
+      setSettledDeviceId(deviceId.trim());
+      setSettledIssueCode(issueCode.trim());
+      setPageCursors([undefined]);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [deviceId, issueCode, settledDeviceId, settledIssueCode]);
+
   const query = useGetAndroidDiagnosticsQuery({
     studyId,
     participantId,
     ...(fromDay ? { fromDay } : {}),
     ...(toDay ? { toDay } : {}),
-    ...(deviceId.trim() ? { deviceId: deviceId.trim() } : {}),
+    ...(settledDeviceId ? { deviceId: settledDeviceId } : {}),
     ...(moduleFamily ? { moduleFamily } : {}),
-    ...(issueCode.trim() ? { issueCode: issueCode.trim() } : {}),
+    ...(settledIssueCode ? { issueCode: settledIssueCode } : {}),
     ...(cursor ? { cursor } : {}),
     limit: 25,
   });
@@ -270,7 +282,7 @@ export function AndroidDiagnosticsPanel({ participantId, studyId }: { participan
           <Label htmlFor={`diagnostics-device-${participantId}`}>{t('participants.diagnostics_device_filter')}</Label>
           <Input
             id={`diagnostics-device-${participantId}`}
-            onChange={(event) => updateFilter(setDeviceId)(event.target.value)}
+            onChange={(event) => setDeviceId(event.target.value)}
             placeholder={t('participants.diagnostics_device_placeholder')}
             value={deviceId}
           />
@@ -295,7 +307,7 @@ export function AndroidDiagnosticsPanel({ participantId, studyId }: { participan
           <Label htmlFor={`diagnostics-issue-${participantId}`}>{t('participants.diagnostics_issue_code')}</Label>
           <Input
             id={`diagnostics-issue-${participantId}`}
-            onChange={(event) => updateFilter(setIssueCode)(event.target.value)}
+            onChange={(event) => setIssueCode(event.target.value)}
             placeholder={t('participants.diagnostics_issue_placeholder')}
             value={issueCode}
           />
