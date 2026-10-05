@@ -16,6 +16,7 @@ type StatePanelProps = {
   eyebrow?: string;
   /** Renders a "Try again" button, so a failed load recovers without a full page reload. */
   onRetry?: () => unknown;
+  titleAs?: 'h2' | 'h3';
   title: React.ReactNode;
   tone?: StatePanelTone;
 };
@@ -32,6 +33,7 @@ export function StatePanel({
   eyebrow,
   icon,
   onRetry,
+  titleAs,
   title,
   tone = 'default',
 }: StatePanelProps) {
@@ -45,7 +47,8 @@ export function StatePanel({
   return (
     // Announced feedback (Equal invariant): errors interrupt as an alert, everything else is a polite status.
     <Card
-      className={cn('w-full max-w-xl', tone === 'destructive' && 'border-destructive/40', className)}
+      className={cn('w-full max-w-xl', className)}
+      variant={tone === 'destructive' ? 'destructive' : 'default'}
       role={tone === 'destructive' ? 'alert' : 'status'}
     >
       <CardHeader>
@@ -53,7 +56,7 @@ export function StatePanel({
           {icon}
           {eyebrow && <span className="text-xs font-semibold uppercase tracking-eyebrow-wide">{eyebrow}</span>}
         </div>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle {...(titleAs ? { as: titleAs } : {})}>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       {(actions || retry) && (

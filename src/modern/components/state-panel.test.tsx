@@ -17,6 +17,11 @@ describe('StatePanel', () => {
     expect(screen.getByText('Something happened')).toBeTruthy();
   });
 
+  test('supports a page-level section heading when rendered inside a participant shell', () => {
+    render(<StatePanel {...defaultProps} titleAs="h2" />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Panel Title' })).toBeTruthy();
+  });
+
   test('renders icon', () => {
     render(<StatePanel {...defaultProps} />);
     expect(screen.getByTestId('icon')).toBeTruthy();

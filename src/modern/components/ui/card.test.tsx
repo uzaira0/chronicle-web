@@ -66,6 +66,11 @@ describe('CardTitle', () => {
     expect(container.firstElementChild?.tagName).toBe('H3');
   });
 
+  test('renders at a requested heading level', () => {
+    const { container } = render(<CardTitle as="h2">Section title</CardTitle>);
+    expect(container.firstElementChild?.tagName).toBe('H2');
+  });
+
   test('renders children', () => {
     render(<CardTitle>My Title</CardTitle>);
     expect(screen.getByText('My Title')).toBeTruthy();

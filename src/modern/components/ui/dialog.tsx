@@ -30,14 +30,15 @@ function CloseLabel() {
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ children, className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { variant?: 'default' | 'navigation' }
+>(({ children, className, variant = 'default', ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       aria-modal="true"
       className={cn(
         'fixed left-1/2 top-1/2 z-50 w-11/12 max-w-dialog -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 shadow-xl',
+        variant === 'navigation' && 'inset-y-0 left-0 top-0 h-dvh w-72 max-w-navigation-drawer translate-x-0 translate-y-0 overflow-y-auto rounded-none p-4',
         className,
       )}
       ref={ref}
