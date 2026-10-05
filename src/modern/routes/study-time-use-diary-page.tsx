@@ -11,9 +11,10 @@ import { FieldHint } from '@/components/ui/field-hint';
 import { Input } from '@/components/ui/input';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { formatDisplayDate, getEndOfDayIso, getStartOfDayIso } from '@/lib/format';
+import { formatDisplayDate, localDay } from '@/lib/format';
 import {
   type TimeUseDiaryDataType,
+  toExportDateTime,
   useDownloadStudyTudDataMutation,
   useGetStudySummaryQuery,
   useLazyGetStudyTudSubmissionGroupsQuery,
@@ -26,13 +27,13 @@ const DATA_TYPES = {
 } as const;
 
 function getToday() {
-  return new Date().toISOString().slice(0, 10);
+  return localDay(new Date());
 }
 
 function getTwoWeeksAgo() {
   const date = new Date();
   date.setDate(date.getDate() - 14);
-  return date.toISOString().slice(0, 10);
+  return localDay(date);
 }
 
 export function StudyTimeUseDiaryPage() {
@@ -73,8 +74,8 @@ export function StudyTimeUseDiaryPage() {
     }
 
     fetchSubmissions({
-      endDate: getEndOfDayIso(selectedEndDate),
-      startDate: getStartOfDayIso(selectedStartDate),
+      endDate: toExportDateTime(selectedEndDate, true),
+      startDate: toExportDateTime(selectedStartDate),
       studyId,
     }).catch((err: unknown) => {
       setDownloadError(getErrorMessage(err, t('tud_exports.search_failed')));
@@ -88,8 +89,8 @@ export function StudyTimeUseDiaryPage() {
     try {
       await downloadTud({
         dataType,
-        endDate: date ? getEndOfDayIso(date) : getEndOfDayIso(selectedEndDate),
-        startDate: date ? getStartOfDayIso(date) : getStartOfDayIso(selectedStartDate),
+        endDate: toExportDateTime(date ?? selectedEndDate, true),
+        startDate: toExportDateTime(date ?? selectedStartDate),
         studyId,
       }).unwrap();
     } catch (error) {

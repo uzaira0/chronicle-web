@@ -128,12 +128,16 @@ export function ParticipantDashboardPage() {
 
   const { surveyUrl, tudUrl } = useMemo(() => {
     if (!studyId || !participantId) return { surveyUrl: '', tudUrl: '' };
-    const queryDate = encodeURIComponent(new Date().toISOString().slice(0, 10));
+    const today = new Date();
+    const queryDate = encodeURIComponent(localDay(today));
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const diaryDate = encodeURIComponent(localDay(yesterday));
     const encodedStudyId = encodeURIComponent(studyId);
     const encodedParticipantId = encodeURIComponent(participantId);
     return {
       surveyUrl: `${modernSurveyPath()}?studyId=${encodedStudyId}&participantId=${encodedParticipantId}&date=${queryDate}`,
-      tudUrl: `${modernTimeUseDiaryPath()}?studyId=${encodedStudyId}&participantId=${encodedParticipantId}&date=${queryDate}`,
+      tudUrl: `${modernTimeUseDiaryPath()}?studyId=${encodedStudyId}&participantId=${encodedParticipantId}&date=${diaryDate}&day=yesterday`,
     };
   }, [studyId, participantId]);
 

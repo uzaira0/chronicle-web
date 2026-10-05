@@ -26,9 +26,14 @@ function pickRange() {
 afterEach(cleanup);
 
 describe('DownloadParticipantDataModal export coverage', () => {
-  test('rejects a range over 31 days with a visible message', async () => {
+  test('rejects a range over 31 days with a visible message', () => {
     render(
-      <DownloadParticipantDataModal modules={[]} onClose={() => undefined} participantIds={['participant-1']} studyId="study-1" />,
+      <DownloadParticipantDataModal
+        modules={[]}
+        onClose={() => undefined}
+        participantIds={['participant-1']}
+        studyId="study-1"
+      />,
     );
     act(() => screen.getByRole('button', { name: 'Upload Diagnostics' }).click());
     fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-09-01' } });
@@ -72,7 +77,7 @@ describe('DownloadParticipantDataModal export coverage', () => {
     }
 
     act(() => screen.getByRole('button', { name: 'Device Settings' }).click());
-    expect((screen.getByRole('button', { name: 'Download' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Download' }).disabled).toBe(true);
     pickRange();
     act(() => screen.getByRole('button', { name: 'Download' }).click());
     await act(async () => {

@@ -1,15 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, mock, setSystemTime, test } from 'bun:test';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 type FrequencyHookState = {
   data: { appUsageFrequency: 'DAILY' | 'HOURLY' } | undefined;
   isLoading: boolean;
+  isError: boolean;
 };
+
+let retryCalls = 0;
+const retryFrequency = () => { retryCalls++; frequencyHookState.data = { appUsageFrequency: 'HOURLY' }; frequencyHookState.isError = false; };
 
 const frequencyHookState: FrequencyHookState = {
   data: undefined,
   isLoading: false,
+  isError: false,
 };
 
 await mock.module('@/components/participant-hourly-survey-form', () => ({
@@ -52,10 +57,11 @@ await mock.module('@/components/participant-survey-form', () => ({
 }));
 
 await mock.module('@/state/study-operations-api', () => ({
-  useGetAppUsageFrequencyQuery: () => frequencyHookState,
+  useGetAppUsageFrequencyQuery: () => ({ ...frequencyHookState, isSuccess: !frequencyHookState.isLoading && !frequencyHookState.isError, refetch: retryFrequency }),
 }));
 
 import { LanguageProvider } from '@/i18n';
+import { localDay } from '@/lib/format';
 
 import { SurveyRoutePage } from './survey-page';
 
@@ -73,14 +79,42 @@ describe('SurveyRoutePage', () => {
   beforeEach(() => {
     frequencyHookState.data = undefined;
     frequencyHookState.isLoading = false;
+    frequencyHookState.isError = false;
+    retryCalls = 0;
   });
 
   test('renders the participant landing card when the link is incomplete', () => {
-    renderRoute('?studyId=study-1&participantId=participant-1');
+    renderRoute('?studyId=study-1');
 
     expect(screen.getByTestId('participant-landing-card')).toBeTruthy();
     expect(screen.getByText('App Usage Survey')).toBeTruthy();
     expect(screen.getByText('Survey date')).toBeTruthy();
+  });
+
+  test('opens today on the participant clock for a reminder link without a date', () => {
+    renderRoute('?studyId=study-1&participantId=participant-1');
+
+    expect(screen.getByTestId('daily-survey-form').textContent).toBe(`study-1|participant-1|${localDay(new Date())}`);
+  });
+
+  test('keeps the dateless survey on the day it opened when a rerender crosses midnight', () => {
+    setSystemTime(new Date(2026, 9, 2, 23, 59));
+    try {
+      const view = renderRoute('?studyId=study-1&participantId=participant-1');
+      setSystemTime(new Date(2026, 9, 3, 0, 1));
+      frequencyHookState.data = { appUsageFrequency: 'DAILY' };
+      view.rerender(
+        <LanguageProvider initialSearch="?studyId=study-1&participantId=participant-1">
+          <MemoryRouter initialEntries={['/survey?studyId=study-1&participantId=participant-1']}>
+            <SurveyRoutePage />
+          </MemoryRouter>
+        </LanguageProvider>,
+      );
+
+      expect(screen.getByTestId('daily-survey-form').textContent).toBe('study-1|participant-1|2026-10-02');
+    } finally {
+      setSystemTime();
+    }
   });
 
   test('shows a loading state while the survey frequency is resolving for a complete link', () => {
@@ -94,7 +128,7 @@ describe('SurveyRoutePage', () => {
   });
 
   test('translates the route chrome from ?lang= using the verified upstream tables', () => {
-    renderRoute('?studyId=study-1&participantId=participant-1&lang=es');
+    renderRoute('?studyId=study-1&lang=es');
     expect(screen.getByText('Encuesta de uso de las Apps')).toBeTruthy();
   });
 
@@ -123,3 +157,5 @@ describe('SurveyRoutePage', () => {
     expect(screen.queryByTestId('hourly-survey-form')).toBeNull();
   });
 });
+
+

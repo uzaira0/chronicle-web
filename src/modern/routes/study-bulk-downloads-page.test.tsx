@@ -1,8 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
 let createCalls = 0;
+type CreateArg = { request: { startDate?: string; endDate?: string } };
+let lastCreate: CreateArg | undefined;
 let resolveCreate: ((value: { exportId: string }) => void) | undefined;
 
 const studyOperationsApiModule = await import('@/state/study-operations-api');
@@ -10,8 +12,9 @@ const studyOperationsApiModule = await import('@/state/study-operations-api');
 await mock.module('@/state/study-operations-api', () => ({
   ...studyOperationsApiModule,
   useCreateStudyExportMutation: () => [
-    () => {
+    (arg: CreateArg) => {
       createCalls += 1;
+      lastCreate = arg;
       return {
         unwrap: () =>
           new Promise<{ exportId: string }>((resolve) => {
@@ -63,7 +66,7 @@ describe('StudyBulkDownloadsPage submission fence', () => {
       start.click();
     });
 
-    expect(createCalls).toBe(1);
+    await waitFor(() => expect(createCalls).toBe(1));
 
     await act(async () => {
       resolveCreate?.({ exportId: 'export-1' });
@@ -84,5 +87,31 @@ describe('StudyBulkDownloadsPage form controls', () => {
     const select = container.querySelector('select#export-format') as HTMLElement;
     expect(select.classList.contains('border-input')).toBe(true);
     expect(select.classList.contains('border-border')).toBe(false);
+  });
+});
+
+describe('StudyBulkDownloadsPage date range', () => {
+  test('exports whole local days, not UTC days', async () => {
+    lastCreate = undefined;
+    const { container } = render(
+      <MemoryRouter initialEntries={['/studies/study-1/downloads']}>
+        <Routes>
+          <Route element={<StudyBulkDownloadsPage />} path="/studies/:studyId/downloads" />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.change(container.querySelector('#export-start') as HTMLElement, { target: { value: '2026-09-01' } });
+    fireEvent.change(container.querySelector('#export-end') as HTMLElement, { target: { value: '2026-09-30' } });
+    act(() => screen.getByRole('button', { name: 'Start export' }).click());
+
+    // Local midnight on the first day up to (exclusive) local midnight after the last day.
+    await waitFor(() => expect(lastCreate).toBeDefined());
+    const sent = (lastCreate as CreateArg | undefined)?.request;
+    expect(Date.parse(sent?.startDate ?? '')).toBe(new Date(2026, 8, 1).getTime());
+    expect(Date.parse(sent?.endDate ?? '')).toBe(new Date(2026, 9, 1).getTime());
+    await act(async () => {
+      resolveCreate?.({ exportId: 'export-2' });
+      await Promise.resolve();
+    });
   });
 });

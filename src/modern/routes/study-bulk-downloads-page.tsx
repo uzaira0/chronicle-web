@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { getEndOfDayIso, getStartOfDayIso } from '@/lib/format';
+import { localDay } from '@/lib/format';
 import { dataTypesOfDisabledModules, participantDataTypesForModules } from '@/lib/participant-data-types';
 import {
   type CreateStudyExportRequest,
@@ -33,6 +33,7 @@ import {
   type StudyExportJobStatus,
   TIME_USE_DIARY_DATA_TYPES,
   type TimeUseDiaryDataType,
+  toExportDateTime,
   useCreateStudyExportMutation,
   useDownloadQuestionnaireResponsesMutation,
   useDownloadStudyExportMutation,
@@ -46,13 +47,13 @@ import {
 const EXPORT_FORMATS: readonly StudyExportFormat[] = ['EXCEL', 'CSV', 'JSON'];
 
 function defaultRangeEnd() {
-  return new Date().toISOString().slice(0, 10);
+  return localDay(new Date());
 }
 
 function defaultRangeStart() {
   const date = new Date();
   date.setDate(date.getDate() - 14);
-  return date.toISOString().slice(0, 10);
+  return localDay(date);
 }
 
 function statusVariant(status: StudyExportJobStatus) {
@@ -170,8 +171,8 @@ export function StudyBulkDownloadsPage() {
     try {
       await downloadStudyTud({
         dataType,
-        endDate: getEndOfDayIso(tudEnd),
-        startDate: getStartOfDayIso(tudStart),
+        endDate: toExportDateTime(tudEnd, true),
+        startDate: toExportDateTime(tudStart),
         studyId,
       }).unwrap();
       setActionMessage(t('bulk_downloads.downloaded_tud', { type: dataType }));
@@ -242,8 +243,8 @@ export function StudyBulkDownloadsPage() {
         dataTypes: selectedDataTypes.map((option) => option.value),
         format,
       };
-      if (startDate) request.startDate = getStartOfDayIso(startDate);
-      if (endDate) request.endDate = getEndOfDayIso(endDate);
+      if (startDate) request.startDate = toExportDateTime(startDate);
+      if (endDate) request.endDate = toExportDateTime(endDate, true);
       const job = await createExport({ studyId, request }).unwrap();
       setActionMessage(t('bulk_downloads.queued', { id: job.exportId }));
       await refetchExportJobs();

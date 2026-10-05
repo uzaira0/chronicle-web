@@ -120,7 +120,7 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(exportCalls.at(-1)).toMatchObject({
+    await waitFor(() => expect(exportCalls.at(-1)).toMatchObject({
       request: {
         dataTypes: [
           'UsageEvents',
@@ -145,7 +145,7 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
         ],
       },
       studyId: 'study-1',
-    });
+    }));
   });
 
   test('offers and includes retained diagnostics when no collection module is enabled', async () => {
@@ -157,10 +157,10 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(exportCalls.at(-1)).toMatchObject({
+    await waitFor(() => expect(exportCalls.at(-1)).toMatchObject({
       request: { dataTypes: ['UploadDiagnostics', 'DataQualityAlerts'] },
       studyId: 'study-1',
-    });
+    }));
   });
 
   test('offers every Time Use Diary variant for the whole study', () => {

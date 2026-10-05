@@ -8,6 +8,7 @@ import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
   type AppUsageEntry,
+  toExportDateTime,
   useGetAppUsageSurveyDataQuery,
   useSubmitAppUsageSurveyMutation,
 } from '@/state/study-operations-api';
@@ -42,12 +43,17 @@ const USER_OPTION_KEYS: Record<string, string> = {
 
 type SelectionMap = Record<number, string[]>;
 
-function startOfDayIso(date: string): string {
-  return `${date}T00:00:00.000Z`;
-}
+/** One question per app, as upstream: Android reports every foreground session separately. */
+type AppGroup = [AppUsageEntry, ...AppUsageEntry[]];
 
-function endOfDayIso(date: string): string {
-  return `${date}T23:59:59.999Z`;
+export function groupByApp(entries: AppUsageEntry[]): AppGroup[] {
+  const groups = new Map<string, AppGroup>();
+  for (const entry of entries) {
+    const group = groups.get(entry.appPackageName);
+    if (group) group.push(entry);
+    else groups.set(entry.appPackageName, [entry]);
+  }
+  return [...groups.values()];
 }
 
 /**
@@ -65,9 +71,10 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
     isLoading,
     isError,
   } = useGetAppUsageSurveyDataQuery({
-    endDate: endOfDayIso(date),
+    // The participant's own calendar day, not the UTC one.
+    endDate: toExportDateTime(date, true),
     participantId,
-    startDate: startOfDayIso(date),
+    startDate: toExportDateTime(date),
     studyId,
   });
 
@@ -88,18 +95,18 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
     });
   }, []);
 
-  const entries = apps ?? [];
+  const groups = useMemo(() => groupByApp(apps ?? []), [apps]);
   const allAnswered = useMemo(
-    () => entries.length > 0 && entries.every((_entry, index) => (selections[index]?.length ?? 0) > 0),
-    [entries, selections],
+    () => groups.length > 0 && groups.every((_group, index) => (selections[index]?.length ?? 0) > 0),
+    [groups, selections],
   );
 
   const handleSubmit = useCallback(() => {
     if (!allAnswered) return;
-    const payload: AppUsageEntry[] = entries.flatMap((entry, index) => {
+    const payload: AppUsageEntry[] = groups.flatMap((group, index) => {
       const selected = selections[index] ?? [];
       if (selected.includes(APP_USAGE_NONE_OPTION)) return [];
-      return [{ ...entry, users: selected }];
+      return group.map((entry) => ({ ...entry, users: selected }));
     });
     submit({ data: payload, idempotencyKey: currentKey(payload), participantId, studyId })
       .unwrap()
@@ -107,7 +114,7 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
       .catch(() => {
         // RTK Query owns the failure state rendered by this form.
       });
-  }, [allAnswered, entries, selections, participantId, studyId, submit, currentKey, rotateKey]);
+  }, [allAnswered, groups, selections, participantId, studyId, submit, currentKey, rotateKey]);
 
   if (isLoading) {
     return (
@@ -140,7 +147,7 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
       </Card>
     );
   }
-  if (entries.length === 0) {
+  if (groups.length === 0) {
     return (
       <StatusCard
         description={t.t('app_usage_survey.nothing_to_review')}
@@ -163,10 +170,10 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
         <CardDescription>{t.t('app_usage_survey.daily_instructions')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {entries.map((entry, index) => (
+        {groups.map(([entry], index) => (
           <AppUsageRow
             index={index}
-            key={`${entry.appPackageName}:${entry.timestamp}`}
+            key={entry.appPackageName}
             onToggle={toggleOption}
             selection={selections[index] ?? []}
             entry={entry}

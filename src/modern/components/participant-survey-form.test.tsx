@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { createTranslator } from '@/i18n/translator';
 import type { AppUsageEntry } from '@/state/study-operations-api';
-import { APP_USAGE_NONE_OPTION, APP_USAGE_USER_OPTIONS, AppUsageRow } from './participant-survey-form';
+import { APP_USAGE_NONE_OPTION, APP_USAGE_USER_OPTIONS, AppUsageRow, groupByApp } from './participant-survey-form';
 
 const entry: AppUsageEntry = {
   appLabel: 'YouTube',
@@ -55,5 +55,20 @@ describe('ParticipantSurveyForm - AppUsageRow', () => {
 
     fireEvent.click(parentAlone);
     expect(onToggle).toHaveBeenCalledWith(2, 'Parent alone', true);
+  });
+});
+
+describe('ParticipantSurveyForm - groupByApp', () => {
+  test('asks once per app, keeping every session of it, in first-use order', () => {
+    const chrome = { ...entry, appLabel: 'Chrome', appPackageName: 'com.android.chrome' };
+    const later = { ...entry, timestamp: '2026-06-01T18:00:00.000Z' };
+
+    const groups = groupByApp([entry, chrome, later]);
+
+    expect(groups.map((group) => group[0].appPackageName)).toEqual([
+      'com.google.android.youtube',
+      'com.android.chrome',
+    ]);
+    expect(groups[0]).toEqual([entry, later]);
   });
 });

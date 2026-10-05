@@ -1,17 +1,22 @@
 import { LoaderCircle, MessageSquareCode } from 'lucide-react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { ParticipantHourlySurveyForm } from '@/components/participant-hourly-survey-form';
 import { ParticipantLandingCard } from '@/components/participant-landing-card';
 import { ParticipantSurveyForm } from '@/components/participant-survey-form';
 import { useTranslator } from '@/i18n';
+import { localDay } from '@/lib/format';
 import { useGetAppUsageFrequencyQuery } from '@/state/study-operations-api';
 
 export function SurveyRoutePage() {
   const [searchParams] = useSearchParams();
   const studyId = searchParams.get('studyId') || '';
   const participantId = searchParams.get('participantId') || '';
-  const date = searchParams.get('date') || '';
+  // Reminder links carry no date; they mean today's usage on the participant's own clock. Fixed
+  // at mount: answers stay indexed against this day's apps if the form outlives midnight.
+  const [today] = useState(() => localDay(new Date()));
+  const date = searchParams.get('date') || (studyId && participantId ? today : '');
   // `?lang=` / `?gender=` on the participant link seed the shared LanguageProvider.
   const { t } = useTranslator();
 

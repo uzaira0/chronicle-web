@@ -8,6 +8,7 @@ import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
   type AppUsageEntry,
+  toExportDateTime,
   useGetAppUsageSurveyDataQuery,
   useSubmitAppUsageSurveyMutation,
 } from '@/state/study-operations-api';
@@ -40,9 +41,6 @@ const INSTRUCTION_KEYS: Record<HourlyStep, string> = {
   resolveSharedApps: 'app_usage_survey.instructions.resolve_shared_apps',
   resolveOtherApps: 'app_usage_survey.instructions.resolve_other_apps',
 };
-
-const startOfDayIso = (date: string): string => `${date}T00:00:00.000Z`;
-const endOfDayIso = (date: string): string => `${date}T23:59:59.999Z`;
 
 type State = {
   childOnlyApps: Set<string>;
@@ -130,9 +128,10 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
     isLoading,
     isError,
   } = useGetAppUsageSurveyDataQuery({
-    endDate: endOfDayIso(date),
+    // The participant's own calendar day, not the UTC one.
+    endDate: toExportDateTime(date, true),
     participantId,
-    startDate: startOfDayIso(date),
+    startDate: toExportDateTime(date),
     studyId,
   });
 

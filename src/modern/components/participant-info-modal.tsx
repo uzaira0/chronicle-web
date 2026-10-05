@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useTranslator } from '@/i18n';
+import { getErrorMessage } from '@/lib/errors';
+import { localDay } from '@/lib/format';
 import { participantAccessCodeIssueUrl } from '@/lib/participant-access';
 import { getAppUsageLink, getHttpsEnrollmentLink, getTimeUseDiaryLink } from '@/lib/participant-links';
 import type { Participant } from '@/state/study-operations-api';
@@ -41,10 +43,11 @@ export function ParticipantInfoModal({ modules, onClose, participant, studyId }:
 
   useEffect(() => {
     let cancelled = false;
+    // The diary day is the researcher's local calendar day, not the UTC one.
     const today = new Date();
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-    const todayDate = today.toISOString().slice(0, 10);
-    const yesterdayDate = yesterday.toISOString().slice(0, 10);
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+    const todayDate = localDay(today);
+    const yesterdayDate = localDay(yesterday);
 
     async function issue(
       formKind: 'ENROLLMENT' | 'APP_USAGE' | 'TIME_USE_DIARY',
