@@ -177,3 +177,25 @@ describe('livePages — the live flow excludes orphaned pages', () => {
     expect(live.some((entry) => entry.page >= 6)).toBe(false);
   });
 });
+
+describe('livePages — a long completed day is walked to its end', () => {
+  test('29 activities put the night page at 61 and it is still live', () => {
+    const hhmm = (minutes: number) =>
+      `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    const answers: TudAnswers = {
+      0: { clockFormat: 24 },
+      1: { dayOfWeek: 'Monday', typicalDay: 'Yes' },
+      [DAY_SPAN_PAGE]: { dayEndTime: hhmm(300 + 29 * 30), dayStartTime: hhmm(300) },
+    };
+    for (let activity = 0; activity < 29; activity += 1) {
+      const end = hhmm(300 + (activity + 1) * 30);
+      answers[3 + activity * 2] = { activityEndTime: end, primaryActivity: 'Playing indoors' };
+      answers[4 + activity * 2] = { activityEndTime: end, followUpCompleted: true, primaryActivity: 'Playing indoors' };
+    }
+    answers[61] = { typicalSleepPattern: 'Yes' };
+    answers[62] = {};
+    expect(pageKind(answers, 62, 'yesterday', baseSettings())).toBe('summary');
+    const live = livePages(answers, 'yesterday', baseSettings());
+    expect(live.at(-1)).toEqual({ kind: 'night', page: 61 });
+  });
+});

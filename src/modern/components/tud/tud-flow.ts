@@ -148,16 +148,17 @@ export function carriedActivity(answers: TudAnswers, page: number): string | und
  * longer previous walk orphaned beyond this live terminus; iterating `livePages`
  * instead of every key in `answers` is what keeps those orphans (and the stale
  * activity carriers on a page since demoted to night) out of the submission.
- * `maxPages` is a runaway guard for incomplete answers that never reach summary.
+ * Incomplete answers never reach summary, so the walk also stops at the highest page
+ * that holds answers; there is no fixed page cap, which used to drop a long day's tail.
  */
 export function livePages(
   answers: TudAnswers,
   activityDay: ActivityDay,
   settings: TudSettings,
-  maxPages = 60,
 ): Array<{ page: number; kind: PageKind }> {
   const out: Array<{ page: number; kind: PageKind }> = [];
-  for (let page = PRE_SURVEY_PAGE; page < PRE_SURVEY_PAGE + maxPages; page += 1) {
+  const lastPage = Math.max(PRE_SURVEY_PAGE, ...Object.keys(answers).map(Number));
+  for (let page = PRE_SURVEY_PAGE; page <= lastPage; page += 1) {
     const kind = pageKind(answers, page, activityDay, settings);
     if (kind === 'summary') break;
     out.push({ page, kind });
