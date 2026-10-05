@@ -100,7 +100,7 @@ export function ParticipantInfoModal({ modules, onClose, participant, studyId }:
         setParticipantLinks(links);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setLinkError(error instanceof Error ? error.message : t('participant_info.links_failed'));
+        if (!cancelled) setLinkError(getErrorMessage(error, t('participant_info.links_failed')));
       });
     return () => {
       cancelled = true;
