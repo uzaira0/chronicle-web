@@ -1,6 +1,7 @@
 export const PARTICIPANT_CSRF_STORAGE_KEY = 'chronicle.participant.csrf';
 export const PARTICIPANT_CONTEXT_STORAGE_KEY = 'chronicle.participant.context';
-const PARTICIPANT_PUBLIC_API_BASE = '/chronicle/v3';
+/** Public participant-form API. Self-host serves only this prefix on the participant listener. */
+export const PARTICIPANT_PUBLIC_API_BASE = '/chronicle/v3';
 const RESEARCHER_WEB_API_BASE = '/chronicle/api/web';
 
 export type ParticipantFormKind = 'ENROLLMENT' | 'APP_USAGE' | 'QUESTIONNAIRE' | 'TIME_USE_DIARY' | 'PORTAL';

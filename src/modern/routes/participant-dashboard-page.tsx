@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslator } from '@/i18n';
-import { formatDisplayDate } from '@/lib/format';
+import { formatDisplayDate, localDay } from '@/lib/format';
+import { PARTICIPANT_PUBLIC_API_BASE } from '@/lib/participant-access';
 import { modernSurveyPath, modernTimeUseDiaryPath } from '@/lib/route-links';
 import { fetchWithCsrf } from '@/state/study-operations-api';
 
@@ -58,7 +59,7 @@ async function fetchSubmissionHistory(studyId: string, participantId: string): P
   });
 
   const response = await fetchWithCsrf(
-    `/chronicle/api/web/time-use-diary/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}?${params.toString()}`,
+    `${PARTICIPANT_PUBLIC_API_BASE}/time-use-diary/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}?${params.toString()}`,
   );
 
   if (!response.ok) {

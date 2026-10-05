@@ -1,4 +1,10 @@
-import { createApi, type FetchBaseQueryError, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import {
+  type BaseQueryApi,
+  createApi,
+  type FetchArgs,
+  type FetchBaseQueryError,
+  fetchBaseQuery,
+} from '@reduxjs/toolkit/query/react';
 import {
   type ConsentTrigger,
   PARTICIPATION_STATUSES,
@@ -9,9 +15,10 @@ import {
 } from '@/generated/chronicle-contracts';
 import { createTranslator, getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
 import { triggerBlobDownload } from '@/lib/download';
-import { getParticipantCsrfToken } from '@/lib/participant-access';
+import { getParticipantCsrfToken, PARTICIPANT_PUBLIC_API_BASE } from '@/lib/participant-access';
 import type { StudyParticipantPolicySetting } from '@/lib/participant-policy';
 import { DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, timeoutSignal } from '@/lib/request-timeout';
+import { logoutSession } from './session-slice';
 import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } from './settings-revision';
 
 // Canonical status/policy value sets come from the generated LinkML contract module —
@@ -686,9 +693,21 @@ const baseQueryOptions = {
   },
 } satisfies Parameters<typeof fetchBaseQuery>[0];
 const researcherBaseQuery = fetchBaseQuery({ ...baseQueryOptions, baseUrl: '/chronicle/api/web' });
+// Participant forms are reachable only under the public prefix: a self-host participant
+// listener refuses /chronicle/api/web. Endpoints opt in with extraOptions.participantPublic.
+const participantBaseQuery = fetchBaseQuery({ ...baseQueryOptions, baseUrl: PARTICIPANT_PUBLIC_API_BASE });
+type StudyOperationsExtraOptions = { participantPublic?: boolean };
 
 export const studyOperationsApi = createApi({
-  baseQuery: researcherBaseQuery,
+  baseQuery: async (args: string | FetchArgs, api: BaseQueryApi, extraOptions: StudyOperationsExtraOptions = {}) => {
+    if (extraOptions.participantPublic) return participantBaseQuery(args, api, extraOptions);
+    const result = await researcherBaseQuery(args, api, extraOptions);
+    // A 401 here means the dashboard session expired: sign out to the login screen instead of
+    // rendering it as "no access". logoutSession.pending leaves 'authenticated', so this fires once.
+    const session = (api.getState() as { session?: { status?: string } }).session;
+    if (result.error?.status === 401 && session?.status === 'authenticated') void api.dispatch(logoutSession());
+    return result;
+  },
   endpoints: (builder) => ({
     createStudy: builder.mutation<string, Record<string, unknown>>({
       invalidatesTags: ['Study'],
@@ -1174,6 +1193,7 @@ export const studyOperationsApi = createApi({
       AppUsageEntry[],
       { studyId: string; participantId: string; startDate: string; endDate: string }
     >({
+      extraOptions: { participantPublic: true },
       query: ({ studyId, participantId, startDate, endDate }) => {
         const params = new URLSearchParams({ startDate, endDate });
         return `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage?${params.toString()}`;
@@ -1185,6 +1205,7 @@ export const studyOperationsApi = createApi({
       unknown,
       { studyId: string; participantId: string; data: AppUsageEntry[]; idempotencyKey?: string }
     >({
+      extraOptions: { participantPublic: true },
       query: ({ studyId, participantId, data, idempotencyKey }) => ({
         body: data,
         headers: idempotencyHeaders(idempotencyKey),
@@ -1195,6 +1216,7 @@ export const studyOperationsApi = createApi({
     // Participant-facing app-usage-frequency fetch (DAILY vs HOURLY). The backend GET is
     // study-scoped and not ACL-gated, so the survey page can pick the daily/hourly variant.
     getAppUsageFrequency: builder.query<AppUsageFrequencyResponse, string>({
+      extraOptions: { participantPublic: true },
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
       query: (studyId) => `/survey/${encodeURIComponent(studyId)}/app-usage-frequency`,
     }),
@@ -1202,6 +1224,7 @@ export const studyOperationsApi = createApi({
       unknown,
       { studyId: string; participantId: string; data: ParticipantTimeUseDiaryResponse[]; idempotencyKey?: string }
     >({
+      extraOptions: { participantPublic: true },
       query: ({ studyId, participantId, data, idempotencyKey }) => ({
         body: data,
         headers: idempotencyHeaders(idempotencyKey),
@@ -1213,12 +1236,14 @@ export const studyOperationsApi = createApi({
     // `/time-use-diary/**` tree (study-scoped, RLS-enforced), so an enrolled participant can
     // read the study's configured diary variant from a deep link.
     getTimeUseDiarySettings: builder.query<TimeUseDiarySettingsResponse, string>({
+      extraOptions: { participantPublic: true },
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
       query: (studyId) => `/time-use-diary/${encodeURIComponent(studyId)}/settings`,
     }),
     // Participant-facing single-questionnaire fetch. The backend GET is study-scoped
     // and not ACL-gated, so an enrolled participant can render it from a deep link.
     getParticipantQuestionnaire: builder.query<QuestionnaireRecord, { studyId: string; questionnaireId: string }>({
+      extraOptions: { participantPublic: true },
       providesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Questionnaires' }],
       query: ({ studyId, questionnaireId }) =>
         `/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
@@ -1234,6 +1259,7 @@ export const studyOperationsApi = createApi({
         idempotencyKey?: string;
       }
     >({
+      extraOptions: { participantPublic: true },
       query: ({ studyId, participantId, questionnaireId, responses, idempotencyKey }) => ({
         body: responses,
         headers: idempotencyHeaders(idempotencyKey),
