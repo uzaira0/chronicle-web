@@ -74,6 +74,12 @@ function toValidDate(iso: string): Date {
   return parsed;
 }
 
+/** `YYYY-MM-DD` in the viewer's time zone, the format date inputs use. */
+export function localDay(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function getStartOfDayIso(dateValue: string) {
   return memoize(dateValue, (v) => toValidDate(`${v}T00:00:00.000Z`).toISOString(), startOfDayCache);
 }

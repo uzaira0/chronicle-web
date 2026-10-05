@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { formatDisplayDateTime } from '@/lib/format';
+import { formatDisplayDateTime, localDay } from '@/lib/format';
 import {
   type AndroidDiagnosticCodeSummary,
   type AndroidDiagnosticsHistoryRow,
@@ -36,12 +36,6 @@ const MODULE_FAMILIES = [
 
 const CATEGORY_ORDER = ['data_loss', 'quarantined', 'upload_failures', 'app_crashes', 'collection_paused'] as const;
 type DiagnosticCategory = (typeof CATEGORY_ORDER)[number];
-
-/** `YYYY-MM-DD` in the viewer's time zone, the format date inputs use. */
-function localDay(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
 
 function categoryFor(code: string): DiagnosticCategory {
   if (code === 'COLLECTION_PAUSED_STORAGE' || code === 'COLLECTION_ACCESS_MISSING') return 'collection_paused';
