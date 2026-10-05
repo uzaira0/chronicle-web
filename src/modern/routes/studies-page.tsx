@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { formatDisplayDate } from '@/lib/format';
 import { buildStudyParticipantPolicy, EMPTY_PARTICIPANT_POLICY_FORM } from '@/lib/participant-policy';
 import { STUDY_FEATURES } from '@/lib/study-constants';
@@ -124,6 +125,7 @@ export function StudiesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sort, setSort] = useState<SortState<StudySortKey>>({ dir: 'asc', key: 'title' });
   const [createStudy] = useCreateStudyMutation();
+  const createIntent = useResearcherCreateIntent('/study');
   const [updateStudySettings] = useUpdateStudySettingsMutation();
   const [setStudyLimits] = useSetStudyLimitsMutation();
   const navigate = useNavigate();
@@ -147,7 +149,9 @@ export function StudiesPage() {
   }, []);
 
   const handleCreateStudy = async (form: StudyFormData) => {
-    const studyId = await createStudy(buildStudyPayload(form)).unwrap();
+    const study = buildStudyPayload(form);
+    const studyId = await createStudy({ study, idempotencyKey: await createIntent.currentKey(study) }).unwrap();
+    await createIntent.rotateKey();
 
     // Best-effort post-create config (the study already exists). The settings PATCHes run
     // in order and continue past a failure (writeSettingsInOrder); limits is a disjoint

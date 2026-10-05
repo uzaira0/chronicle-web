@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { localDay } from '@/lib/format';
 import { dataTypesOfDisabledModules, participantDataTypesForModules } from '@/lib/participant-data-types';
 import {
@@ -125,6 +126,7 @@ export function StudyBulkDownloadsPage() {
     refetch: refetchExportJobs,
   } = useListStudyExportsQuery({ studyId }, { skip: !studyId });
 
+  const createIntent = useResearcherCreateIntent(`/study/${studyId}/export/async`);
   const [createExport, { isLoading: isCreating }] = useCreateStudyExportMutation();
   const [downloadExport, { isLoading: isDownloading }] = useDownloadStudyExportMutation();
 
@@ -245,7 +247,8 @@ export function StudyBulkDownloadsPage() {
       };
       if (startDate) request.startDate = toExportDateTime(startDate);
       if (endDate) request.endDate = toExportDateTime(endDate, true);
-      const job = await createExport({ studyId, request }).unwrap();
+      const job = await createExport({ studyId, request, idempotencyKey: await createIntent.currentKey({ studyId, request }) }).unwrap();
+      await createIntent.rotateKey();
       setActionMessage(t('bulk_downloads.queued', { id: job.exportId }));
       await refetchExportJobs();
     } catch (err) {

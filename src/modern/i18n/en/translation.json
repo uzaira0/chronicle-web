@@ -1,4 +1,8 @@
 {
+  "writes": {
+    "conflict": "Someone changed this content. Your draft is still here. Reload the latest version before saving.",
+    "reload_discard": "Discard draft and reload latest"
+  },
   "intro_text": "$t(intro_text_ctx.intro)",
   "intro_text_ctx": {
     "intro_today": "Thank you for taking the time to complete this survey! First, we will ask how your child slept last night. Then, we will ask you to describe everything your child did today, starting when your child woke up this morning and ending when they went to bed tonight. Please answer the questions to the best of your ability. At the end of the survey, you will be able to make changes if you want.",

@@ -13,6 +13,7 @@ import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { getMutationRequestState } from '@/lib/request-state';
 import {
   type QuestionnaireDraft,
@@ -22,6 +23,7 @@ import {
   useDownloadQuestionnaireResponsesMutation,
   useGetStudyQuestionnairesQuery,
   useGetStudySummaryQuery,
+  useLoadQuestionnaireMutation,
   useUpdateQuestionnaireMutation,
 } from '@/state/study-operations-api';
 
@@ -43,10 +45,14 @@ export function StudyQuestionnairesPage() {
 
   const [view, setView] = useState<ViewMode>('list');
   const [editingQuestionnaire, setEditingQuestionnaire] = useState<QuestionnaireRecord | null>(null);
+  const [revision, setRevision] = useState<string>();
+  const [conflict, setConflict] = useState(false);
+  const [loadSnapshot] = useLoadQuestionnaireMutation();
   const [previewTarget, setPreviewTarget] = useState<QuestionnaireRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QuestionnaireRecord | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const createIntent = useResearcherCreateIntent(`/survey/${studyId}/questionnaire`);
   const [createQuestionnaire, createState] = useCreateQuestionnaireMutation();
   const [updateQuestionnaire, updateState] = useUpdateQuestionnaireMutation();
   const [deleteQuestionnaire, deleteState] = useDeleteQuestionnaireMutation();
@@ -68,15 +74,29 @@ export function StudyQuestionnairesPage() {
   const handleCreate = async (questionnaire: QuestionnaireDraft) => {
     setActionError(null);
     try {
-      await createQuestionnaire({ questionnaire, studyId }).unwrap();
+      await createQuestionnaire({ questionnaire, studyId, idempotencyKey: await createIntent.currentKey({ questionnaire, studyId }) }).unwrap();
+      await createIntent.rotateKey();
       setView('list');
     } catch (error) {
       setActionError(getErrorMessage(error, t('questionnaires.create_failed')));
     }
   };
 
+  const openEditor = async (questionnaireId: string) => {
+    setActionError(null);
+    try {
+      const snapshot = await loadSnapshot({ studyId, questionnaireId }).unwrap();
+      setEditingQuestionnaire(snapshot.data);
+      setRevision(snapshot.revision);
+      setConflict(false);
+      setView('edit');
+    } catch (error) {
+      setActionError(getErrorMessage(error, t('questionnaires.load_error_fallback')));
+    }
+  };
+
   const handleUpdate = async (questionnaire: QuestionnaireDraft) => {
-    if (!editingQuestionnaire) {
+    if (!editingQuestionnaire || !revision || conflict) {
       return;
     }
 
@@ -85,12 +105,16 @@ export function StudyQuestionnairesPage() {
       await updateQuestionnaire({
         questionnaire,
         questionnaireId: editingQuestionnaire.id,
+        ifMatch: revision,
         studyId,
       }).unwrap();
       setEditingQuestionnaire(null);
       setView('list');
     } catch (error) {
-      setActionError(getErrorMessage(error, t('questionnaires.update_failed')));
+      if (typeof error === 'object' && error !== null && 'status' in error && (error.status === 412 || error.status === 428)) {
+        setConflict(true);
+        setActionError(t('writes.conflict'));
+      } else setActionError(getErrorMessage(error, t('questionnaires.update_failed')));
     }
   };
 
@@ -139,6 +163,9 @@ export function StudyQuestionnairesPage() {
         />
       )}
 
+      {conflict && editingQuestionnaire && (
+        <Button onClick={() => void openEditor(editingQuestionnaire.id)} variant="outline">{t('writes.reload_discard')}</Button>
+      )}
       {isLoading && <TableSkeleton label={t('questionnaires.loading_title')} />}
 
       {!isLoading && isError && (
@@ -197,9 +224,7 @@ export function StudyQuestionnairesPage() {
                   });
               }}
               onEdit={() => {
-                setActionError(null);
-                setEditingQuestionnaire(questionnaire);
-                setView('edit');
+                void openEditor(questionnaire.id);
               }}
               onPreview={() => setPreviewTarget(questionnaire)}
               questionCount={questionnaire.questions.length}
@@ -222,6 +247,7 @@ export function StudyQuestionnairesPage() {
 
       {view === 'edit' && editingQuestionnaire && (
         <QuestionnaireBuilder
+          key={revision}
           initialQuestionnaire={{
             active: editingQuestionnaire.active,
             description: editingQuestionnaire.description,

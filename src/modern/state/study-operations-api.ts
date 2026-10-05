@@ -379,6 +379,35 @@ export type CreateStudyExportRequest = {
   startDate?: string;
 };
 
+export type ApiKeyScope = 'READ_ONLY' | 'WRITE' | 'ADMIN';
+const API_KEY_SCOPE_PERMISSIONS: [ApiKeyScope, string[]][] = [
+  ['READ_ONLY', ['READ']],
+  ['WRITE', ['READ', 'WRITE']],
+  ['ADMIN', ['READ', 'WRITE', 'OWNER']],
+];
+
+/** Researcher API key metadata (backend `ApiKeyInfo`); the raw key is never listed. */
+export type ApiKeyInfo = {
+  createdAt: string;
+  deviceId?: string | null;
+  expiresAt: string;
+  keyId: string;
+  lastUsedAt?: string | null;
+  name: string;
+  participantId?: string | null;
+  prefix: string;
+  scope: ApiKeyScope;
+  studyId: string;
+  usageCount?: number;
+};
+
+/** Backend `ApiKeyCreateResponse`: `rawKey` is returned this once and never again. */
+export type ApiKeyCreateResponse = {
+  info: ApiKeyInfo;
+  keyId: string;
+  rawKey: string;
+};
+
 export type DataDeletionOperation = {
   mode: string;
   operationId: string;
@@ -709,10 +738,11 @@ export const studyOperationsApi = createApi({
     return result;
   },
   endpoints: (builder) => ({
-    createStudy: builder.mutation<string, Record<string, unknown>>({
+    createStudy: builder.mutation<string, { study: Record<string, unknown>; idempotencyKey: string }>({
       invalidatesTags: ['Study'],
-      query: (body) => ({
-        body,
+      query: ({ study, idempotencyKey }) => ({
+        body: study,
+        headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
         url: '/study',
       }),
@@ -765,10 +795,11 @@ export const studyOperationsApi = createApi({
         }
       },
     }),
-    createQuestionnaire: builder.mutation<string, { questionnaire: QuestionnaireDraft; studyId: string }>({
+    createQuestionnaire: builder.mutation<string, { questionnaire: QuestionnaireDraft; studyId: string; idempotencyKey: string }>({
       invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Questionnaires' }],
-      query: ({ questionnaire, studyId }) => ({
+      query: ({ questionnaire, studyId, idempotencyKey }) => ({
         body: questionnaire,
+        headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
         url: `/survey/${encodeURIComponent(studyId)}/questionnaire`,
       }),
@@ -787,6 +818,47 @@ export const studyOperationsApi = createApi({
         method: 'DELETE',
         url: `/study/${encodeURIComponent(studyId)}/participants`,
       }),
+    }),
+    listStudyApiKeys: builder.query<ApiKeyInfo[], string>({
+      providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ApiKeys' }],
+      query: (studyId) => `/study/${encodeURIComponent(studyId)}/api-keys`,
+    }),
+    createStudyApiKey: builder.mutation<
+      ApiKeyCreateResponse,
+      { expiresInDays: number; name: string; scope: ApiKeyScope; studyId: string; idempotencyKey: string }
+    >({
+      invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'ApiKeys' }],
+      query: ({ studyId, idempotencyKey, ...body }) => ({
+        body,
+        headers: idempotencyHeaders(idempotencyKey),
+        method: 'POST',
+        url: `/study/${encodeURIComponent(studyId)}/api-keys`,
+      }),
+    }),
+    revokeStudyApiKey: builder.mutation<unknown, { keyId: string; studyId: string }>({
+      invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'ApiKeys' }],
+      query: ({ keyId, studyId }) => ({
+        method: 'DELETE',
+        url: `/study/${encodeURIComponent(studyId)}/api-keys/${encodeURIComponent(keyId)}`,
+      }),
+    }),
+    // Whether the signed-in user may modify the study (WRITE on its ACL), from the server's access check.
+    // The API key scopes the current user could hold on the study: a key never outranks its creator, so the
+    // server caps each scope at the creator's own permissions (ApiKeyStudyAuthority.ceiling).
+    getStudyApiKeyScopes: builder.query<ApiKeyScope[], string>({
+      query: (studyId) => ({
+        body: [{ aclKey: [studyId], permissions: ['READ', 'WRITE', 'OWNER'] }],
+        method: 'POST',
+        url: '/authorizations',
+      }),
+      transformResponse: (body: unknown) => {
+        const held = (permission: string) =>
+          Array.isArray(body) &&
+          body.some(
+            (entry) => isRecord(entry) && isRecord(entry.permissions) && entry.permissions[permission] === true,
+          );
+        return API_KEY_SCOPE_PERMISSIONS.filter(([, permissions]) => permissions.every(held)).map(([scope]) => scope);
+      },
     }),
     getDeletionOperation: builder.query<DataDeletionOperation, { operationId: string; studyId: string }>({
       query: ({ operationId, studyId }) =>
@@ -904,13 +976,38 @@ export const studyOperationsApi = createApi({
         url: `/study/${encodeURIComponent(studyId)}/participant`,
       }),
     }),
+    loadParticipantAnnotations: builder.mutation<
+      { data: { participantNotes?: string; participantTags?: string[] }; revision: string },
+      { participantId: string; studyId: string }
+    >({
+      queryFn: async ({ participantId, studyId }, _api, _extra, baseQuery) => {
+        const result = await baseQuery(`/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/annotations`);
+        if (result.error) return { error: result.error };
+        const revision = result.meta?.response?.headers.get('etag');
+        if (!revision) return { error: { status: 'CUSTOM_ERROR', error: 'Missing resource revision' } };
+        return { data: { data: result.data as { participantNotes?: string; participantTags?: string[] }, revision } };
+      },
+    }),
+    loadQuestionnaire: builder.mutation<
+      { data: QuestionnaireRecord; revision: string },
+      { questionnaireId: string; studyId: string }
+    >({
+      queryFn: async ({ questionnaireId, studyId }, _api, _extra, baseQuery) => {
+        const result = await baseQuery(`/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`);
+        if (result.error) return { error: result.error };
+        const revision = result.meta?.response?.headers.get('etag');
+        if (!revision) return { error: { status: 'CUSTOM_ERROR', error: 'Missing resource revision' } };
+        return { data: { data: normalizeQuestionnaireRecord(result.data), revision } };
+      },
+    }),
     updateParticipantAnnotations: builder.mutation<
       unknown,
-      { annotations: { participantNotes?: string; participantTags?: string[] }; participantId: string; studyId: string }
+      { annotations: { participantNotes?: string; participantTags?: string[] }; participantId: string; studyId: string; ifMatch: string }
     >({
       invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Participants' }],
-      query: ({ annotations, participantId, studyId }) => ({
+      query: ({ annotations, participantId, studyId, ifMatch }) => ({
         body: annotations,
+        headers: { 'If-Match': ifMatch },
         method: 'PATCH',
         url: `/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/annotations`,
       }),
@@ -927,16 +1024,20 @@ export const studyOperationsApi = createApi({
     }),
     updateQuestionnaire: builder.mutation<
       unknown,
-      { questionnaire: QuestionnaireDraft; questionnaireId: string; studyId: string }
+      { questionnaire: QuestionnaireDraft; questionnaireId: string; studyId: string; ifMatch: string }
     >({
       invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Questionnaires' }],
-      query: ({ questionnaire, questionnaireId, studyId }) => ({
+      query: ({ questionnaire, questionnaireId, studyId, ifMatch }) => ({
         body: questionnaire,
+        headers: { 'If-Match': ifMatch },
         method: 'PATCH',
         url: `/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
       }),
     }),
-    updateStudy: builder.mutation<StudyWriteResult<StudySummary | null>, { study: StudyUpdatePayload; studyId: string; ifMatch?: string }>({
+    updateStudy: builder.mutation<
+      StudyWriteResult<StudySummary | null>,
+      { study: StudyUpdatePayload; studyId: string; ifMatch?: string }
+    >({
       invalidatesTags: (_result, _error, { studyId }) => [
         { id: studyId, type: 'Study' },
         { id: 'LIST', type: 'Study' },
@@ -1025,10 +1126,11 @@ export const studyOperationsApi = createApi({
         }
       },
     }),
-    createStudyExport: builder.mutation<StudyExportJobInfo, { request: CreateStudyExportRequest; studyId: string }>({
+    createStudyExport: builder.mutation<StudyExportJobInfo, { request: CreateStudyExportRequest; studyId: string; idempotencyKey: string }>({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Exports' }],
-      query: ({ request, studyId }) => ({
+      query: ({ request, studyId, idempotencyKey }) => ({
         body: request,
+        headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/export/async`,
       }),
@@ -1282,6 +1384,7 @@ export const studyOperationsApi = createApi({
     'Lifecycle',
     'Organizations',
     'Exports',
+    'ApiKeys',
   ],
 });
 
@@ -1291,9 +1394,15 @@ export const {
   useUnarchiveStudyMutation,
   useScheduleStudyDeletionMutation,
   useCreateStudyMutation,
+  useLoadParticipantAnnotationsMutation,
+  useLoadQuestionnaireMutation,
   useSetStudyLimitsMutation,
   useUpdateStudySettingsMutation,
   useCreateQuestionnaireMutation,
+  useCreateStudyApiKeyMutation,
+  useGetStudyApiKeyScopesQuery,
+  useListStudyApiKeysQuery,
+  useRevokeStudyApiKeyMutation,
   useDeleteQuestionnaireMutation,
   useDeleteStudyParticipantsMutation,
   useLazyGetDeletionOperationQuery,
