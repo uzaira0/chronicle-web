@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslator } from '@/i18n';
-import { modernParticipantDashboardPath } from '@/lib/route-links';
+import { readParticipantSessionContext } from '@/lib/participant-access';
 
 type ParamField = {
   key: string;
@@ -25,11 +25,13 @@ export function ParticipantLandingCard({ description, extraParams = [], icon, ti
 
   const studyId = searchParams.get('studyId') || '';
   const participantId = searchParams.get('participantId') || '';
+  const session = readParticipantSessionContext();
+  const canOpenPortal = session?.formKind === 'PORTAL' && session.studyId === studyId && session.participantId === participantId;
 
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2">
           {icon}
           {title}
         </CardTitle>
@@ -63,12 +65,13 @@ export function ParticipantLandingCard({ description, extraParams = [], icon, ti
           </p>
         )}
 
-        <Button asChild variant="outline">
-          <Link to={modernParticipantDashboardPath()}>
+        {canOpenPortal && <Button asChild variant="outline">
+          {/* Router-relative: the router's basename already supplies /chronicle. */}
+          <Link to={{ pathname: '/participant', search: new URLSearchParams({ participantId, studyId }).toString() }}>
             {t('participant_landing.dashboard_link')}
             <ArrowRight className="ml-1.5 h-4 w-4" />
           </Link>
-        </Button>
+        </Button>}
       </CardContent>
     </Card>
   );
