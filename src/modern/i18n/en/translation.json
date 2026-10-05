@@ -413,6 +413,13 @@
     "submit": "Submit responses",
     "answer_aria": "Answer to question {{number}}"
   },
+  "participant_session": {
+    "expired_title": "Participant session expired",
+    "expired_description": "Your answers remain on this page. Ask the study team for a fresh participant link, then check again without closing this page.",
+    "unavailable_title": "Unable to confirm participant session",
+    "unavailable_description": "Your answers remain on this page. Reconnect to the server, then check again.",
+    "retry": "Check again"
+  },
   "participant_landing": {
     "study": "Study:",
     "participant": "Participant:",

@@ -3,7 +3,9 @@ import { type Dispatch, useMemo, useReducer } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
+import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
@@ -139,6 +141,10 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
   const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  // Bucket answers exist only for shared apps, so these two sets cover every answer.
+  const keepAlive = useUnsavedParticipantAnswers(
+    submitState !== REQUEST_STATES.SUCCESS && (state.childOnlyApps.size > 0 || state.sharedApps.size > 0),
+  );
 
   const grouped: HourlyGrouped = useMemo(() => groupByHourly(apps ?? []), [apps]);
   const allApps = useMemo(() => Object.keys(grouped).sort(), [grouped]);
@@ -189,7 +195,7 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
     return (
       <Card className="max-w-2xl" dir={dir}>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle as="h2" className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-primary" />
             {t.t('app_usage_survey.thank_you_title')}
           </CardTitle>
@@ -203,7 +209,7 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
     <Card className="max-w-2xl" dir={dir}>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle as="h2" className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" />
             {t.t('app_usage_survey.title')}
           </CardTitle>
@@ -212,6 +218,7 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
         <CardDescription>{t.t(INSTRUCTION_KEYS[state.step])}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={t.t} />
         {hasApps ? (
           <HourlyStepBody
             allApps={allApps}
@@ -337,7 +344,7 @@ function AppChecklist({ apps, grouped, onToggle, selected, translator }: AppChec
             onChange={() => onToggle(pkg)}
             type="checkbox"
           />
-          <span>{grouped[pkg]?.appLabel || pkg}</span>
+          <span className="min-w-0 break-all">{grouped[pkg]?.appLabel || pkg}</span>
         </label>
       ))}
     </div>
@@ -361,9 +368,11 @@ function BucketChecklists({ entries, onToggle, rangesFor, selections, translator
       {entries.map(([pkg, app]) => {
         const ranges = rangesFor(pkg, app);
         return (
-          <fieldset className="space-y-2" key={pkg}>
-            <legend className="flex items-baseline gap-2">
-              <Badge variant="outline">{app.appLabel || pkg}</Badge>
+          <fieldset className="min-w-0 space-y-2" key={pkg}>
+            <legend className="flex min-w-0 items-baseline gap-2">
+              <Badge className="max-w-full break-all whitespace-normal" variant="outline">
+                {app.appLabel || pkg}
+              </Badge>
             </legend>
             {ranges.length === 0 ? (
               <p className="text-sm text-muted-foreground">{translator.t('app_usage_survey.no_remaining_times')}</p>
@@ -396,7 +405,7 @@ function StatusCard({ description, dir, title }: { description: string; dir: 'lt
   return (
     <Card className="max-w-2xl" dir={dir}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2">
           <Clock className="h-5 w-5 text-primary" />
           {title}
         </CardTitle>

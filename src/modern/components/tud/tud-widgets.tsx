@@ -14,7 +14,9 @@ export const OTHER_VALUE = 'Other';
 export type FieldValue = string | string[] | undefined;
 
 interface ControlProps {
+  controlId?: string;
   field: FieldDef;
+  labelledBy?: string;
   value: FieldValue;
   onChange: (code: string, value: FieldValue) => void;
   invalid?: boolean;
@@ -29,12 +31,12 @@ function freeTextOf(values: string[], known: Set<string>): string | undefined {
   return values.find((v) => !known.has(v) && v !== OTHER_VALUE);
 }
 
-export function RadioControl({ field, invalid, onChange, value }: ControlProps) {
+export function RadioControl({ field, invalid, labelledBy, onChange, value }: ControlProps) {
   const selected = typeof value === 'string' ? value : '';
   const known = optionValues(field);
   const otherActive = field.withOther === true && selected !== '' && !known.has(selected);
   return (
-    <fieldset className="space-y-2" aria-invalid={invalid}>
+    <fieldset aria-invalid={invalid} aria-labelledby={labelledBy} className="space-y-2">
       {(field.options ?? []).map((option) => (
         <label className={optionClass(selected === option.value)} key={option.value}>
           <input
@@ -59,7 +61,7 @@ export function RadioControl({ field, invalid, onChange, value }: ControlProps) 
   );
 }
 
-export function CheckboxControl({ field, invalid, onChange, value }: ControlProps) {
+export function CheckboxControl({ field, invalid, labelledBy, onChange, value }: ControlProps) {
   const values = Array.isArray(value) ? value : [];
   const known = optionValues(field);
   const otherText = freeTextOf(values, known);
@@ -76,7 +78,7 @@ export function CheckboxControl({ field, invalid, onChange, value }: ControlProp
   };
 
   return (
-    <fieldset className="space-y-2" aria-invalid={invalid}>
+    <fieldset aria-invalid={invalid} aria-labelledby={labelledBy} className="space-y-2">
       {(field.options ?? []).map((option) => (
         <label className={optionClass(values.includes(option.value))} key={option.value}>
           <input
@@ -100,11 +102,13 @@ export function CheckboxControl({ field, invalid, onChange, value }: ControlProp
   );
 }
 
-export function TextControl({ field, invalid, onChange, value }: ControlProps) {
+export function TextControl({ controlId, field, invalid, labelledBy, onChange, value }: ControlProps) {
   return (
     <input
       aria-invalid={invalid}
+      aria-labelledby={labelledBy}
       className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+      id={controlId}
       onChange={(event) => onChange(field.code, event.currentTarget.value)}
       type="text"
       value={typeof value === 'string' ? value : ''}
@@ -112,7 +116,7 @@ export function TextControl({ field, invalid, onChange, value }: ControlProps) {
   );
 }
 
-export function TimeControl({ field, invalid, onChange, value }: ControlProps) {
+export function TimeControl({ controlId, field, invalid, labelledBy, onChange, value }: ControlProps) {
   const current = typeof value === 'string' && value !== '' ? value : (field.defaultTime ?? '');
   // Commit the displayed default into state on mount. Without this, a participant who
   // accepts the shown time (e.g. 07:00) without editing leaves the answer undefined, so
@@ -125,7 +129,9 @@ export function TimeControl({ field, invalid, onChange, value }: ControlProps) {
   return (
     <input
       aria-invalid={invalid}
+      aria-labelledby={labelledBy}
       className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+      id={controlId}
       onChange={(event) => onChange(field.code, event.currentTarget.value)}
       type="time"
       value={current}
@@ -186,11 +192,15 @@ const CONTROLS = {
 export function FieldControl(props: ControlProps) {
   const { t } = useTranslator();
   const Control = CONTROLS[props.field.widget];
+  const controlId = `tud-field-${props.field.code}`;
+  const labelId = `${controlId}-label`;
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-foreground">{props.field.title}</p>
+      <p className="text-sm font-medium text-foreground" id={labelId}>
+        {props.field.title}
+      </p>
       {props.field.description && <p className="text-xs text-muted-foreground">{props.field.description}</p>}
-      <Control {...props} />
+      <Control {...props} controlId={controlId} labelledBy={labelId} />
       {props.invalid && <p className="text-xs text-destructive">{t('common.response_required')}</p>}
     </div>
   );
@@ -198,16 +208,18 @@ export function FieldControl(props: ControlProps) {
 
 /** The 12/24-hour clock-format selector shown on the intro page (parity feature). */
 export function ClockFormatSelect({
+  label,
   labels,
   onChange,
   value,
 }: {
+  label?: string;
   labels: string[];
   onChange: (format: 12 | 24) => void;
   value: 12 | 24;
 }) {
   return (
-    <fieldset className="space-y-2">
+    <fieldset aria-label={label} className="space-y-2">
       {([12, 24] as const).map((format, index) => (
         <label className={optionClass(value === format)} key={format}>
           <input

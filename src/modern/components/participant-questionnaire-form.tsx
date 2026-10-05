@@ -4,8 +4,10 @@ import { useCallback, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
+import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
@@ -42,6 +44,9 @@ export function ParticipantQuestionnaireForm({
   const submitState = getMutationRequestState(submitResult);
 
   const [answers, setAnswers] = useState<AnswerMap>({});
+  const keepAlive = useUnsavedParticipantAnswers(
+    submitState !== REQUEST_STATES.SUCCESS && Object.values(answers).some((answer) => answer.length > 0),
+  );
 
   const setOpenEndedAnswer = useCallback((index: number, text: string) => {
     setAnswers((prev) => ({ ...prev, [index]: text.trim() ? [text] : [] }));
@@ -93,7 +98,7 @@ export function ParticipantQuestionnaireForm({
     return (
       <Card className="max-w-2xl">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle as="h2" className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-primary" />
             {t('common.thank_you')}
           </CardTitle>
@@ -106,13 +111,14 @@ export function ParticipantQuestionnaireForm({
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2">
           <FileQuestion className="h-5 w-5 text-primary" />
           {questionnaire.title || t('questionnaire.title')}
         </CardTitle>
         {questionnaire.description && <CardDescription>{questionnaire.description}</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-6">
+        <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={t} />
         {questions.map((question, index) => (
           <QuestionField
             answer={answers[index] ?? []}
@@ -192,7 +198,7 @@ function StatusCard({ description, title }: { description: string; title: string
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2">
           <FileQuestion className="h-5 w-5 text-primary" />
           {title}
         </CardTitle>

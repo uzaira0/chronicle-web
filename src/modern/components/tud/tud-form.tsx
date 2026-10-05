@@ -1,11 +1,13 @@
 import { CheckCircle2, ClipboardList } from 'lucide-react';
-import { type ReactNode, useCallback, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { isRtlLanguage, resolveLanguageCode } from '@/i18n/language-codes';
 import { LanguageSwitcher } from '@/i18n/language-switcher';
 import { createTranslator } from '@/i18n/translator';
+import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
 import { useSubmitTimeUseDiaryMutation } from '@/state/study-operations-api';
@@ -83,6 +85,17 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
   const [submit, submitResult] = useSubmitTimeUseDiaryMutation();
   const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
+
+  // Answers live only in memory (no PHI in browser storage): once the diary has started, confirm
+  // a reload (a mobile pull-to-refresh otherwise wipes it) and keep the session from idling out.
+  // Answers past the intro are kept on Back to page 0, so they count as started too.
+  const started = page > 0 || Object.keys(answers).some((key) => key !== '0');
+  const keepAlive = useUnsavedParticipantAnswers(started && submitState !== REQUEST_STATES.SUCCESS);
+
+  // Each page starts at its first question; otherwise Next keeps the previous page's scroll offset.
+  useEffect(() => {
+    if (page > 0) window.scrollTo(0, 0);
+  }, [page]);
 
   const answerClockFormat = answers[0]?.[FIELD.CLOCK_FORMAT];
   const clockFormat = answerClockFormat === 12 || answerClockFormat === 24 ? answerClockFormat : settings.clockFormat;
@@ -189,7 +202,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
     <Card className="max-w-2xl" dir={isRtlLanguage(effectiveCode) ? 'rtl' : 'ltr'}>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle as="h2" className="flex items-center gap-2">
             <ClipboardList className="h-5 w-5 text-primary" />
             {ctx.translator.t('tud_route.title')}
           </CardTitle>
@@ -201,6 +214,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
         {view.title && <CardDescription>{view.title}</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-6">
+        <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={ctx.translator.t} />
         {kind === 'intro' && (
           <IntroStep
             clockFormat={clockFormat}
@@ -233,7 +247,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
         )}
 
         {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive">{ctx.translator.t('error_submit')}</p>
+          <p className="text-sm text-destructive" role="alert">{ctx.translator.t('error_submit')}</p>
         )}
 
         <div className="flex justify-between">
@@ -275,6 +289,7 @@ export function IntroStep({
         <div className="space-y-2">
           <p className="text-sm font-medium text-foreground">{ctx.translator.t('choose_format')}</p>
           <ClockFormatSelect
+            label={ctx.translator.t('choose_format')}
             labels={ctx.translator.tArray('clock_formats')}
             onChange={onClockFormat}
             value={clockFormat}
@@ -342,7 +357,7 @@ function DiaryCard({ description, icon, title }: { description: string; icon: Re
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2">
           {icon}
           {title}
         </CardTitle>

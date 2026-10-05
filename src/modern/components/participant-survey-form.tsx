@@ -3,7 +3,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
+import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
 import {
@@ -82,6 +84,9 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
   const { currentKey, rotateKey } = useSubmissionKey();
   const submitState = getMutationRequestState(submitResult);
   const [selections, setSelections] = useState<SelectionMap>({});
+  const keepAlive = useUnsavedParticipantAnswers(
+    submitState !== REQUEST_STATES.SUCCESS && Object.values(selections).some((selected) => selected.length > 0),
+  );
 
   const toggleOption = useCallback((index: number, option: string, checked: boolean) => {
     setSelections((prev) => {
@@ -138,7 +143,7 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
     return (
       <Card className="max-w-2xl" dir={dir}>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle as="h2" className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-primary" />
             {t.t('app_usage_survey.thank_you_title')}
           </CardTitle>
@@ -161,7 +166,7 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
     <Card className="max-w-2xl" dir={dir}>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle as="h2" className="flex items-center gap-2">
             <MessageSquareCode className="h-5 w-5 text-primary" />
             {t.t('app_usage_survey.title')}
           </CardTitle>
@@ -170,6 +175,7 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
         <CardDescription>{t.t('app_usage_survey.daily_instructions')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={t.t} />
         {groups.map(([entry], index) => (
           <AppUsageRow
             index={index}
@@ -215,10 +221,12 @@ export function AppUsageRow({ entry, index, onToggle, selection, translator }: A
   const label = entry.appLabel || entry.appPackageName;
   const options = [...APP_USAGE_USER_OPTIONS, APP_USAGE_NONE_OPTION];
   return (
-    <fieldset className="space-y-3">
+    // min-w-0 + break-all: a fieldset is min-content wide by default, so an unlabelled package
+    // name (one unbreakable word) would push the row past the card on a phone.
+    <fieldset className="min-w-0 space-y-3">
       <legend className="flex items-baseline gap-2">
         <Badge variant="outline">{index + 1}</Badge>
-        <span className="text-base font-semibold text-foreground">{label}</span>
+        <span className="min-w-0 break-all text-base font-semibold text-foreground">{label}</span>
       </legend>
       <div className="space-y-2">
         {options.map((option) => (
@@ -244,7 +252,7 @@ function StatusCard({ description, dir, title }: { description: string; dir: 'lt
   return (
     <Card className="max-w-2xl" dir={dir}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2">
           <MessageSquareCode className="h-5 w-5 text-primary" />
           {title}
         </CardTitle>
