@@ -85,7 +85,7 @@ function AcknowledgmentsCard({ entries }: { entries: CollectionAcknowledgmentEnt
         <h2 className="text-sm font-semibold">{t('settings_audit.consent_title')}</h2>
         <p className="text-xs text-muted-foreground">{t('settings_audit.consent_description')}</p>
       </div>
-      <Table>
+      <Table aria-label={t('settings_audit.consent_title')}>
         <TableHeader>
           <TableRow>
             <TableHead className="w-45">{t('settings_audit.col_recorded')}</TableHead>
@@ -178,7 +178,7 @@ export function StudySettingsAuditPage() {
         />
       ) : (
         <Card>
-          <Table>
+          <Table aria-label={t('settings_audit.section')}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-45">{t('settings_audit.col_timestamp')}</TableHead>
