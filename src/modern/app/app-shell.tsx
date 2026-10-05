@@ -6,6 +6,7 @@ import { RouteOutlet } from '@/components/error-boundary';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { LanguageSwitcher, statusLabel, useTranslator } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { logoutSession } from '@/state/session-slice';
@@ -44,7 +45,7 @@ export function AppShell() {
   const { t } = useTranslator();
 
   return (
-    <div className="eq-root min-h-screen bg-background text-foreground">
+    <div className="eq-root eq-app-shell min-h-screen bg-background text-foreground">
       <a className="eq-skip-link" href="#main-content">
         {t('shell.skip_to_main')}
       </a>
@@ -69,7 +70,7 @@ export function AppShell() {
 
           <nav aria-label={t('shell.primary_nav')} className="flex-1 space-y-1">
             {navigation.map(({ icon, labelKey, to }) => (
-              <NavLink className={navLinkClassName} key={to} to={to}>
+              <NavLink aria-label={isSidebarCollapsed ? t(labelKey) : undefined} className={navLinkClassName} key={to} to={to}>
                 <EqualIcon className="h-4 w-4 shrink-0" name={icon} />
                 {!isSidebarCollapsed && <span>{t(labelKey)}</span>}
               </NavLink>
@@ -89,15 +90,34 @@ export function AppShell() {
           <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-6">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <Button
-                  aria-label={t('shell.open_navigation')}
-                  className="md:hidden"
-                  onClick={() => setMobileNavOpen(true)}
-                  size="icon"
-                  variant="ghost"
-                >
-                  <EqualIcon className="h-5 w-5" name="menu" />
-                </Button>
+                <Dialog onOpenChange={setMobileNavOpen} open={isMobileNavOpen}>
+                  <DialogTrigger asChild>
+                    <Button aria-label={t('shell.open_navigation')} className="md:hidden" size="icon" variant="ghost">
+                      <EqualIcon className="h-5 w-5" name="menu" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="md:hidden" variant="navigation">
+                    <DialogTitle className="sr-only">{t('shell.mobile_nav_title')}</DialogTitle>
+                    <DialogDescription className="sr-only">{t('shell.mobile_nav_description')}</DialogDescription>
+                    <div className="mb-6 flex items-center gap-2">
+                      <div>
+                        <p className="text-sm font-bold tracking-tight text-foreground">Chronicle</p>
+                        <p className="text-xs text-muted-foreground">{t('shell.research_operations')}</p>
+                      </div>
+                    </div>
+                    <nav aria-label={t('shell.primary_nav')} className="space-y-1">
+                    {navigation.map(({ icon, labelKey, to }) => (
+                      <NavLink className={mobileNavLinkClassName} key={to} onClick={closeMobileNav} to={to}>
+                        <EqualIcon className="h-4 w-4 shrink-0" name={icon} />
+                        <span>{t(labelKey)}</span>
+                      </NavLink>
+                    ))}
+                    </nav>
+                    <div className="mt-6 border-t border-border pt-4">
+                      <LanguageSwitcher />
+                    </div>
+                  </DialogContent>
+                </Dialog>
                 <div>
                   <h1 className="text-base font-semibold tracking-tight text-foreground">Chronicle</h1>
                   <p className="hidden text-xs text-muted-foreground sm:block">{t('shell.console_subtitle')}</p>
@@ -131,42 +151,10 @@ export function AppShell() {
                 </Button>
                 <div className="flex items-center gap-2 md:hidden">
                   <ThemeToggle />
-                  <LanguageSwitcher />
                 </div>
               </div>
             </div>
           </header>
-
-          {/* Mobile nav overlay */}
-          {isMobileNavOpen && (
-            <div className="fixed inset-0 z-30 md:hidden">
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop overlay dismisses mobile nav */}
-              <div
-                className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-                onClick={closeMobileNav}
-                role="presentation"
-              />
-              <nav className="absolute inset-y-0 left-0 w-72 border-r border-border bg-sidebar p-4 shadow-xl">
-                <div className="mb-6 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-bold tracking-tight text-foreground">Chronicle</p>
-                    <p className="text-xs text-muted-foreground">{t('shell.research_operations')}</p>
-                  </div>
-                  <Button aria-label={t('shell.close_navigation')} onClick={closeMobileNav} size="icon" variant="ghost">
-                    <EqualIcon className="h-4 w-4" name="close" />
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  {navigation.map(({ icon, labelKey, to }) => (
-                    <NavLink className={mobileNavLinkClassName} key={to} onClick={closeMobileNav} to={to}>
-                      <EqualIcon className="h-4 w-4 shrink-0" name={icon} />
-                      <span>{t(labelKey)}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              </nav>
-            </div>
-          )}
 
           <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8" id="main-content" tabIndex={-1}>
             <RouteOutlet />

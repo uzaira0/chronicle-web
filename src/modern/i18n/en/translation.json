@@ -321,6 +321,8 @@
   "shell": {
     "skip_to_main": "Skip to main content",
     "primary_nav": "Primary",
+    "mobile_nav_title": "Navigation",
+    "mobile_nav_description": "Choose a Chronicle destination.",
     "research_operations": "Research operations",
     "toggle_sidebar": "Toggle sidebar",
     "open_navigation": "Open navigation",

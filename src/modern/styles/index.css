@@ -106,6 +106,7 @@
   --tracking-eyebrow: 0.18em;
   --tracking-eyebrow-wide: 0.24em;
   --container-dialog: 38rem;
+  --container-navigation-drawer: calc(100vw - 1rem);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -153,5 +154,14 @@
 
   #app {
     min-height: 100vh;
+  }
+
+  .eq-app-shell {
+    --app-shell-header-height: 4rem;
+  }
+
+  .eq-app-shell main,
+  .eq-app-shell main :is(a, button, input, select, textarea, [tabindex]) {
+    scroll-margin-block-start: calc(var(--app-shell-header-height) + 0.5rem);
   }
 }
