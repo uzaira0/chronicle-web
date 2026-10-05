@@ -127,4 +127,23 @@ describe('StudyParticipantsPage pagination', () => {
     expect(screen.getByText('Android diagnostics history')).toBeTruthy();
     expect(screen.getByText(/USAGE_QUEUE_EVICTED/)).toBeTruthy();
   });
+
+  test('rejects a participant ID the server would refuse before submitting it', () => {
+    render(
+      <MemoryRouter initialEntries={['/studies/study-1/participants']}>
+        <Routes>
+          <Route element={<StudyParticipantsPage />} path="/studies/:studyId/participants" />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const input = screen.getByLabelText('New participant ID');
+    const register = screen.getByRole('button', { name: 'Register' }) as HTMLButtonElement;
+    fireEvent.change(input, { target: { value: 'niño 07' } });
+    expect(screen.getByRole('alert').textContent).toContain('no spaces or accents');
+    expect(register.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: 'CL-001' } });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(register.disabled).toBe(false);
+  });
 });

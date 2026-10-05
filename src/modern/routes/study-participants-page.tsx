@@ -772,9 +772,12 @@ export function StudyParticipantsPage() {
     return <MissingStudyIdPanel section={t('participants.section')} />;
   }
 
+  // Same format the server requires for enrollment codes, form links and uploads.
+  const newIdInvalid = newParticipantId.trim() !== '' && !/^[a-zA-Z0-9_.-]+$/.test(newParticipantId.trim());
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newParticipantId.trim()) return;
+    if (!newParticipantId.trim() || newIdInvalid) return;
     setActionError(null);
     try {
       const registered = newParticipantId.trim();
@@ -928,14 +931,23 @@ export function StudyParticipantsPage() {
               });
             }}
           >
-            <Input
-              aria-label={t('participants.new_id_aria')}
-              className="sm:w-56"
-              onChange={(e) => setNewParticipantId(e.target.value)}
-              placeholder={t('participants.new_id_placeholder')}
-              value={newParticipantId}
-            />
-            <Button disabled={isRegistering || !newParticipantId.trim()} type="submit">
+            <div className="flex flex-col gap-1">
+              <Input
+                aria-describedby={newIdInvalid ? 'new-participant-id-error' : undefined}
+                aria-invalid={newIdInvalid}
+                aria-label={t('participants.new_id_aria')}
+                className="sm:w-56"
+                onChange={(e) => setNewParticipantId(e.target.value)}
+                placeholder={t('participants.new_id_placeholder')}
+                value={newParticipantId}
+              />
+              {newIdInvalid && (
+                <p className="text-xs text-destructive sm:w-56" id="new-participant-id-error" role="alert">
+                  {t('participants.new_id_invalid')}
+                </p>
+              )}
+            </div>
+            <Button disabled={isRegistering || !newParticipantId.trim() || newIdInvalid} type="submit">
               {isRegistering ? (
                 <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (

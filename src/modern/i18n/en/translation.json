@@ -674,6 +674,7 @@
     "search_placeholder": "Search by participant ID, status, notes, or tags...",
     "new_id_aria": "New participant ID",
     "new_id_placeholder": "New participant ID…",
+    "new_id_invalid": "Use only letters A-Z, digits, period, hyphen, or underscore (no spaces or accents).",
     "register": "Register",
     "qr_enrollment": "QR Enrollment",
     "selected_count": "{{count}} selected",
