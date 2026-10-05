@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { configureStore } from '@reduxjs/toolkit';
 
-import { initializeBootstrapSession, requestDashboardLogin } from '@/lib/bootstrap-auth';
+import {
+  AUTH_SESSION_NETWORK_FAILED_MESSAGE,
+  initializeBootstrapSession,
+  requestDashboardLogin,
+} from '@/lib/bootstrap-auth';
 import { getErrorMessage } from '@/lib/errors';
 import { REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
 
@@ -138,7 +142,9 @@ describe('request timeouts', () => {
   it('the dashboard session bootstrap gives up instead of spinning', async () => {
     const session = initializeBootstrapSession();
     await afterTimeout();
-    expect(await outcome(session)).toMatchObject({ reason: { name: 'TimeoutError' }, status: 'rejected' });
+    const settled = await outcome(session);
+    expect(settled.status).toBe('rejected');
+    expect((settled as { reason: Error }).reason.message).toBe(AUTH_SESSION_NETWORK_FAILED_MESSAGE);
   });
 
   it('the dashboard password login reports sign-in unavailable', async () => {

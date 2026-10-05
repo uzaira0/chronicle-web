@@ -72,7 +72,7 @@ describe('requestDashboardLogin()', () => {
     expect(session.user?.email).toBe('admin@example.com');
   });
 
-  it('rejects with the server message on a 401', async () => {
+  it('rejects with the translatable rejected message on a 401, whatever the server text', async () => {
     stubFetch(() =>
       Promise.resolve(
         new Response(JSON.stringify({ authenticated: false, error: 'Incorrect dashboard password.' }), {
@@ -81,11 +81,11 @@ describe('requestDashboardLogin()', () => {
       ),
     );
 
-    const { requestDashboardLogin } = (await import(
+    const { DASHBOARD_LOGIN_REJECTED_MESSAGE, requestDashboardLogin } = (await import(
       `./bootstrap-auth.ts?dashboard=${nextId()}`
     )) as typeof import('./bootstrap-auth');
 
-    expect(await messageFromRejection(requestDashboardLogin('nope'))).toBe('Incorrect dashboard password.');
+    expect(await messageFromRejection(requestDashboardLogin('nope'))).toBe(DASHBOARD_LOGIN_REJECTED_MESSAGE);
   });
 
   it('rejects with a distinct rate-limit message on a 429', async () => {

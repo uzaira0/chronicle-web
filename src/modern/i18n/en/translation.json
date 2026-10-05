@@ -1173,6 +1173,7 @@
     "failed_title": "Session initialization failed",
     "init_failed": "Unable to initialize the Chronicle session.",
     "unknown_bootstrap_failure": "Unknown bootstrap failure.",
+    "auth_network_failed": "Unable to reach the Chronicle session service. Check your connection and try again.",
     "auth_request_failed": "The session request failed (status {{status}}).",
     "testing_login_failed": "The testing sign-in request failed (status {{status}})."
   },

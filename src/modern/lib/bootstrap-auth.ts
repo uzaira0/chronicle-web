@@ -16,6 +16,8 @@ const DASHBOARD_PROVIDER_LABEL = 'Chronicle dashboard';
 export const DASHBOARD_LOGIN_REJECTED_MESSAGE = 'That password was not accepted. Check it and try again.';
 export const DASHBOARD_LOGIN_RATE_LIMITED_MESSAGE = 'Too many sign-in attempts. Wait a minute before trying again.';
 export const DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE = 'Sign-in is temporarily unavailable. Try again in a moment.';
+export const AUTH_SESSION_NETWORK_FAILED_MESSAGE =
+  'Unable to reach the Chronicle session service. Check your connection and try again.';
 
 // The two transport failures below carry the HTTP status, so they cannot be compared whole.
 // `SessionBootstrap` matches on these prefixes to render the translated equivalent.
@@ -92,10 +94,15 @@ type ServerSessionResponse = {
 };
 
 async function fetchServerSession(): Promise<ServerSessionResponse> {
-  const response = await fetch(AUTH_SESSION_ENDPOINT, {
-    credentials: 'same-origin',
-    signal: timeoutSignal(),
-  });
+  let response: Response;
+  try {
+    response = await fetch(AUTH_SESSION_ENDPOINT, {
+      credentials: 'same-origin',
+      signal: timeoutSignal(),
+    });
+  } catch {
+    throw new Error(AUTH_SESSION_NETWORK_FAILED_MESSAGE);
+  }
 
   // A 401 means the security filter rejected an expired/invalid cookie before
   // the controller could respond. Do not infer testing-login from this path:
@@ -182,8 +189,9 @@ export async function requestDashboardLogin(password: string): Promise<Bootstrap
     throw new Error(DASHBOARD_LOGIN_RATE_LIMITED_MESSAGE);
   }
 
+  // Always the fixed sentence: the login page translates it, while server text arrives untranslated.
   if (response.status === 401) {
-    throw new Error(getErrorMessage(await readJsonObject(response), DASHBOARD_LOGIN_REJECTED_MESSAGE));
+    throw new Error(DASHBOARD_LOGIN_REJECTED_MESSAGE);
   }
 
   if (!response.ok) {

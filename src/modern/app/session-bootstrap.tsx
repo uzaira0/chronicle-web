@@ -3,7 +3,11 @@ import { type PropsWithChildren, useEffect } from 'react';
 import { StatePanel } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
 import { useTranslator } from '@/i18n';
-import { AUTH_SESSION_FAILED_PREFIX, TESTING_LOGIN_FAILED_PREFIX } from '@/lib/bootstrap-auth';
+import {
+  AUTH_SESSION_FAILED_PREFIX,
+  AUTH_SESSION_NETWORK_FAILED_MESSAGE,
+  TESTING_LOGIN_FAILED_PREFIX,
+} from '@/lib/bootstrap-auth';
 import { LoginPage } from '@/routes/login-page';
 import {
   bootstrapSession,
@@ -15,6 +19,7 @@ import { store, useAppSelector } from '@/state/store';
 // The session slice and the auth transport store their English fallback sentences (state
 // stays serializable and language-agnostic); the shell renders the translated equivalent.
 const WHOLE_MESSAGE_KEYS: Record<string, string> = {
+  [AUTH_SESSION_NETWORK_FAILED_MESSAGE]: 'session.auth_network_failed',
   [SESSION_INIT_FAILED_MESSAGE]: 'session.init_failed',
   [UNKNOWN_BOOTSTRAP_FAILURE_MESSAGE]: 'session.unknown_bootstrap_failure',
 };
