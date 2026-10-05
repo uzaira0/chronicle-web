@@ -35,8 +35,8 @@ export function ChangeEnrollmentModal({ onClose, participant, studyId }: ChangeE
 
   const currentStatus = participant.participationStatus;
   const isEnrolled = currentStatus === 'ENROLLED';
-  const targetStatus: ParticipationStatus = isEnrolled ? 'NOT_ENROLLED' : 'ENROLLED';
-  const actionLabel = isEnrolled ? t('change_enrollment.pause') : t('change_enrollment.resume');
+  const targetStatus: ParticipationStatus = isEnrolled ? 'PAUSED' : 'ENROLLED';
+  const actionLabel = isEnrolled ? t('change_enrollment.pause') : currentStatus === 'PAUSED' ? t('change_enrollment.resume') : t('change_enrollment.enroll');
 
   const handleToggle = async () => {
     setError(null);

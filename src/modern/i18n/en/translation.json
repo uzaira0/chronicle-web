@@ -996,6 +996,7 @@
     "add_tag": "Add tag"
   },
   "change_enrollment": {
+    "enroll": "Enroll Participant",
     "pause": "Pause Enrollment",
     "resume": "Resume Enrollment",
     "update_failed": "Failed to update enrollment status.",
