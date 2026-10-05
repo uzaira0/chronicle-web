@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, CircleAlert, History } from 'lucide-react';
 import { Fragment, useCallback, useState } from 'react';
 import { useParams } from 'react-router';
 
+import { ApiKeysPanel } from '@/components/api-keys-panel';
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
 import { StatePanel, TableSkeleton } from '@/components/state-panel';
@@ -215,6 +216,8 @@ export function StudySettingsAuditPage() {
       )}
 
       {!isLoading && !isError && <AcknowledgmentsCard entries={acknowledgments} />}
+
+      <ApiKeysPanel studyId={studyId} />
     </div>
   );
 }
