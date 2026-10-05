@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
 
-import { isPreprocessingGuiAvailable, PREPROCESSING_GUI_PATH, preprocessingGuiUrl } from './preprocessing-gui';
+import {
+  HOSTED_PREPROCESSING_GUI_URL,
+  isPreprocessingGuiAvailable,
+  PREPROCESSING_GUI_PATH,
+  preprocessingGuiUrl,
+} from './preprocessing-gui';
+
+it('W78 shipped technical inventory identifies both preprocessing providers and the browser boundary', () => {
+  const inventory = readFileSync('../THIRD-PARTY.md', 'utf8').replace(/\s+/g, ' ');
+  expect(inventory).toContain(HOSTED_PREPROCESSING_GUI_URL);
+  expect(inventory).toContain(PREPROCESSING_GUI_PATH);
+  expect(inventory).toContain('https://github.com/uzaira0/chronicle-android-raw-data-preprocessing-app');
+  expect(inventory).toContain('GitHub Pages');
+  expect(inventory).toContain('browser');
+  expect(inventory).toContain('selected export files');
+  expect(inventory).toContain('external application');
+});
 
 const DASHBOARD_SHELL_HTML = `<!doctype html>
 <html lang="en">

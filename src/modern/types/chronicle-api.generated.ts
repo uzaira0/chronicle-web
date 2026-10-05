@@ -2040,16 +2040,23 @@ export interface components {
             endedAt?: string;
         };
         StudyUpdate: {
-            title?: string;
-            description?: string;
-            contact?: string;
-            version?: string;
-            group?: string;
-            notificationsEnabled?: boolean;
+            title?: string | null;
+            description?: string | null;
+            contact?: string | null;
+            version?: string | null;
+            group?: string | null;
+            notificationsEnabled?: boolean | null;
             /** Format: double */
-            lat?: number;
+            lat?: number | null;
             /** Format: double */
-            lon?: number;
+            lon?: number | null;
+            settings?: {
+                [key: string]: components["schemas"]["StudySetting"];
+            } | null;
+            modules?: {
+                [key: string]: unknown;
+            } | null;
+            storage?: string | null;
         };
         /** @description Polymorphic study setting (uses @class discriminator) */
         StudySetting: {
@@ -2122,7 +2129,7 @@ export interface components {
         /** @description Per-module configuration entry inside an AndroidDataCollectionSetting. Carries no apiKey, signing secret, or participantId — pure configuration. */
         CollectionModuleSetting: {
             /** @description Whether the module is active. Privacy-sensitive modules are never enabled implicitly. */
-            enabled?: boolean;
+            enabled: boolean;
             /** @description Whether the module is mandatory for study participation (per-module consent design §3.1). Meaningful only when enabled. Required modules must be accepted to enroll and cannot be self-disabled in the Data Sharing surface; optional modules (the default) are participant-toggleable. Defaults false for legacy settings. */
             required?: boolean;
             collectionCadence?: components["schemas"]["CollectionCadence"];
@@ -2135,6 +2142,20 @@ export interface components {
             healthConnectRecordTypes?: ("steps" | "distance" | "heart_rate" | "total_calories_burned" | "active_calories_burned" | "floors_climbed" | "resting_heart_rate" | "oxygen_saturation" | "respiratory_rate" | "sleep" | "exercise" | "heart_rate_variability" | "body_temperature" | "skin_temperature")[];
             /** @description For a mid-study disable (enabled=false), the researcher-chosen disposition for data already collected on-device but not yet uploaded. Set only when enabled=false; left null (and ignored by the device) while the module is enabled. The device acts on it only on the ACTIVE -> INACTIVE transition. */
             disableDisposition?: components["schemas"]["CollectionDataDisposition"] | null;
+            interactionPolicy?: {
+                /** @default 4 */
+                gridRows: number;
+                /** @default 3 */
+                gridCols: number;
+                /** @default true */
+                captureClicks: boolean;
+                /** @default true */
+                captureScrolls: boolean;
+                /** @default true */
+                captureExactPosition: boolean;
+                /** @default true */
+                captureElementPosition: boolean;
+            } | null;
         };
         /**
          * @description What the device does with a module's already-collected-but-unsent data when a researcher disables that module mid-study (collection loop closure design §5.1). Default is flush_then_stop (no data loss).
@@ -2175,15 +2196,15 @@ export interface components {
             /** Format: uuid */
             id?: string;
             /** Format: uuid */
-            studyId?: string;
-            participantId?: string;
-            sourceDeviceId?: string;
-            acknowledgedModules?: components["schemas"]["CollectionModuleId"][];
+            studyId: string;
+            participantId: string;
+            sourceDeviceId: string;
+            acknowledgedModules: components["schemas"]["CollectionModuleId"][];
             /**
              * Format: date-time
              * @description Device-reported acknowledgment time (advisory).
              */
-            acknowledgedAt?: string;
+            acknowledgedAt: string;
             /** @description The modules the participant declined in this snapshot (per-module consent design §3.3). */
             declinedModules?: components["schemas"]["CollectionModuleId"][];
             /** @description What produced this decision (enrollment / toggle / settings-change / withdrawal). */
@@ -2198,6 +2219,7 @@ export interface components {
             settingsVersion?: number | null;
             disclosureVersion?: string | null;
             manifestDigest?: string | null;
+            unavailableModules?: components["schemas"]["CollectionModuleId"][];
         };
         /** @description Generalized Android data collection setting, bound to the DataCollection study setting type (design §1B.2). A polymorphic StudySetting subtype, added additively — it is returned from GET /settings/type/DataCollection and rides the existing @class-discriminated StudySetting mechanism. A missing setting falls back to the legacy AndroidSensor setting. */
         AndroidDataCollectionSetting: {
@@ -2225,6 +2247,8 @@ export interface components {
             algorithm?: string;
             /** @description PEM-encoded RSA public key the device wraps each batch's AES-256-GCM content key against. Public key only; the private key lives in Vault. */
             publicKeyPem?: string;
+            /** @description Base64 ML-KEM-1024 public key for hybrid wrapping; empty for legacy RSA-only settings. */
+            mlkemPublicKey?: string;
         };
         /** @description One envelope-encrypted batch uploaded to the encrypted Android endpoint (HIPAA-2028 "W2"). Hybrid encryption: a fresh AES-256-GCM content key encrypts the serialized batch (the `ciphertext`, with its GCM tag), and that content key is itself wrapped under the study's RSA public key using RSA-OAEP-SHA256 to form `encryptedKey`. The GCM AAD binds `version|studyId|participantId|payloadType`; it is recomputed identically on both ends from the request context and is NOT transmitted on the wire. The server unwraps `encryptedKey` with the study private key (from Vault), then AES-256-GCM-decrypts `ciphertext` using `iv` and the recomputed AAD, authenticating integrity via the tag. */
         EncryptedEnvelope: {
@@ -2303,16 +2327,28 @@ export interface components {
         /** @enum {string} */
         ParticipationStatus: "ENROLLED" | "NOT_ENROLLED" | "PAUSED" | "COLLECTION_COMPLETED" | "UNKNOWN";
         ParticipantStats: {
-            participantId?: string;
+            participantId: string;
             /** Format: uuid */
-            studyId?: string;
+            studyId: string;
             /** Format: date-time */
-            lastUpload?: string;
+            androidLastPing?: string | null;
             /** Format: date-time */
-            androidLastPing?: string;
+            iosLastPing?: string | null;
             /** Format: date-time */
-            iosLastPing?: string;
-            tudSubmissionCount?: number;
+            androidFirstDate?: string | null;
+            /** Format: date-time */
+            androidLastDate?: string | null;
+            androidUniqueDates?: string[];
+            /** Format: date-time */
+            iosFirstDate?: string | null;
+            /** Format: date-time */
+            iosLastDate?: string | null;
+            iosUniqueDates?: string[];
+            /** Format: date-time */
+            tudFirstDate?: string | null;
+            /** Format: date-time */
+            tudLastDate?: string | null;
+            tudUniqueDates?: string[];
         };
         AndroidDataDrop: {
             /** @enum {string} */
@@ -2418,10 +2454,23 @@ export interface components {
             [key: string]: unknown;
         };
         AndroidSensorSample: {
-            sensor?: string;
+            sensor: components["schemas"]["AndroidSensorType"];
             values?: number[];
             /** Format: date-time */
-            timestamp?: string;
+            timestamp: string;
+            /** Format: uuid */
+            id: string;
+            timezone: string;
+            /** Format: float */
+            x?: number | null;
+            /** Format: float */
+            y?: number | null;
+            /** Format: float */
+            z?: number | null;
+            /** Format: float */
+            w?: number | null;
+            /** Format: int32 */
+            accuracy?: number | null;
         };
         /**
          * @description One battery-telemetry sample produced by the Android `battery_telemetry`
@@ -3026,7 +3075,6 @@ export interface components {
         AndroidDeviceSensorAvailability: {
             participantId?: string;
             deviceId?: string;
-            sensors?: string[];
             /** @description Display width in pixels at report time; null if unavailable. */
             screenWidthPixels?: number | null;
             /** @description Display height in pixels at report time; null if unavailable. */
@@ -3040,6 +3088,10 @@ export interface components {
              * @enum {string|null}
              */
             interactionPointerCaptureCapability?: "PLATFORM_API_UNAVAILABLE" | "REQUIRES_INPUT_INTERCEPTION" | null;
+            availableSensors?: components["schemas"]["AndroidSensorType"][];
+            unavailableSensors?: components["schemas"]["AndroidSensorType"][];
+            /** Format: date-time */
+            reportedAt?: string | null;
         };
         SensorDataSample: {
             /** Format: uuid */

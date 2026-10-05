@@ -1,6 +1,5 @@
-// Guards generated contract modules against hand edits when Methodic's source
-// generators are unavailable in this standalone checkout. Freshness against the
-// canonical sources remains enforced by Methodic's domain-contract guardrail.
+// Guards generated contract modules against hand edits and, when the neighboring
+// API/models checkouts are available, checks freshness against their canonical sources.
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -9,13 +8,23 @@ interface GeneratedModuleExpectation {
   requiredExports: readonly string[];
 }
 
-function verifyGeneratedModule(path: string, text: string, expectation: GeneratedModuleExpectation): string[] {
+export function verifyGeneratedModule(
+  path: string,
+  text: string,
+  expectation: GeneratedModuleExpectation,
+  expectedSourceHash?: string,
+): string[] {
   const errors: string[] = [];
   if (!expectation.provenance.test(text)) {
     errors.push('missing generator provenance header');
   }
-  if (!/^\/\/ Source-SHA256: [0-9a-f]{64}$/m.test(text)) {
+  const sourceMatch = text.match(/^\/\/ Source-SHA256: ([0-9a-f]{64})$/m);
+  if (!sourceMatch) {
     errors.push('missing Source-SHA256 header (file was hand-edited or truncated)');
+  } else if (expectedSourceHash !== undefined && sourceMatch[1] !== expectedSourceHash) {
+    errors.push(
+      `Source-SHA256 mismatch: generated artifact uses ${sourceMatch[1]}, current sources hash to ${expectedSourceHash}`,
+    );
   }
   for (const requiredExport of expectation.requiredExports) {
     if (!text.includes(`export const ${requiredExport}`)) {
@@ -44,6 +53,58 @@ function verifyGeneratedModule(path: string, text: string, expectation: Generate
   return errors.map((error) => `${path}: ${error}`);
 }
 
+async function currentPayloadSourceHash(): Promise<string | undefined> {
+  const apiPath = resolve(import.meta.dir, '../../chronicle-api/chronicle.yaml');
+  const modelsRoot = resolve(import.meta.dir, '../../chronicle-models');
+  const registryPath = resolve(modelsRoot, 'fixtures/payloads/registry.json');
+  const apiAvailable = await Bun.file(apiPath).exists();
+  const registryAvailable = await Bun.file(registryPath).exists();
+
+  // Standalone web distributions omit both neighboring source checkouts. They
+  // still receive the header/body integrity checks above; a partial checkout is
+  // an error so source drift cannot silently escape in the monorepo.
+  if (!apiAvailable && !registryAvailable) return undefined;
+  if (!apiAvailable || !registryAvailable) {
+    throw new Error('chronicle-api and chronicle-models must both be available for source freshness checks');
+  }
+
+  const registry = (await Bun.file(registryPath).json()) as {
+    families?: Array<{ fixtureFiles?: unknown }>;
+  };
+  if (!Array.isArray(registry.families)) {
+    throw new Error('chronicle-models payload registry has no families array');
+  }
+
+  const sources: Array<{ logicalPath: string; path: string }> = [
+    { logicalPath: 'chronicle-api/chronicle.yaml', path: apiPath },
+    { logicalPath: 'chronicle-models/fixtures/payloads/registry.json', path: registryPath },
+  ];
+  const fixturePaths = new Set<string>();
+  for (const family of registry.families) {
+    if (!Array.isArray(family.fixtureFiles)) {
+      throw new Error('chronicle-models payload registry family has no fixtureFiles array');
+    }
+    for (const fixturePath of family.fixtureFiles) {
+      if (typeof fixturePath !== 'string' || fixturePaths.has(fixturePath)) {
+        throw new Error(`invalid or duplicate payload fixture path: ${String(fixturePath)}`);
+      }
+      fixturePaths.add(fixturePath);
+      sources.push({
+        logicalPath: `chronicle-models/${fixturePath}`,
+        path: resolve(modelsRoot, fixturePath),
+      });
+    }
+  }
+
+  const digest = createHash('sha256');
+  for (const source of sources) {
+    const file = Bun.file(source.path);
+    if (!(await file.exists())) throw new Error(`payload contract source is missing: ${source.logicalPath}`);
+    digest.update(source.logicalPath, 'utf-8').update('\0', 'utf-8').update(await file.bytes()).update('\0', 'utf-8');
+  }
+  return digest.digest('hex');
+}
+
 const generatedModules = [
   {
     path: resolve(import.meta.dir, '../src/modern/generated/chronicle-contracts.ts'),
@@ -64,9 +125,23 @@ const generatedModules = [
 ] as const;
 
 const errors: string[] = [];
+let payloadSourceHash: string | undefined;
+try {
+  payloadSourceHash = await currentPayloadSourceHash();
+} catch (error) {
+  errors.push(`payload source freshness: ${error instanceof Error ? error.message : String(error)}`);
+}
+
 for (const generatedModule of generatedModules) {
   const text = await Bun.file(generatedModule.path).text();
-  errors.push(...verifyGeneratedModule(generatedModule.path, text, generatedModule.expectation));
+  errors.push(
+    ...verifyGeneratedModule(
+      generatedModule.path,
+      text,
+      generatedModule.expectation,
+      generatedModule.path.endsWith('/chronicle-payload-contracts.generated.ts') ? payloadSourceHash : undefined,
+    ),
+  );
 }
 
 if (errors.length > 0) {
