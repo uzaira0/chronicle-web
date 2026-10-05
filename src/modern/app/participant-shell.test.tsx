@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
+import { ParticipantLandingCard } from '@/components/participant-landing-card';
 import { storeParticipantSessionContext } from '@/lib/participant-access';
 
 import { ParticipantShell } from './participant-shell';
@@ -14,12 +15,12 @@ const CONTEXT = {
   studyId: '28d661b8-a45a-41b6-aec4-ed9988fa28dc',
 };
 
-function renderShell() {
+function renderShell(content = <p>form</p>) {
   render(
     <MemoryRouter initialEntries={['/survey']}>
       <Routes>
         <Route element={<ParticipantShell />}>
-          <Route element={<p>form</p>} path="survey" />
+          <Route element={content} path="survey" />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -57,5 +58,16 @@ describe('ParticipantShell policy footer', () => {
 
     expect(screen.queryByRole('link', { name: /Study privacy policy/ })).toBeNull();
     expect(screen.queryByRole('link', { name: /Study withdrawal instructions/ })).toBeNull();
+  });
+
+  test('provides a level-one brand heading followed by the participant page heading', () => {
+    renderShell(
+      <ParticipantLandingCard description="Choose a form." icon={null} title="Take the survey" />,
+    );
+
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1, name: 'Chronicle' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Take the survey' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
   });
 });

@@ -35,17 +35,17 @@ export function SectionHeader({
         className,
       )}
     >
-      <div className={compact ? 'space-y-1' : 'space-y-3'}>
+      <div className={cn('min-w-0', compact ? 'space-y-1' : 'space-y-3')}>
         {eyebrow && !compact && (
           <div className="inline-flex w-fit items-center gap-1.5 rounded-sm border bg-info-bg px-2.5 py-1 text-2xs font-semibold uppercase tracking-eyebrow text-info border-info">
             {icon}
             {eyebrow}
           </div>
         )}
-        <div className={compact ? undefined : 'space-y-2'}>
+        <div className={cn('min-w-0', !compact && 'space-y-2')}>
           <h2
             className={cn(
-              'eq-heading font-semibold tracking-tight text-foreground',
+              'eq-heading min-w-0 break-all font-semibold tracking-tight text-foreground',
               compact ? 'text-xl' : 'text-3xl sm:text-4xl',
             )}
           >

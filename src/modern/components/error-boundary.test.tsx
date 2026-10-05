@@ -5,6 +5,26 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { RouteOutlet } from './error-boundary';
 
+function luminance(hex: string): number {
+  const channels = hex.match(/[\da-f]{2}/gi)?.map((part) => Number.parseInt(part, 16) / 255) ?? [];
+  const [r, g, b] = channels.map((channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+  );
+  return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+}
+
+function contrast(foreground: string, background: string): number {
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
+}
+
+function token(css: string, selector: RegExp, name: string): string {
+  const block = css.match(selector)?.[1] ?? '';
+  const value = block.match(new RegExp(`${name}:\\s*(#[\\da-f]+)`, 'i'))?.[1];
+  if (!value) throw new Error(`Missing ${name} theme token`);
+  return value;
+}
+
 const originalFetch = globalThis.fetch;
 
 function Boom({ message }: { message: string }): never {
@@ -12,7 +32,7 @@ function Boom({ message }: { message: string }): never {
 }
 
 function renderLayoutWithFailingPage(message: string) {
-  render(
+  return render(
     <MemoryRouter initialEntries={['/broken']}>
       <Routes>
         <Route
@@ -63,5 +83,26 @@ describe('RouteOutlet', () => {
     const source = readFileSync(new URL(path, import.meta.url), 'utf-8');
     expect(source).toContain('<RouteOutlet />');
     expect(source).not.toContain('<Outlet />');
+  });
+
+  test('crash fallback text and retry button keep normal-text contrast in light and dark themes', () => {
+    globalThis.fetch = mock(() => Promise.resolve(new Response(null, { status: 204 }))) as unknown as typeof fetch;
+    spyOn(console, 'error').mockImplementation(() => undefined);
+    const { container } = renderLayoutWithFailingPage('render bug');
+    const description = container.querySelector('p');
+    const retry = screen.getByRole('button', { name: 'Try again' });
+    expect(description?.style.color).toBe('var(--muted-foreground)');
+    expect(retry.style.background).toBe('var(--foreground)');
+    expect(retry.style.color).toBe('var(--background)');
+
+    const css = readFileSync(new URL('../../../node_modules/@eqds/tokens/src/tokens.css', import.meta.url), 'utf-8');
+    const themes = [
+      { background: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-bg'), foreground: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-ink'), muted: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-muted') },
+      { background: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-bg'), foreground: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-ink'), muted: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-muted') },
+    ];
+    for (const theme of themes) {
+      expect(contrast(theme.muted, theme.background)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.foreground, theme.background)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

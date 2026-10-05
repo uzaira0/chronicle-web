@@ -60,4 +60,20 @@ describe('SectionHeader', () => {
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).toContain('extra-class');
   });
+
+  test('lets an unbroken long study title shrink and wrap beside its actions', () => {
+    const longTitle = 'study'.repeat(100);
+    render(
+      <SectionHeader
+        actions={<button type="button">Open study</button>}
+        description="Study details"
+        title={longTitle}
+      />,
+    );
+
+    const heading = screen.getByRole('heading', { name: longTitle });
+    expect(heading.className).toContain('break-all');
+    expect(heading.parentElement?.parentElement?.className).toContain('min-w-0');
+    expect(screen.getByRole('button', { name: 'Open study' })).toBeTruthy();
+  });
 });

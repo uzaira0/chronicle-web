@@ -49,6 +49,8 @@ describe('LoginPage', () => {
   test('renders a branded password form', () => {
     renderLogin();
 
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1, name: 'Sign in to the dashboard' })).toBeTruthy();
     expect(screen.getByText('Sign in to the dashboard')).toBeTruthy();
     const field = screen.getByLabelText(/dashboard password/i);
     expect(field.getAttribute('type')).toBe('password');
@@ -102,11 +104,13 @@ describe('LoginPage', () => {
     renderLogin();
     submitPassword('wrong-password');
 
-    await waitFor(() => {
-      expect(screen.getByText('Incorrect dashboard password.')).toBeTruthy();
-    });
+    // The translated rejection, never the untranslated server text.
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('That password was not accepted. Check it and try again.');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.queryByText('Incorrect dashboard password.')).toBeNull();
     expect(screen.queryByText('DASHBOARD')).toBeNull();
-    expect(screen.getByLabelText(/dashboard password/i)).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>(/dashboard password/i).value).toBe('wrong-password');
   });
 
   test('shows a distinct message after a 429', async () => {

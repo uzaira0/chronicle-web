@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import { AppShell } from '@/app/app-shell';
 import { ParticipantAccessBootstrap } from '@/app/participant-access-bootstrap';
 import { ParticipantShell } from '@/app/participant-shell';
+import { RouteDocumentTitle } from '@/app/route-document-title';
 import { SessionBootstrap } from '@/app/session-bootstrap';
 import { RouteSkeleton } from '@/components/state-panel';
 import { pickModernBase } from '@/lib/route-links';
@@ -54,6 +55,7 @@ export function ModernRouter() {
 
   return (
     <BrowserRouter basename={basename}>
+      <RouteDocumentTitle />
       <Suspense fallback={<RouteSkeleton />}>
         <Routes>
           <Route

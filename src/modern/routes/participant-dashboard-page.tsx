@@ -148,6 +148,7 @@ export function ParticipantDashboardPage() {
         eyebrow={t('participant_dashboard.incomplete_eyebrow')}
         icon={<TriangleAlert className="h-5 w-5" />}
         title={t('participant_dashboard.incomplete_title')}
+        titleAs="h2"
         tone="destructive"
       />
     );

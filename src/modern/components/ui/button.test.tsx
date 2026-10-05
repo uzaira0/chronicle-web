@@ -112,6 +112,14 @@ describe('Button', () => {
     expect(el.className).toContain('rounded-lg');
     expect(el.className).toContain('font-extrabold');
   });
+
+  test('keeps a visible outline in forced-colors mode when the ring is suppressed', () => {
+    const classes = buttonVariants({ variant: 'outline' }).split(' ');
+    expect(classes).toContain('focus-visible:outline');
+    expect(classes).toContain('focus-visible:outline-2');
+    expect(classes).toContain('forced-colors:focus-visible:outline-[Highlight]');
+    expect(classes).not.toContain('focus-visible:outline-none');
+  });
   // .eq-btn (layer components) carries min-height:44px and padding 0 16px. size="icon" must
   // drop the padding (else its svg squeezes to 6px) and size="sm" the 44px floor (else it
   // renders as tall as a default button); default/lg/icon keep the 44px target on purpose.

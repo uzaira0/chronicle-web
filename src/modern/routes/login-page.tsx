@@ -82,7 +82,7 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
             <ShieldCheck className="h-5 w-5" />
             <span className="text-xs font-semibold uppercase tracking-eyebrow-wide">Chronicle</span>
           </div>
-          <CardTitle>{t('login.title')}</CardTitle>
+          <CardTitle as="h1">{t('login.title')}</CardTitle>
           <CardDescription>{t('login.description')}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -109,7 +109,7 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
               />
             </div>
 
-            {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
+            {errorMessage && <p className="text-sm text-destructive" role="alert">{errorMessage}</p>}
 
             <Button disabled={isSubmitting} type="submit">
               {isSubmitting ? (

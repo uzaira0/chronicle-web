@@ -72,6 +72,7 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
       return (
         <div
           style={{
+            color: 'var(--foreground)',
             padding: '40px 20px',
             textAlign: 'center',
             fontFamily: "'Inter Variable', Inter, system-ui, sans-serif",
@@ -80,15 +81,18 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
           }}
         >
           <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '12px' }}>{t('error_boundary.title')}</h2>
-          <p style={{ color: '#6b7280', marginBottom: '20px', lineHeight: 1.5 }}>{t('error_boundary.description')}</p>
+          <p style={{ color: 'var(--muted-foreground)', marginBottom: '20px', lineHeight: 1.5 }}>
+            {t('error_boundary.description')}
+          </p>
           <button
             type="button"
             onClick={this.handleRetry}
             style={{
+              background: 'var(--foreground)',
+              color: 'var(--background)',
               padding: '8px 20px',
               borderRadius: '6px',
-              border: '1px solid #d1d5db',
-              background: '#fff',
+              border: '1px solid var(--foreground)',
               cursor: 'pointer',
               fontSize: '0.875rem',
               fontWeight: 500,

@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
   'eq-btn inline-flex items-center justify-center gap-2 rounded-lg text-sm font-extrabold transition-colors ' +
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ' +
+    'forced-colors:focus-visible:outline-[Highlight] ' +
     'disabled:pointer-events-none disabled:opacity-50 ring-offset-background',
   {
     variants: {
