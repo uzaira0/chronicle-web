@@ -111,7 +111,99 @@ describe('StudyFormDialog submission fence', () => {
   });
 });
 
+describe('StudyFormDialog unsaved changes', () => {
+  test('Escape keeps a dirty draft open until the researcher confirms discard', () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    const title = screen.getByLabelText<HTMLInputElement>(/^Study Name/);
+    fireEvent.change(title, { target: { value: 'Unsaved draft' } });
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+
+    expect(screen.getByRole('heading', { name: 'Discard unsaved study changes?' })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Name/).value).toBe('Unsaved draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue editing' }));
+    expect(screen.queryByRole('heading', { name: 'Discard unsaved study changes?' })).toBeNull();
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Name/).value).toBe('Unsaved draft');
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(screen.queryByLabelText(/^Study Name/)).toBeNull();
+  });
+
+  test('outside dismissal also asks before discarding a dirty draft', async () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Outside-click draft' } });
+
+    const overlay = Array.from(document.querySelectorAll('[data-state="open"]')).find((element) =>
+      element.classList.contains('bg-overlay/55'),
+    );
+    expect(overlay).toBeTruthy();
+    if (!overlay) throw new Error('Study dialog overlay was not rendered.');
+    // Radix installs its document-level outside-pointer listener on the next task.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.pointerDown(overlay, { button: 0, isPrimary: true });
+
+    expect(screen.getByRole('heading', { name: 'Discard unsaved study changes?' })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Name/).value).toBe('Outside-click draft');
+  });
+
+  test('a clean study form still closes on Escape', () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+
+    expect(screen.queryByLabelText(/^Study Name/)).toBeNull();
+  });
+});
+
 describe('StudyFormDialog participant policy', () => {
+  test('announces a failed save once while retaining entered study details', async () => {
+    const onSubmit = mock(() => Promise.reject(new Error('The study could not be saved.')));
+    render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Retained draft' } });
+    fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'researcher@example.org' } });
+    fillParticipantPolicy();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('The study could not be saved.');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByLabelText<HTMLInputElement>(/^Study Name/).value).toBe('Retained draft');
+  });
+
+  test('explains invalid email and missing policy fields, focuses the first error, then saves corrected values', async () => {
+    const onSubmit = mock(() => Promise.resolve());
+    render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Clear requirements' } });
+    fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'not-an-email' } });
+
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Create Study' });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Contact Email/));
+    expect(screen.getByText('Enter a valid contact email address.', { selector: 'p#study-contact-error' })).toBeTruthy();
+    expect(
+      screen.getByText('Responsible institution is required.', {
+        selector: 'p#participant-policy-responsibleInstitution-error',
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText('Fix the highlighted fields before saving.')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'researcher@example.org' } });
+    fillParticipantPolicy();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   test('exposes every policy field and identifies the study operator as responsible', () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
@@ -251,7 +343,10 @@ describe('StudyFormDialog Health Connect scope', () => {
 
     expect(screen.getByText(/Select at least one record type or disable Health Connect/)).toBeTruthy();
     expect(screen.getByText(/With no record types selected, the app requests no Health Connect data/)).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Save Changes' }).disabled).toBe(true);
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save Changes' });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    expect(screen.getByText('Fix the highlighted fields before saving.')).toBeTruthy();
   });
 
   test('shows and preserves a future record type that this web build cannot edit', async () => {

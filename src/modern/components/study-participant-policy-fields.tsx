@@ -13,6 +13,7 @@ type PolicyField = keyof ParticipantPolicyForm;
 
 type StudyParticipantPolicyFieldsProps = {
   onChange: (field: PolicyField, value: string) => void;
+  showErrors?: boolean;
   value: ParticipantPolicyForm;
 };
 
@@ -29,8 +30,18 @@ const DISCLOSURE_FIELDS = [
 
 const ALWAYS_RECORDED_HINT_ID = 'participant-policy-dataUseAndSharing-hint';
 
-function FieldError({ errors, field, value }: { errors: ParticipantPolicyErrors; field: PolicyField; value: string }) {
-  const error = value.trim() ? errors[field] : undefined;
+function FieldError({
+  errors,
+  field,
+  showErrors,
+  value,
+}: {
+  errors: ParticipantPolicyErrors;
+  field: PolicyField;
+  showErrors: boolean;
+  value: string;
+}) {
+  const error = value.trim() || showErrors ? errors[field] : undefined;
   return error ? (
     <p className="text-xs text-destructive" id={`participant-policy-${field}-error`}>
       {error}
@@ -38,11 +49,11 @@ function FieldError({ errors, field, value }: { errors: ParticipantPolicyErrors;
   ) : null;
 }
 
-export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipantPolicyFieldsProps) {
+export function StudyParticipantPolicyFields({ onChange, showErrors = false, value }: StudyParticipantPolicyFieldsProps) {
   const { t } = useTranslator();
   const errors = validateParticipantPolicy(value, t);
   const describedBy = (field: PolicyField) =>
-    errors[field] && value[field].trim() ? `participant-policy-${field}-error` : undefined;
+    errors[field] && (value[field].trim() || showErrors) ? `participant-policy-${field}-error` : undefined;
 
   return (
     <fieldset className="space-y-5 rounded-lg border border-border p-5">
@@ -66,7 +77,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
             </Label>
             <Input
               aria-describedby={describedBy(field as PolicyField)}
-              aria-invalid={Boolean(errors[field as PolicyField])}
+              aria-invalid={Boolean(errors[field as PolicyField]) && (value[field as PolicyField].trim() !== '' || showErrors)}
               id={`participant-policy-${field}`}
               maxLength={8_000}
               onChange={(event) => onChange(field as PolicyField, event.target.value)}
@@ -74,7 +85,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
               required
               value={value[field as PolicyField]}
             />
-            <FieldError errors={errors} field={field as PolicyField} value={value[field as PolicyField]} />
+            <FieldError errors={errors} field={field as PolicyField} showErrors={showErrors} value={value[field as PolicyField]} />
           </div>
         ))}
       </div>
@@ -85,7 +96,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
         </Label>
         <Input
           aria-describedby={describedBy('researchContact')}
-          aria-invalid={Boolean(errors.researchContact)}
+          aria-invalid={Boolean(errors.researchContact) && (value.researchContact.trim() !== '' || showErrors)}
           id="participant-policy-researchContact"
           maxLength={8_000}
           onChange={(event) => onChange('researchContact', event.target.value)}
@@ -93,7 +104,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
           required
           value={value.researchContact}
         />
-        <FieldError errors={errors} field="researchContact" value={value.researchContact} />
+        <FieldError errors={errors} field="researchContact" showErrors={showErrors} value={value.researchContact} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -108,7 +119,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
                   .filter(Boolean)
                   .join(' ') || undefined
               }
-              aria-invalid={Boolean(errors[field])}
+              aria-invalid={Boolean(errors[field]) && (value[field].trim() !== '' || showErrors)}
               id={`participant-policy-${field}`}
               maxLength={8_000}
               onChange={(event) => onChange(field, event.target.value)}
@@ -121,7 +132,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
                 {t('policy_fields.data_use_always_recorded_hint')}
               </p>
             )}
-            <FieldError errors={errors} field={field} value={value[field]} />
+            <FieldError errors={errors} field={field} showErrors={showErrors} value={value[field]} />
           </div>
         ))}
       </div>
@@ -137,7 +148,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
             </Label>
             <Input
               aria-describedby={describedBy(field as PolicyField)}
-              aria-invalid={Boolean(errors[field as PolicyField])}
+              aria-invalid={Boolean(errors[field as PolicyField]) && (value[field as PolicyField].trim() !== '' || showErrors)}
               id={`participant-policy-${field}`}
               maxLength={2_048}
               onChange={(event) => onChange(field as PolicyField, event.target.value)}
@@ -146,7 +157,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
               type="url"
               value={value[field as PolicyField]}
             />
-            <FieldError errors={errors} field={field as PolicyField} value={value[field as PolicyField]} />
+            <FieldError errors={errors} field={field as PolicyField} showErrors={showErrors} value={value[field as PolicyField]} />
           </div>
         ))}
       </div>
@@ -155,7 +166,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
         <Label htmlFor="participant-policy-consentDocumentUrl">{t('policy_fields.consent_url')}</Label>
         <Input
           aria-describedby={describedBy('consentDocumentUrl')}
-          aria-invalid={Boolean(errors.consentDocumentUrl)}
+          aria-invalid={Boolean(errors.consentDocumentUrl) && (value.consentDocumentUrl.trim() !== '' || showErrors)}
           id="participant-policy-consentDocumentUrl"
           maxLength={2_048}
           onChange={(event) => onChange('consentDocumentUrl', event.target.value)}
@@ -164,7 +175,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
           value={value.consentDocumentUrl}
         />
         <FieldHint>{t('policy_fields.consent_hint')}</FieldHint>
-        <FieldError errors={errors} field="consentDocumentUrl" value={value.consentDocumentUrl} />
+        <FieldError errors={errors} field="consentDocumentUrl" showErrors={showErrors} value={value.consentDocumentUrl} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -174,7 +185,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
           </Label>
           <Input
             aria-describedby={describedBy('version')}
-            aria-invalid={Boolean(errors.version)}
+            aria-invalid={Boolean(errors.version) && (value.version.trim() !== '' || showErrors)}
             id="participant-policy-version"
             maxLength={128}
             onChange={(event) => onChange('version', event.target.value)}
@@ -182,7 +193,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
             required
             value={value.version}
           />
-          <FieldError errors={errors} field="version" value={value.version} />
+          <FieldError errors={errors} field="version" showErrors={showErrors} value={value.version} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="participant-policy-effectiveAt" required>
@@ -190,7 +201,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
           </Label>
           <Input
             aria-describedby={describedBy('effectiveAt')}
-            aria-invalid={Boolean(errors.effectiveAt)}
+            aria-invalid={Boolean(errors.effectiveAt) && (value.effectiveAt.trim() !== '' || showErrors)}
             id="participant-policy-effectiveAt"
             onChange={(event) => onChange('effectiveAt', event.target.value)}
             placeholder="2026-08-17T09:30:00-05:00"
@@ -198,7 +209,7 @@ export function StudyParticipantPolicyFields({ onChange, value }: StudyParticipa
             value={value.effectiveAt}
           />
           <FieldHint>{t('policy_fields.effective_hint')}</FieldHint>
-          <FieldError errors={errors} field="effectiveAt" value={value.effectiveAt} />
+          <FieldError errors={errors} field="effectiveAt" showErrors={showErrors} value={value.effectiveAt} />
         </div>
       </div>
     </fieldset>

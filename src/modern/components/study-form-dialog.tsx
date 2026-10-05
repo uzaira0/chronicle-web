@@ -1066,6 +1066,8 @@ function StudyLimitsFieldset({
 
 export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps) {
   const [open, setOpen] = useState(false);
+  const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const { t } = useTranslator();
   const failedKey = submitFailureKey(mode);
   // Edit-mode reads only fire once the dialog is open and we have a study id.
@@ -1090,6 +1092,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
     refetch: refetchStudySettings,
   } = useGetStudySettingsQuery(study?.id ?? '', readOptions);
   const [form, setForm] = useState<StudyFormData>(() => getInitialFormData(study));
+  const initialForm = useRef<StudyFormData>(getInitialFormData(study));
   const [formInitialized, setFormInitialized] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1104,20 +1107,41 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
 
   useEffect(() => {
     if (!open || studyReadState !== 'ready' || initializedForOpen.current) return;
-    setForm(getInitialFormData(study, limits, dataCollection, studySettings?.ParticipantPolicy));
+    const initial = getInitialFormData(study, limits, dataCollection, studySettings?.ParticipantPolicy);
+    initialForm.current = initial;
+    setForm(initial);
     // The reads above just settled, so the last settings ETag seen is the one this form shows.
     settingsRevision.current = study?.id ? knownSettingsRevision(study.id) : undefined;
     initializedForOpen.current = true;
     setFormInitialized(true);
   }, [open, studyReadState, study, limits, dataCollection, studySettings?.ParticipantPolicy]);
 
+  const isDirty = formInitialized && JSON.stringify(form) !== JSON.stringify(initialForm.current);
+
+  const closeDialog = () => {
+    initializedForOpen.current = false;
+    setFormInitialized(false);
+    setShowValidationErrors(false);
+    setShowDiscardConfirmation(false);
+    setError(null);
+    setOpen(false);
+  };
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       initializedForOpen.current = false;
       setFormInitialized(false);
       setError(null);
+      setShowValidationErrors(false);
+      setShowDiscardConfirmation(false);
+      setOpen(true);
+      return;
     }
-    setOpen(nextOpen);
+    if (isDirty) {
+      setShowDiscardConfirmation(true);
+      return;
+    }
+    closeDialog();
   };
 
   const update = <K extends keyof StudyFormData>(key: K, value: StudyFormData[K]) => {
@@ -1177,14 +1201,45 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
   const setInteractionConfig = makeInteractionConfigHandler(setForm);
 
   const hasDataCollection = form.features.includes('CHRONICLE_DATA_COLLECTION');
-  const canSubmit = formInitialized && studyReadState === 'ready' && isFormComplete(form) && !isSubmitting;
+  const canAttemptSave = formInitialized && studyReadState === 'ready' && !isSubmitting;
+  const contactError = form.contact.trim()
+    ? isValidEmail(form.contact)
+      ? null
+      : t('study_form.contact_invalid')
+    : t('study_form.contact_required');
+  const policyErrors = validateParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM, t);
+  const validationProblems = [
+    ...(!form.title.trim() ? [{ fieldId: 'study-title', message: t('study_form.title_required') }] : []),
+    ...(form.features.length === 0
+      ? [{ fieldId: `study-feature-${STUDY_FEATURES[0]?.value ?? ''}`, message: t('study_form.feature_required') }]
+      : []),
+    ...(!isValidEmail(form.contact) ? [{ fieldId: 'study-contact', message: contactError ?? '' }] : []),
+    ...Object.entries(policyErrors).map(([field, message]) => ({
+      fieldId: `participant-policy-${field}`,
+      message: message ?? '',
+    })),
+    ...(form.features.includes('IOS_SENSOR') &&
+    !iosSensorSettingUnchanged(form) &&
+    (form.selectedIosSensors?.length ?? 0) === 0
+      ? [{ fieldId: 'study-feature-IOS_SENSOR', message: t('study_form.ios_sensor_required') }]
+      : []),
+    ...(form.moduleSettings?.health_connect && (form.healthConnectRecordTypes?.length ?? 0) === 0
+      ? [{ fieldId: 'health-connect-steps', message: t('study_form.hc_select_one') }]
+      : []),
+  ];
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     // React state does not update until the current event turn yields. A same-turn
     // double click can therefore enter this handler twice while `isSubmitting` is
     // still false. Acquire the ref-backed fence synchronously before awaiting.
-    if (!formInitialized || studyReadState !== 'ready' || !isFormComplete(form) || submissionInFlight.current) return;
+    if (!formInitialized || studyReadState !== 'ready' || submissionInFlight.current) return;
+    if (!isFormComplete(form)) {
+      setShowValidationErrors(true);
+      setError(null);
+      if (validationProblems[0]) document.getElementById(validationProblems[0].fieldId)?.focus();
+      return;
+    }
     if (!studyLimitsUnchanged(form) && !buildStudyLimits(form)) {
       setError(t('study_form.limits_cannot_remove'));
       return;
@@ -1199,7 +1254,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
     setIsSubmitting(true);
     try {
       await onSubmit(form, { settingsRevision: settingsRevision.current });
-      setOpen(false);
+      closeDialog();
     } catch (err) {
       setError(getErrorMessage(err, t(failedKey)));
       if (err instanceof StudySettingsConflictError) {
@@ -1238,6 +1293,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
         ) : (
           <form
             className="mt-4 space-y-8"
+            noValidate
             onSubmit={(event) => {
               handleSubmit(event).catch((err) => {
                 submissionInFlight.current = false;
@@ -1259,12 +1315,19 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
                   {t('study_form.name')}
                 </Label>
                 <Input
+                  aria-describedby={showValidationErrors && !form.title.trim() ? 'study-title-error' : undefined}
+                  aria-invalid={showValidationErrors && !form.title.trim()}
                   id="study-title"
                   onChange={(e) => update('title', e.target.value)}
                   placeholder={t('study_form.name_placeholder')}
                   required
                   value={form.title}
                 />
+                {showValidationErrors && !form.title.trim() && (
+                  <p className="text-xs text-destructive" id="study-title-error">
+                    {t('study_form.title_required')}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -1303,7 +1366,8 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
                   {t('study_form.contact_email')}
                 </Label>
                 <Input
-                  aria-invalid={form.contact.length > 0 && !isValidEmail(form.contact)}
+                  aria-describedby={showValidationErrors && contactError ? 'study-contact-error' : undefined}
+                  aria-invalid={showValidationErrors && Boolean(contactError)}
                   id="study-contact"
                   onChange={(e) => update('contact', e.target.value)}
                   placeholder="researcher@university.edu"
@@ -1311,6 +1375,11 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
                   type="email"
                   value={form.contact}
                 />
+                {showValidationErrors && contactError && (
+                  <p className="text-xs text-destructive" id="study-contact-error">
+                    {contactError}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1319,6 +1388,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
                   {STUDY_FEATURES.map(({ label, value }) => (
                     <Button
                       aria-pressed={form.features.includes(value)}
+                      id={`study-feature-${value}`}
                       key={value}
                       onClick={() => toggleFeature(value)}
                       size="sm"
@@ -1330,6 +1400,11 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
                   ))}
                 </div>
                 <FieldHint>{t('study_form.features_hint')}</FieldHint>
+                {showValidationErrors && form.features.length === 0 && (
+                  <p className="text-xs text-destructive" id="study-features-error">
+                    {t('study_form.feature_required')}
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
@@ -1348,6 +1423,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
 
             <StudyParticipantPolicyFields
               onChange={setParticipantPolicyField}
+              showErrors={showValidationErrors}
               value={form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM}
             />
 
@@ -1376,16 +1452,37 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
             {/* Section 3: Study Limits */}
             <StudyLimitsFieldset form={form} onChange={update} />
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {showValidationErrors && validationProblems.length > 0 && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" role="alert">
+                <p className="font-medium">{t('study_form.validation_summary')}</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {validationProblems.map((problem) => (
+                    <li key={problem.fieldId}>
+                      <a
+                        className="underline underline-offset-2"
+                        href={`#${problem.fieldId}`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          document.getElementById(problem.fieldId)?.focus();
+                        }}
+                      >
+                        {problem.message}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
 
             {/* Sticky: with 31 module rows the form scrolls past 5000px, so Save sat below
               everything — retitling a study meant scrolling the whole module list to
               reach the button. -mx/px cancel the dialog padding so the bar spans it. */}
             <div className="sticky bottom-0 z-10 -mx-6 flex justify-end gap-3 border-t border-border bg-card px-6 pb-6 pt-4">
-              <Button onClick={() => setOpen(false)} type="button" variant="ghost">
+              <Button onClick={() => handleOpenChange(false)} type="button" variant="ghost">
                 {t('common.cancel')}
               </Button>
-              <Button disabled={!canSubmit} type="submit">
+              <Button disabled={!canAttemptSave} type="submit">
                 {isSubmitting && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
                 {t(submitButtonKey(mode, isSubmitting))}
               </Button>
@@ -1393,6 +1490,20 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
           </form>
         )}
       </DialogContent>
+      <Dialog onOpenChange={setShowDiscardConfirmation} open={showDiscardConfirmation}>
+        <DialogContent className="max-w-md">
+          <DialogTitle>{t('study_form.discard_title')}</DialogTitle>
+          <DialogDescription>{t('study_form.discard_description')}</DialogDescription>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button onClick={() => setShowDiscardConfirmation(false)} type="button" variant="ghost">
+              {t('study_form.discard_continue')}
+            </Button>
+            <Button onClick={closeDialog} type="button" variant="destructive">
+              {t('study_form.discard_confirm')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
