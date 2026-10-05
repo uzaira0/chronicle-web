@@ -213,4 +213,37 @@ test.describe('modern shell', () => {
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
     await expect(page.getByText('The requested page could not be found.')).toBeVisible();
   });
+
+  test.describe.serial('modern shell first-study flow', () => {
+    test('opens the novice create action from the authenticated empty catalog', async ({ page }) => {
+      const studyListRequests: URL[] = [];
+      await page.route(
+        (url) => url.pathname === '/chronicle/api/web/study',
+        async (route) => {
+          expect(route.request().method()).toBe('GET');
+          studyListRequests.push(new URL(route.request().url()));
+          await route.fulfill({ json: [] });
+        },
+      );
+
+      await page.goto('/studies');
+
+      await expect(page.getByText('E2E User', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Sign in to the dashboard' })).toHaveCount(0);
+      await expect(page.locator('main').getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
+      await expect.poll(() => studyListRequests.length).toBe(1);
+      expect(studyListRequests[0]?.searchParams.get('limit')).toBe('500');
+      expect(studyListRequests[0]?.searchParams.get('offset')).toBe('0');
+
+      const emptyCatalog = page.getByRole('status');
+      await expect(emptyCatalog).toContainText('No studies found.');
+      await expect(page.getByRole('button', { name: 'Create New Study', exact: true })).toHaveCount(2);
+      const emptyCatalogCreate = emptyCatalog.getByRole('button', { name: 'Create New Study', exact: true });
+      await emptyCatalogCreate.click();
+
+      await expect(page.getByRole('dialog', { name: 'Create New Study' })).toBeVisible();
+      await expect(page.getByLabel('Study Name')).toBeVisible();
+    });
+  });
 });
