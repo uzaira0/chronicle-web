@@ -136,7 +136,9 @@ export function StudySettingsAuditPage() {
     data: auditEntries = [],
     error,
     isError,
+    isFetching,
     isLoading,
+    refetch,
   } = useGetStudySettingsAuditQuery({ studyId }, { skip: !studyId });
   const { data: acknowledgments = [] } = useGetStudyCollectionAcknowledgmentsQuery({ studyId }, { skip: !studyId });
 
@@ -169,6 +171,8 @@ export function StudySettingsAuditPage() {
           description={getErrorMessage(error, t('settings_audit.load_error_fallback'))}
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
+          isRetrying={isFetching}
+          onRetry={() => refetch().unwrap().catch(() => undefined)}
           title={t('settings_audit.load_error_title')}
           tone="destructive"
         />

@@ -15,6 +15,7 @@ type StatePanelProps = {
   icon: React.ReactNode;
   eyebrow?: string;
   /** Renders a "Try again" button, so a failed load recovers without a full page reload. */
+  isRetrying?: boolean;
   onRetry?: () => unknown;
   titleAs?: 'h2' | 'h3';
   title: React.ReactNode;
@@ -32,6 +33,7 @@ export function StatePanel({
   description,
   eyebrow,
   icon,
+  isRetrying = false,
   onRetry,
   titleAs,
   title,
@@ -39,8 +41,8 @@ export function StatePanel({
 }: StatePanelProps) {
   const { t } = useTranslator();
   const retry = onRetry && (
-    <Button onClick={() => void onRetry()} variant="outline">
-      <RefreshCcw className="mr-2 h-4 w-4" />
+    <Button aria-busy={isRetrying || undefined} disabled={isRetrying} onClick={() => void onRetry()} variant="outline">
+      <RefreshCcw className={`mr-2 h-4 w-4 ${isRetrying ? 'animate-spin' : ''}`} />
       {t('common.try_again')}
     </Button>
   );

@@ -633,7 +633,9 @@ export function StudyParticipantsPage() {
     data: participants = [],
     error: participantsError,
     isError: isParticipantsError,
+    isFetching: isParticipantsFetching,
     isLoading: isParticipantsLoading,
+    refetch: refetchParticipants,
   } = useGetStudyParticipantsQuery(studyId, { skip: !studyId });
 
   const { data: stats = {}, isLoading: isStatsLoading } = useGetParticipantStatsQuery(studyId, { skip: !studyId });
@@ -997,6 +999,8 @@ export function StudyParticipantsPage() {
           description={getErrorMessage(participantsError, t('participants.load_error_fallback'))}
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
+          isRetrying={isParticipantsFetching}
+          onRetry={() => refetchParticipants().unwrap().catch(() => undefined)}
           title={t('participants.load_error_title')}
           tone="destructive"
         />

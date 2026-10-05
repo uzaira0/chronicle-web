@@ -73,7 +73,9 @@ export function StudyDetailsPage() {
     data: participants = [],
     error: participantsError,
     isError: isParticipantsError,
+    isFetching: isParticipantsFetching,
     isLoading: isParticipantsLoading,
+    refetch: refetchParticipants,
   } = useGetStudyParticipantsQuery(studyId, { skip: !studyId });
 
   const enrolledCount = useMemo(
@@ -131,6 +133,8 @@ export function StudyDetailsPage() {
           description={getErrorMessage(participantsError, t('study_details.participants_error_fallback'))}
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
+          isRetrying={isParticipantsFetching}
+          onRetry={() => refetchParticipants().unwrap().catch(() => undefined)}
           title={t('study_details.participants_error_title')}
           tone="destructive"
         />

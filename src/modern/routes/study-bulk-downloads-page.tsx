@@ -113,8 +113,10 @@ export function StudyBulkDownloadsPage() {
   const {
     data: study,
     error: studyError,
+    isFetching: isStudyFetching,
     isError: isStudyError,
     isLoading: studyIsLoading,
+    refetch: refetchStudy,
   } = useGetStudySummaryQuery(studyId, { skip: !studyId });
 
   const {
@@ -228,6 +230,8 @@ export function StudyBulkDownloadsPage() {
         description={getErrorMessage(studyError, t('bulk_downloads.load_error_fallback'))}
         eyebrow={t('common.error')}
         icon={<CircleAlert className="h-5 w-5" />}
+        isRetrying={isStudyFetching}
+        onRetry={() => refetchStudy().unwrap().catch(() => undefined)}
         title={t('bulk_downloads.load_error_title')}
         tone="destructive"
       />
@@ -510,12 +514,14 @@ export function StudyBulkDownloadsPage() {
                 description={getErrorMessage(exportListError, t('bulk_downloads.exports_error_fallback'))}
                 eyebrow={t('common.error')}
                 icon={<CircleAlert className="h-5 w-5" />}
+                isRetrying={isExportListFetching}
+                onRetry={() => refetchExportJobs().unwrap().catch(() => undefined)}
                 title={t('bulk_downloads.exports_error_title')}
                 tone="destructive"
               />
             </div>
           ) : (
-            <Table>
+          <Table aria-label={t('bulk_downloads.recent_jobs')}>
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('common.created')}</TableHead>
