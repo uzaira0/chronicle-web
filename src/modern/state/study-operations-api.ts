@@ -506,7 +506,9 @@ export function normalizeParticipantList(payload: unknown): Participant[] {
   let unknownStatuses = 0;
   const participants = payload.map((participant, index) => {
     if (!isRecord(participant) || !participant.participantId) {
-      throw new Error(createTranslator(getCurrentLanguage()).t('participants.response_contract_missing_id', { index: String(index) }));
+      throw new Error(
+        createTranslator(getCurrentLanguage()).t('participants.response_contract_missing_id', { index: String(index) }),
+      );
     }
     if (!isParticipationStatus(participant.participationStatus)) unknownStatuses += 1;
     return {
@@ -622,7 +624,12 @@ async function readAllPages(
     pages.push(result.data);
     if (pageSize(result.data) < limit) return { data: pages };
   }
-  return { error: { status: 'CUSTOM_ERROR', error: `List exceeds ${MAX_LIST_PAGES} full pages; use a narrower query or export.` } };
+  return {
+    error: {
+      status: 'CUSTOM_ERROR',
+      error: `List exceeds ${MAX_LIST_PAGES} full pages; use a narrower query or export.`,
+    },
+  };
 }
 
 /** Array pages joined; a malformed page is passed through as-is for the caller's validation. */
@@ -656,30 +663,32 @@ function parsingError(response: Response, error: string) {
   };
 }
 
+const baseQueryOptions = {
+  credentials: 'include',
+  timeout: REQUEST_TIMEOUT_MS,
+  prepareHeaders: (headers) => {
+    // The backend resolves its MessageSource locale from Accept-Language, so server-sent
+    // error text follows the dashboard language rather than the browser default.
+    headers.set('Accept-Language', getBaseLanguageCode(getCurrentLanguage()));
+    // ChronicleCookieOrBearerTokenResolver requires a matching X-CSRF-Token
+    // header for cookie-based auth. Without this, requests with the
+    // chronicle_auth cookie fail CSRF validation and return 401.
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers.set('X-CSRF-Token', csrfToken);
+    }
+    const participantCsrfToken = getParticipantCsrfToken();
+    if (participantCsrfToken) {
+      headers.set('X-Chronicle-Form-CSRF', participantCsrfToken);
+      if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
+    }
+    return headers;
+  },
+} satisfies Parameters<typeof fetchBaseQuery>[0];
+const researcherBaseQuery = fetchBaseQuery({ ...baseQueryOptions, baseUrl: '/chronicle/api/web' });
+
 export const studyOperationsApi = createApi({
-  baseQuery: fetchBaseQuery({
-    baseUrl: '/chronicle/api/web',
-    credentials: 'include',
-    timeout: REQUEST_TIMEOUT_MS,
-    prepareHeaders: (headers) => {
-      // The backend resolves its MessageSource locale from Accept-Language, so server-sent
-      // error text follows the dashboard language rather than the browser default.
-      headers.set('Accept-Language', getBaseLanguageCode(getCurrentLanguage()));
-      // ChronicleCookieOrBearerTokenResolver requires a matching X-CSRF-Token
-      // header for cookie-based auth. Without this, requests with the
-      // chronicle_auth cookie fail CSRF validation and return 401.
-      const csrfToken = getCsrfToken();
-      if (csrfToken) {
-        headers.set('X-CSRF-Token', csrfToken);
-      }
-      const participantCsrfToken = getParticipantCsrfToken();
-      if (participantCsrfToken) {
-        headers.set('X-Chronicle-Form-CSRF', participantCsrfToken);
-        if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
-      }
-      return headers;
-    },
-  }),
+  baseQuery: researcherBaseQuery,
   endpoints: (builder) => ({
     createStudy: builder.mutation<string, Record<string, unknown>>({
       invalidatesTags: ['Study'],
@@ -716,7 +725,10 @@ export const studyOperationsApi = createApi({
         return { data: body, settingsRevision: meta?.response?.headers.get('etag') ?? undefined };
       },
     }),
-    setStudyLimits: builder.mutation<StudyWriteResult<unknown>, { studyId: string; limits: Record<string, unknown>; ifMatch?: string }>({
+    setStudyLimits: builder.mutation<
+      StudyWriteResult<unknown>,
+      { studyId: string; limits: Record<string, unknown>; ifMatch?: string }
+    >({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Study' }],
       queryFn: async ({ studyId, limits, ifMatch }) => {
         try {
