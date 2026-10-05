@@ -31,4 +31,17 @@ describe('QuestionnaireBuilder submission fence', () => {
       await Promise.resolve();
     });
   });
+
+  test('clicking the active caption toggles its named checkbox', () => {
+    render(<QuestionnaireBuilder onCancel={() => undefined} onSave={async () => undefined} />);
+
+    const active = screen.getByRole('checkbox', {
+      name: 'Keep this questionnaire active for the study.',
+    }) as HTMLInputElement;
+    expect(active.checked).toBe(true);
+    fireEvent.click(screen.getByText('Keep this questionnaire active for the study.'));
+    expect(active.checked).toBe(false);
+    fireEvent.click(screen.getByText('Keep this questionnaire active for the study.'));
+    expect(active.checked).toBe(true);
+  });
 });

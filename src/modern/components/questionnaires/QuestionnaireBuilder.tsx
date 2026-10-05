@@ -164,21 +164,20 @@ export function QuestionnaireBuilder({
               value={description}
             />
           </div>
-          <div
+          <label
             className={
               'flex items-center gap-3 rounded-xl border border-border/70 ' +
               'bg-muted/30 px-4 py-3 text-sm text-foreground'
             }
           >
             <input
-              aria-label={t('questionnaire_builder.active_aria')}
               checked={active}
               className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-              onChange={() => setActive(!active)}
+              onChange={(event) => setActive(event.currentTarget.checked)}
               type="checkbox"
             />
             <span>{t('questionnaire_builder.active_label')}</span>
-          </div>
+          </label>
         </CardContent>
       </Card>
 

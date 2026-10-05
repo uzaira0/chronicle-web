@@ -1,8 +1,9 @@
-import { GripVertical, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useTranslator } from '@/i18n';
 
 type IdentifiedChoice = { id: number; value: string };
@@ -54,6 +55,16 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
 
   const handleRemoveChoice = (index: number) => {
     emitChange(items.filter((_, i) => i !== index));
+  };
+
+  const handleMoveChoice = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    const updated = [...items];
+    const [moved] = updated.splice(index, 1);
+    if (!moved) return;
+    updated.splice(target, 0, moved);
+    emitChange(updated);
   };
 
   const handleChoiceChange = (index: number, value: string) => {
@@ -120,15 +131,40 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
           onDragEnd={handleDragEnd}
         >
           <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing" />
+          <Label className="shrink-0 text-xs" htmlFor={`questionnaire-choice-${choice.id}`}>
+            {t('questionnaire_builder.choice_n', { number: String(index + 1) })}
+          </Label>
           <Input
             className="flex-1 bg-background"
+            id={`questionnaire-choice-${choice.id}`}
             onChange={(event) => handleChoiceChange(index, event.currentTarget.value)}
             value={choice.value}
           />
           <Button
+            aria-label={t('questionnaire_builder.move_up', { number: String(index + 1) })}
+            disabled={index === 0}
+            onClick={() => handleMoveChoice(index, -1)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+          <Button
+            aria-label={t('questionnaire_builder.move_down', { number: String(index + 1) })}
+            disabled={index === items.length - 1}
+            onClick={() => handleMoveChoice(index, 1)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+          <Button
             aria-label={t('questionnaire_builder.remove_choice')}
             onClick={() => handleRemoveChoice(index)}
             size="icon"
+            type="button"
             variant="outline"
           >
             <Trash2 className="h-4 w-4" />
