@@ -1,8 +1,9 @@
 import { LoaderCircle, MessageSquareCode } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { ParticipantHourlySurveyForm } from '@/components/participant-hourly-survey-form';
+import { StatePanel } from '@/components/state-panel';
 import { ParticipantLandingCard } from '@/components/participant-landing-card';
 import { ParticipantSurveyForm } from '@/components/participant-survey-form';
 import { useTranslator } from '@/i18n';
@@ -22,14 +23,32 @@ export function SurveyRoutePage() {
 
   // The study's configured app-usage frequency selects the survey variant (DAILY app-by-app vs
   // HOURLY time-bucketed), matching upstream methodic-labs. On error the query yields undefined and
-  // we fall back to the daily survey so a settings hiccup never blocks the participant.
-  const { data: frequency, isLoading: frequencyLoading } = useGetAppUsageFrequencyQuery(studyId, {
+  // require a resolved instrument and retain it during refresh failures.
+  const { data: fetchedSettings, isSuccess, isError, refetch } = useGetAppUsageFrequencyQuery(studyId, {
     skip: !studyId,
   });
 
+  const verified = useRef<{ studyId: string; data: typeof fetchedSettings } | null>(null);
+  if (isSuccess) verified.current = { studyId, data: fetchedSettings };
+  const resolved = isSuccess || verified.current?.studyId === studyId;
+  const frequency = verified.current?.studyId === studyId ? verified.current.data : fetchedSettings;
+
   const ready = Boolean(studyId && participantId && date);
 
-  if (ready && frequencyLoading) {
+  if (ready && !resolved && isError) {
+    return (
+      <StatePanel
+        description={t('common.request_failed')}
+        icon={<LoaderCircle className="h-5 w-5" />}
+        onRetry={() => refetch()}
+        title={t('common.error')}
+        titleAs="h2"
+        tone="destructive"
+      />
+    );
+  }
+
+  if (ready && !resolved) {
     return (
       <div className="mx-auto flex max-w-2xl items-center gap-2 p-6 text-sm text-muted-foreground">
         <LoaderCircle className="h-4 w-4 animate-spin" />

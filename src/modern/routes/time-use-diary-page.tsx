@@ -1,7 +1,8 @@
 import { Layers, LoaderCircle } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router';
 
+import { StatePanel } from '@/components/state-panel';
 import { ParticipantLandingCard } from '@/components/participant-landing-card';
 import type { ActivityDay } from '@/components/tud/tud-flow';
 import { TimeUseDiaryForm } from '@/components/tud/tud-form';
@@ -21,10 +22,15 @@ export function TimeUseDiaryPage() {
 
   // The study's configured TUD instrument (OSU/Sherbrooke question set, clock format, locale)
   // is authoritative; see resolveTudSettings for the URL-override precedence. On error we fall
-  // back to URL/defaults so a settings hiccup never locks a participant out of the diary.
-  const { data: studySettings, isLoading: settingsLoading } = useGetTimeUseDiarySettingsQuery(studyId, {
+  // preserve a verified instrument during refresh failures and block first-load failures.
+  const { data: fetchedSettings, isSuccess, isError, refetch } = useGetTimeUseDiarySettingsQuery(studyId, {
     skip: !studyId,
   });
+
+  const verified = useRef<{ studyId: string; data: typeof fetchedSettings } | null>(null);
+  if (isSuccess) verified.current = { studyId, data: fetchedSettings };
+  const resolved = isSuccess || verified.current?.studyId === studyId;
+  const studySettings = verified.current?.studyId === studyId ? verified.current.data : fetchedSettings;
 
   const ready = Boolean(studyId && participantId && activityDate);
   const language = useTranslator();
@@ -41,7 +47,20 @@ export function TimeUseDiaryPage() {
   // Hard-gate the wizard on settings resolving so it never mounts with the wrong variant and
   // then flips when the fetch lands. (An error is NOT a gate — the query falls through to
   // undefined settings and resolveTudSettings degrades to URL/defaults.)
-  if (ready && settingsLoading) {
+  if (ready && !resolved && isError) {
+    return (
+      <StatePanel
+        description={t('common.request_failed')}
+        icon={<LoaderCircle className="h-5 w-5" />}
+        onRetry={() => refetch()}
+        title={t('common.error')}
+        titleAs="h2"
+        tone="destructive"
+      />
+    );
+  }
+
+  if (ready && !resolved) {
     return (
       <div className="mx-auto flex max-w-2xl items-center gap-2 p-6 text-sm text-muted-foreground">
         <LoaderCircle className="h-4 w-4 animate-spin" />

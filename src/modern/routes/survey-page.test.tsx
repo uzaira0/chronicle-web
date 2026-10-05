@@ -158,4 +158,20 @@ describe('SurveyRoutePage', () => {
   });
 });
 
-
+ test('W07 first frequency failure blocks submission, retry resolves HOURLY, refresh failure preserves it', () => {
+  frequencyHookState.isError = true;
+  const search = '?studyId=study-1&participantId=p1&date=2026-10-02';
+  const view = renderRoute(search);
+  expect(screen.queryByTestId('daily-survey-form')).toBeNull();
+  expect(screen.queryByTestId('hourly-survey-form')).toBeNull();
+  expect(screen.getByRole('alert')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(retryCalls).toBe(1);
+  const route = <LanguageProvider initialSearch={search}><MemoryRouter initialEntries={[`/survey${search}`]}><SurveyRoutePage /></MemoryRouter></LanguageProvider>;
+  view.rerender(route);
+  expect(screen.getByTestId('hourly-survey-form')).toBeTruthy();
+  frequencyHookState.isError = true;
+  frequencyHookState.data = undefined;
+  view.rerender(<LanguageProvider initialSearch={search}><MemoryRouter initialEntries={[`/survey${search}`]}><SurveyRoutePage /></MemoryRouter></LanguageProvider>);
+  expect(screen.getByTestId('hourly-survey-form')).toBeTruthy();
+});
