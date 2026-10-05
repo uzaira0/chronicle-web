@@ -112,7 +112,6 @@ const StudyDeviceInstanceSchema = z
 
 const ComplianceViolationSchema = z.object({
   description: z.string(),
-  participantId: z.string(),
   reason: z.string(),
 });
 
@@ -558,7 +557,6 @@ describe('Zod schema validation — API response contracts', () => {
       expect(
         ComplianceViolationSchema.parse({
           description: 'Missing data',
-          participantId: 'p-1',
           reason: 'NO_DATA',
         }),
       ).toBeTruthy();
@@ -869,7 +867,7 @@ describe('Zod schema validation — API response contracts', () => {
     it('accepts valid violations map', () => {
       expect(
         ComplianceViolationsMapSchema.parse({
-          'p-1': [{ description: 'No data', participantId: 'p-1', reason: 'NO_DATA' }],
+          'p-1': [{ description: 'No data', reason: 'NO_DATA' }],
         }),
       ).toBeTruthy();
     });

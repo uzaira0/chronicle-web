@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
 import {
+  type ComplianceViolation,
+  type ComplianceViolationsMap,
   normalizeParticipantList,
   normalizeQuestionnaireQuestion,
   normalizeQuestionnaireRecord,
@@ -330,23 +332,24 @@ describe('ParticipantStats shape', () => {
 // =============================================================================
 
 describe('ComplianceViolation shape', () => {
-  const violation = {
+  const violation: ComplianceViolation = {
     description: 'No data for 7 days',
-    participantId: 'p-1',
     reason: 'DATA_GAP',
   };
+  const map: ComplianceViolationsMap = { 'p-1': [violation] };
 
   it('has description string', () => {
     expect(typeof violation.description).toBe('string');
   });
-  it('has participantId string', () => {
-    expect(typeof violation.participantId).toBe('string');
+  it('keeps participantId on the map key, not the wire violation', () => {
+    expect(map['p-1']?.[0]).toEqual({ description: 'No data for 7 days', reason: 'DATA_GAP' });
+    expect(violation).not.toHaveProperty('participantId');
   });
   it('has reason string', () => {
     expect(typeof violation.reason).toBe('string');
   });
-  it('has exactly 3 fields', () => {
-    expect(Object.keys(violation)).toHaveLength(3);
+  it('has exactly 2 wire fields', () => {
+    expect(Object.keys(violation)).toHaveLength(2);
   });
 });
 

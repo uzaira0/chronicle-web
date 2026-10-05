@@ -295,7 +295,6 @@ export type StudyDeviceInstancesMap = Record<string, StudyDeviceInstance[]>;
 
 export type ComplianceViolation = {
   description: string;
-  participantId: string;
   reason: string;
 };
 

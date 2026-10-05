@@ -1,5 +1,5 @@
 import { CircleAlert, RefreshCcw, ShieldAlert } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
@@ -34,6 +34,8 @@ const REASON_KEYS: Record<string, string> = {
 
 type FlatViolation = { description?: string; participantId: string; reason: string };
 
+const COMPLIANCE_PAGE_SIZE = 50;
+
 function flattenComplianceViolations(studyId: string, complianceMap: unknown): FlatViolation[] {
   if (!studyId || !complianceMap || typeof complianceMap !== 'object') return [];
 
@@ -67,6 +69,7 @@ export function StudyCompliancePage() {
   } = useGetComplianceViolationsQuery(studyId, { skip: !studyId });
 
   const violations = useMemo(() => flattenComplianceViolations(studyId, complianceMap), [complianceMap, studyId]);
+  const [visibleCount, setVisibleCount] = useState(COMPLIANCE_PAGE_SIZE);
 
   if (!studyId) {
     return <MissingStudyIdPanel section={t('compliance.section')} />;
@@ -127,7 +130,7 @@ export function StudyCompliancePage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                violations.map((violation) => (
+                violations.slice(0, visibleCount).map((violation) => (
                   <TableRow key={violationKey(violation)}>
                     <TableCell className="font-medium">{violation.participantId}</TableCell>
                     <TableCell>
@@ -143,6 +146,19 @@ export function StudyCompliancePage() {
               )}
             </TableBody>
           </Table>
+          {violations.length > visibleCount && (
+            <div className="flex justify-center border-t border-border p-3">
+              <Button
+                onClick={() => setVisibleCount((count) => count + COMPLIANCE_PAGE_SIZE)}
+                variant="outline"
+              >
+                {t('compliance.show_more', {
+                  hidden: String(violations.length - visibleCount),
+                  step: String(Math.min(COMPLIANCE_PAGE_SIZE, violations.length - visibleCount)),
+                })}
+              </Button>
+            </div>
+          )}
         </Card>
       )}
     </div>

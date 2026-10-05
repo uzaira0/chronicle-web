@@ -809,6 +809,7 @@
     "load_error_fallback": "Unable to load compliance violations.",
     "load_error_title": "Failed to load compliance data",
     "col_reason": "Violation Reason",
+    "show_more": "Show {{step}} more ({{hidden}} hidden)",
     "none": "No compliance violations found for this study."
   },
   "tud_exports": {
