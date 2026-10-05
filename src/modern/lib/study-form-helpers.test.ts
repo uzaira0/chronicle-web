@@ -254,8 +254,8 @@ describe('buildDataCollectionSetting()', () => {
     'sensor_screen_orientation',
   ];
 
-  it('returns null when CHRONICLE_DATA_COLLECTION is not a feature', () => {
-    expect(buildDataCollectionSetting(makeForm({ features: ['ANDROID_SENSOR'] }))).toBeNull();
+  it('disables optional modules when CHRONICLE_DATA_COLLECTION is not a feature', () => {
+    expect(buildDataCollectionSetting(makeForm({ features: ['ANDROID_SENSOR'] })).modules.usage_events?.enabled).toBe(false);
   });
 
   it('emits the @class marker and version 2 (carries the per-module required flag)', () => {
@@ -1019,5 +1019,18 @@ describe('buildDataCollectionSetting() — unknown modules', () => {
       makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], loadedModules: { junk: 'nope' } }),
     );
     expect(result?.modules.junk).toBeUndefined();
+  });
+});
+
+describe('W27 disabled data collection', () => {
+  it('writes explicit disabled optional modules on create and update, preserving always-on telemetry', () => {
+    for (const overrides of [{}, { moduleSettings: { usage_events: true, sensor_light: true }, loadedModules: { future_optional: { enabled: true, required: true } } }]) {
+      const result = buildDataCollectionSetting(makeForm({ features: [], ...overrides }));
+      expect(result).not.toBeNull();
+      expect(result?.modules.usage_events).toMatchObject({ enabled: false, required: false });
+      expect(result?.modules.sensor_light).toMatchObject({ enabled: false, required: false });
+      expect(result?.modules.upload_telemetry?.enabled).toBe(true);
+      if ('loadedModules' in overrides) expect(result?.modules.future_optional).toMatchObject({ enabled: false, required: false });
+    }
   });
 });

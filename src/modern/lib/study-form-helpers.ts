@@ -153,7 +153,7 @@ function buildModuleEntry(form: StudyFormData, module: (typeof COLLECTION_MODULE
   // enabled, but is always sent (mirrors `enabled`, keeps the write idempotent); defaults
   // optional (false), and a disabled module is never required. An always-on module is
   // written enabled whatever the form state says (stale state from before the lock).
-  const enabled = module.alwaysOn ? true : (form.moduleSettings?.[value] ?? defaultEnabled);
+  const enabled = module.alwaysOn ? true : form.features.includes('CHRONICLE_DATA_COLLECTION') && (form.moduleSettings?.[value] ?? defaultEnabled);
   const required = enabled ? (form.moduleRequired?.[value] ?? false) : false;
   const moduleEntry: Record<string, unknown> = { enabled, required };
 
@@ -181,11 +181,8 @@ function buildModuleEntry(form: StudyFormData, module: (typeof COLLECTION_MODULE
 }
 
 export function buildDataCollectionSetting(form: StudyFormData) {
-  // Per-module enable/disable is the configuration of the Android data collection
-  // feature; only write it when that feature is selected (mirrors buildSensorSetting).
-  if (!form.features.includes('CHRONICLE_DATA_COLLECTION')) {
-    return null;
-  }
+  // Turning off the feature must overwrite previously enabled optional modules.
+  const collecting = form.features.includes('CHRONICLE_DATA_COLLECTION');
 
   // A newer server may carry modules this build has never heard of. `modules` is written
   // whole, so rebuilding it from COLLECTION_MODULES alone would delete them on any
@@ -195,7 +192,7 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   const modules: Record<string, Record<string, unknown>> = {};
   for (const [moduleId, entry] of Object.entries(form.loadedModules ?? {})) {
     if (!known.has(moduleId) && entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      modules[moduleId] = { ...(entry as Record<string, unknown>) };
+      modules[moduleId] = collecting ? { ...(entry as Record<string, unknown>) } : { ...(entry as Record<string, unknown>), enabled: false, required: false };
     }
   }
   for (const module of COLLECTION_MODULES) {
