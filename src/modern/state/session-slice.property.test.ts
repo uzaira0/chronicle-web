@@ -7,20 +7,7 @@ import { bootstrapSession, sessionReducer } from './session-slice';
 // Arbitraries
 // ---------------------------------------------------------------------------
 
-const initialState = {
-  authMode: 'institutional-sso' as const,
-  backendCompatibility: 'operational' as const,
-  csrfToken: null,
-  errorMessage: null,
-  expiresAt: null,
-  hasAppShell: true,
-  loginUrl: null,
-  providerLabel: 'Institutional SSO',
-  status: 'idle' as const,
-  testingLoginEnabled: false,
-  tokenSource: null,
-  user: null,
-};
+const initialState = sessionReducer(undefined, { type: '@@INIT' });
 
 const sessionUserArb = fc.record({
   email: fc.option(fc.emailAddress(), { nil: null }),
@@ -33,6 +20,7 @@ const bootstrapSessionArb = fc.record({
   authMode: fc.constantFrom('cookie-bootstrap' as const, 'institutional-sso' as const),
   csrfToken: fc.option(fc.string({ minLength: 10, maxLength: 64 }), { nil: null }),
   expiresAt: fc.option(fc.integer({ min: 1_000_000_000_000, max: 2_000_000_000_000 }), { nil: null }),
+  idleExpiresAt: fc.option(fc.integer({ min: 1_000_000_000_000, max: 2_000_000_000_000 }), { nil: null }),
   loginUrl: fc.option(fc.webUrl(), { nil: null }),
   providerLabel: fc.string({ minLength: 1, maxLength: 40 }),
   status: fc.constantFrom('authenticated' as const, 'awaiting-sso' as const),
@@ -68,6 +56,7 @@ describe('sessionReducer properties', () => {
         expect(next.authMode).toBe(payload.authMode);
         expect(next.csrfToken).toBe(payload.csrfToken);
         expect(next.expiresAt).toBe(payload.expiresAt);
+        expect(next.idleExpiresAt).toBe(payload.idleExpiresAt);
         expect(next.providerLabel).toBe(payload.providerLabel);
         expect(next.status).toBe(payload.status);
         expect(next.tokenSource).toBe(payload.tokenSource);

@@ -1,9 +1,11 @@
 import {
   type BaseQueryApi,
+  type BaseQueryFn,
   createApi,
   type FetchArgs,
   type FetchBaseQueryError,
   fetchBaseQuery,
+  retry,
 } from '@reduxjs/toolkit/query/react';
 import {
   type ConsentTrigger,
@@ -14,11 +16,20 @@ import {
   type StudyLifecycleStatus,
 } from '@/generated/chronicle-contracts';
 import { createTranslator, getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
+import { browserSessionDeadline } from '@/lib/bootstrap-auth';
 import { triggerBlobDownload } from '@/lib/download';
-import { getParticipantCsrfToken, PARTICIPANT_PUBLIC_API_BASE } from '@/lib/participant-access';
+import {
+  getParticipantCsrfToken,
+  PARTICIPANT_CSRF_HEADER,
+  PARTICIPANT_PUBLIC_API_BASE,
+  type ParticipantFormKind,
+  participantAccessCodeIssueUrl,
+} from '@/lib/participant-access';
 import type { StudyParticipantPolicySetting } from '@/lib/participant-policy';
 import { DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, timeoutSignal } from '@/lib/request-timeout';
-import { logoutSession } from './session-slice';
+import type { WithdrawalMode } from '@/lib/study-constants';
+import type { components } from '@/types/chronicle-api.generated';
+import { expireSession, SESSION_STATUS, updateIdleDeadline, waitForReauthentication } from './session-slice';
 import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } from './settings-revision';
 
 // Canonical status/policy value sets come from the generated LinkML contract module —
@@ -26,6 +37,8 @@ import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } 
 export type { ParticipantDataType, ParticipationStatus, StudyLifecycleStatus };
 
 type StudyWriteResult<T> = { data: T; settingsRevision: string | undefined };
+const ENROLLMENT_ACCESS_CODE_EXPIRY_MS = 29 * 24 * 60 * 60 * 1000;
+const DELETION_STATUS_RETRIES = 2;
 
 export type QuestionnaireQuestion = {
   choices: string[];
@@ -56,7 +69,7 @@ export type QuestionnaireDraft = {
  * free-text as a single-element array; multiple-choice questions carry the
  * selected choices.
  */
-export type ParticipantQuestionnaireResponse = {
+type ParticipantQuestionnaireResponse = {
   questionTitle: string;
   value: string[];
 };
@@ -67,13 +80,7 @@ export type ParticipantQuestionnaireResponse = {
  * web diary render the study's *configured* instrument (OSU/Sherbrooke question set, clock
  * format, locale) instead of relying on URL params.
  */
-export type TimeUseDiarySettingsResponse = {
-  clockFormat: number;
-  clockFormatLocked: boolean;
-  enableChangesForOhioStateUniversity: boolean;
-  enableChangesForSherbrookeUniversity: boolean;
-  language: string;
-};
+type TimeUseDiarySettingsResponse = components['schemas']['TimeUseDiarySettingsResponse'];
 
 /**
  * One answered Time Use Diary field, mirroring the backend `TimeUseDiaryResponse`
@@ -81,7 +88,7 @@ export type TimeUseDiarySettingsResponse = {
  * `TimeUseDiaryResponseTest`). `response` is always an array of english canonical
  * values; the datetimes are present only on activity-section rows.
  */
-export type ParticipantTimeUseDiaryResponse = {
+type ParticipantTimeUseDiaryResponse = {
   code: string;
   question: string;
   response: string[];
@@ -104,152 +111,74 @@ export type AppUsageEntry = {
   users: string[];
 };
 
-/** The study's configured app-usage survey frequency (backend `AppUsageFrequency`). */
-export type AppUsageFrequency = 'DAILY' | 'HOURLY';
-
 /** Response of the participant-readable `GET /survey/{studyId}/app-usage-frequency`. */
-export type AppUsageFrequencyResponse = {
-  appUsageFrequency: AppUsageFrequency;
-};
+type AppUsageFrequencyResponse = components['schemas']['AppUsageFrequencyResponse'];
 
-export type StudySummary = {
-  contact?: string;
-  createdAt?: string;
-  description?: string;
-  endedAt?: string;
-  group?: string;
-  id?: string;
+// OpenAPI Study still omits the module/settings projection returned by the server.
+export type StudySummary = components['schemas']['Study'] & {
   modules?: Record<string, unknown>;
-  notificationsEnabled?: boolean;
-  phoneNumber?: string;
   settings?: StudySettings;
-  startedAt?: string;
-  title?: string;
-  updatedAt?: string;
-  version?: string;
 };
 
-export type StudyUpdatePayload = {
-  contact?: string;
-  description?: string;
-  group?: string;
-  modules?: Record<string, unknown>;
-  notificationsEnabled?: boolean;
-  title?: string;
-  version?: string;
-};
+type StudyUpdatePayload = components['schemas']['StudyUpdate'];
 
 export type StudySubmissionGroup = {
   date: string;
   ids: string[];
 };
 
-export type Candidate = {
+type Candidate = {
   id: string;
 } & Record<string, unknown>;
 
-export type AndroidSensorSettingSummary = {
-  dutyCycleActiveSeconds?: number;
-  dutyCyclePeriodSeconds?: number;
-  samplingRateHz?: number;
-  sensors?: string[];
-};
+type AndroidSensorSettingSummary = components['schemas']['AndroidSensorSetting'];
 
-export type StudySettings = Record<string, unknown> & {
+type StudySettings = Record<string, unknown> & {
   AndroidSensor?: AndroidSensorSettingSummary;
   ParticipantPolicy?: StudyParticipantPolicySetting;
   Sensor?: unknown[];
+  Withdrawal?: { mode: WithdrawalMode };
+  TimeUseDiary?: { timeZone?: string } & Record<string, unknown>;
 };
 
-export type CollectionModuleSettingSummary = {
-  enabled?: boolean;
-  healthConnectRecordTypes?: string[];
-  // Whether the module is mandatory for participation (per-module consent design §3.1).
-  // Meaningful only when enabled; optional (false) is the default.
-  required?: boolean;
-} & Record<string, unknown>;
+type CollectionModuleSettingSummary = Partial<components['schemas']['CollectionModuleSetting']> &
+  Record<string, unknown>;
 
 // What produced a participant's per-module consent decision snapshot. The generated
 // chronicle-models ConsentTrigger, under its OpenAPI CollectionConsentTrigger wire name.
-export type CollectionConsentTrigger = ConsentTrigger;
+type CollectionConsentTrigger = ConsentTrigger;
 
-// Resolved AndroidDataCollectionSetting from GET /settings/type/DataCollection.
-// The backend always resolves a value (stored setting -> legacy bridge -> safe
-// defaults), so `modules` reflects the study's current per-module enablement.
-export type DataCollectionSettingSummary = {
-  '@class'?: string;
+// AndroidDataCollectionSetting from GET /settings/type/DataCollection.
+// Stored settings remain sparse; omitted modules use the Android catalog defaults.
+export type DataCollectionSettingSummary = Omit<components['schemas']['AndroidDataCollectionSetting'], 'modules'> & {
   modules?: Record<string, CollectionModuleSettingSummary>;
-  version?: number;
 };
 
-export type Participant = {
+export type Participant = Omit<
+  components['schemas']['Participant'],
+  'candidate' | 'participantTags' | 'participantNotes' | 'participationStatus'
+> & {
   candidate: Candidate;
-  participantId: string;
-  participantNotes?: string | null | undefined;
+  participantNotes?: components['schemas']['Participant']['participantNotes'];
   participantTags: string[];
   participationStatus: ParticipationStatus;
+  withdrawnAt?: string | null;
 };
 
-export type ParticipantStats = {
-  androidFirstDate?: string | null;
-  androidLastDate?: string | null;
-  androidLastPing?: string | null;
-  androidUniqueDates: string[];
-  iosFirstDate?: string | null;
-  iosLastDate?: string | null;
-  iosLastPing?: string | null;
-  iosUniqueDates: string[];
-  participantId: string;
-  studyId: string;
-  tudFirstDate?: string | null;
-  tudLastDate?: string | null;
-  tudUniqueDates: string[];
-};
+export type ParticipantStats = components['schemas']['ParticipantStats'] &
+  Required<Pick<components['schemas']['ParticipantStats'], 'androidUniqueDates' | 'iosUniqueDates' | 'tudUniqueDates'>>;
 
 export type ParticipantStatsMap = Record<string, ParticipantStats>;
 
-export type IosUploadStatus = {
-  participantId: string;
-  committedRows: number;
-  lastCommittedAt?: string | null;
-  lastObservationEndAt?: string | null;
-  bufferedBatches: number;
-  bufferedRecords: number;
-  lastBufferedUploadAt?: string | null;
-};
+export type IosUploadStatus = components['schemas']['IosUploadStatus'];
 
-export type IosUploadStatusMap = Record<string, IosUploadStatus>;
+type IosUploadStatusMap = Record<string, IosUploadStatus>;
 
-export type AndroidDiagnosticCodeSummary = {
-  eventId: string;
-  moduleFamily: string;
-  issueCode: string;
-  occurrenceCount: number;
-  firstOccurredAt: string;
-  lastOccurredAt: string;
-  httpStatus?: number | null;
-  errorType?: string | null;
-};
+export type AndroidDiagnosticCodeSummary = components['schemas']['AndroidDiagnosticCodeSummary'];
 
-export type DataQualityAlertHistoryItem = {
-  alertId: string;
-  alertType: string;
-  score: number;
-  createdAt: string;
-};
+export type AndroidDiagnosticsHistoryRow = components['schemas']['AndroidDiagnosticsHistoryRow'];
 
-export type AndroidDiagnosticsHistoryRow = {
-  participantId: string;
-  deviceId?: string | null;
-  day: string;
-  codes: AndroidDiagnosticCodeSummary[];
-  dataQualityAlert?: DataQualityAlertHistoryItem | null;
-};
-
-export type AndroidDiagnosticsPage = {
-  items: AndroidDiagnosticsHistoryRow[];
-  nextCursor?: string | null;
-};
+type AndroidDiagnosticsPage = components['schemas']['AndroidDiagnosticsPage'];
 
 function androidDiagnosticsUrl(filters: {
   studyId: string;
@@ -277,7 +206,7 @@ function androidDiagnosticsUrl(filters: {
   return `/study/${encodeURIComponent(studyId)}/participants/android/diagnostics${query ? `?${query}` : ''}`;
 }
 
-export type DeviceEnrollmentEvent = {
+type DeviceEnrollmentEvent = {
   enrolledAt?: string;
   enrollmentId?: string;
 };
@@ -291,14 +220,26 @@ export type StudyDeviceInstance = {
   [key: string]: unknown;
 };
 
-export type StudyDeviceInstancesMap = Record<string, StudyDeviceInstance[]>;
+type StudyDeviceInstancesMap = Record<string, StudyDeviceInstance[]>;
+
+function normalizeParticipantMap<T>(...pages: Record<string, T>[]): Record<string, T> {
+  const result = Object.create(null) as Record<string, T>;
+  for (const page of pages) {
+    Object.assign(result, page);
+  }
+  return result;
+}
+
+export const EMPTY_PARTICIPANT_MAP = Object.freeze(normalizeParticipantMap<never>());
+// RTK Query's default cache merge rebuilds plain objects with Object.prototype.
+const PARTICIPANT_MAP_QUERY_OPTIONS = { structuralSharing: false };
 
 export type ComplianceViolation = {
   description: string;
   reason: string;
 };
 
-export type ComplianceViolationsMap = Record<string, ComplianceViolation[]>;
+export type ComplianceViolationsMap = Record<string, Record<string, ComplianceViolation[]>>;
 
 export type StudySettingsAuditEntry = {
   afterValue?: unknown;
@@ -318,36 +259,19 @@ export type CollectionAcknowledgmentEntry = {
   acknowledgedAt: string;
   acknowledgedModules: string[];
   appVersion?: string | null;
-  // The modules the participant DECLINED in this snapshot (per-module consent design §3.3).
+  // The modules the participant DECLINED in this decision delta (per-module consent design §3.3).
   // Empty for legacy accept-only rows.
   declinedModules?: string[];
   id: string;
   participantId: string;
   recordedAt: string;
+  settingsVersion?: number | null;
   sourceDeviceId: string;
   studyId: string;
+  unavailableModules?: string[];
   // What produced this decision (enrollment / toggle / settings-change / withdrawal).
   // Defaults ENROLLMENT for legacy rows.
   trigger?: CollectionConsentTrigger;
-};
-
-export type StudyRealtimeStats = {
-  activeParticipants24h: number;
-  dataSubmissions24h: number;
-  lastDataReceived?: string | null;
-  studyId: string;
-  submissionsByType: Record<string, number>;
-  timestamp: string;
-  totalParticipants: number;
-};
-
-export type StudyEvent = {
-  createdAt: string;
-  eventId: string;
-  eventType: string;
-  metadata?: Record<string, unknown>;
-  participantId?: string | null;
-  studyId: string;
 };
 
 // Mirrors TimeUseDiaryDownloadDataType in chronicle-api. Not part of ParticipantDataType.
@@ -401,7 +325,7 @@ export type ApiKeyInfo = {
 };
 
 /** Backend `ApiKeyCreateResponse`: `rawKey` is returned this once and never again. */
-export type ApiKeyCreateResponse = {
+type ApiKeyCreateResponse = {
   info: ApiKeyInfo;
   keyId: string;
   rawKey: string;
@@ -433,6 +357,7 @@ export type StudyLimits = {
   dataRetentionDuration?: { days: number; months: number; years: number };
   participantLimit?: number;
   studyDuration?: { days: number; months: number; years: number };
+  studyDataExpires?: string;
 };
 
 /** @internal Exported for testing only. */
@@ -540,7 +465,7 @@ export function normalizeParticipantList(payload: unknown): Participant[] {
   }
   let unknownStatuses = 0;
   const participants = payload.map((participant, index) => {
-    if (!isRecord(participant) || !participant.participantId) {
+    if (!isRecord(participant) || typeof participant.participantId !== 'string' || !participant.participantId) {
       throw new Error(
         createTranslator(getCurrentLanguage()).t('participants.response_contract_missing_id', { index: String(index) }),
       );
@@ -548,7 +473,8 @@ export function normalizeParticipantList(payload: unknown): Participant[] {
     if (!isParticipationStatus(participant.participationStatus)) unknownStatuses += 1;
     return {
       candidate: normalizeCandidate(participant.candidate),
-      participantId: String(participant.participantId),
+      participantId: participant.participantId,
+      withdrawnAt: typeof participant.withdrawnAt === 'string' ? participant.withdrawnAt : null,
       participantNotes:
         typeof participant.participantNotes === 'string' || participant.participantNotes === null
           ? participant.participantNotes
@@ -561,7 +487,7 @@ export function normalizeParticipantList(payload: unknown): Participant[] {
         : 'UNKNOWN',
     };
   });
-  if (unknownStatuses && typeof globalThis.console?.warn === 'function') {
+  if (unknownStatuses) {
     console.warn(`[normalizeParticipantList] ${unknownStatuses} row(s) had an unknown participation status`);
   }
   return participants;
@@ -572,17 +498,63 @@ function getCsrfToken(): string | null {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
-export async function fetchWithCsrf(url: string, init?: RequestInit): Promise<Response> {
+async function logoutExpiredSession(
+  status: FetchBaseQueryError['status'] | undefined,
+  api: BaseQueryApi,
+): Promise<boolean> {
+  const session = (api.getState() as { session?: { status?: string; user?: { id: string | null } | null } }).session;
+  if (
+    status !== 401 ||
+    (session?.status !== SESSION_STATUS.authenticated && session?.status !== SESSION_STATUS.locked)
+  ) {
+    return false;
+  }
+  // Register before dispatching: reauthentication can complete synchronously in a listener.
+  const resumed = waitForReauthentication(api.signal, session.user?.id ?? null);
+  if (session.status === SESSION_STATUS.authenticated) api.dispatch(expireSession());
+  return resumed;
+}
+
+export async function fetchWithCsrf(url: string, init?: RequestInit, api?: BaseQueryApi): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set('Accept-Language', getBaseLanguageCode(getCurrentLanguage()));
   const csrfToken = getCsrfToken();
   if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
   const participantCsrfToken = getParticipantCsrfToken();
   if (participantCsrfToken) {
-    headers.set('X-Chronicle-Form-CSRF', participantCsrfToken);
+    headers.set(PARTICIPANT_CSRF_HEADER, participantCsrfToken);
     if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
   }
-  return fetch(url, { credentials: 'include', ...init, headers, signal: init?.signal ?? timeoutSignal() });
+  const request = {
+    credentials: 'include',
+    ...init,
+    headers,
+    signal: init?.signal ?? timeoutSignal(),
+  } satisfies RequestInit;
+  const response = await fetch(url, request);
+  if (api) applyResponseIdleDeadline(response, api);
+  if (api && (await logoutExpiredSession(response.status, api))) {
+    const renewedCsrfToken = getCsrfToken();
+    if (renewedCsrfToken) headers.set('X-CSRF-Token', renewedCsrfToken);
+    else headers.delete('X-CSRF-Token');
+    const retried = await fetch(url, {
+      ...request,
+      signal: AbortSignal.any([api.signal, init?.signal ?? timeoutSignal()]),
+    });
+    applyResponseIdleDeadline(retried, api);
+    if (retried.status === 401) api.dispatch(expireSession());
+    return retried;
+  }
+  return response;
+}
+
+export const SESSION_IDLE_DEADLINE_HEADER = 'X-Session-Idle-Expires-At';
+
+function applyResponseIdleDeadline(response: Response | undefined, api: BaseQueryApi): void {
+  const value = response?.headers.get(SESSION_IDLE_DEADLINE_HEADER);
+  if (!value || !response) return;
+  const deadline = browserSessionDeadline(Number(value), response.headers);
+  if (deadline !== null) api.dispatch(updateIdleDeadline(deadline));
 }
 
 // A caller-held key makes a user retry of the same logical submission dedupe server-side;
@@ -605,8 +577,24 @@ function exportDayBoundary(value: string, exclusiveEnd: boolean): Date {
  * Date inputs give `YYYY-MM-DD`; the export endpoints bind ISO date-times. Resolve each
  * local day boundary, including days when midnight is skipped by a clock change.
  */
-export function toExportDateTime(value: string, exclusiveEnd = false): string {
+export function toExportDateTime(value: string, exclusiveEnd = false, timeZone?: string): string {
   if (!EXPORT_DAY.test(value)) return value;
+  if (timeZone) {
+    const wall = new Date(`${value}T00:00:00Z`);
+    if (exclusiveEnd) wall.setUTCDate(wall.getUTCDate() + 1);
+    const formatter = new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'longOffset' });
+    const offsetAt = (instant: number) => {
+      const offset = formatter.formatToParts(instant).find((part) => part.type === 'timeZoneName')?.value;
+      const match = offset?.match(/GMT([+-])(\d{2}):(\d{2})/);
+      return match ? (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3])) * 60_000 : 0;
+    };
+    const first = wall.getTime() - offsetAt(wall.getTime());
+    const second = wall.getTime() - offsetAt(first);
+    // A skipped midnight alternates between the two sides of the gap. The later
+    // instant is the first valid time on that day, matching ZoneId.atStartOfDay.
+    const boundary = wall.getTime() - offsetAt(second);
+    return new Date(boundary === first && first !== second ? Math.max(first, second) : boundary).toISOString();
+  }
   const date = exportDayBoundary(value, exclusiveEnd);
   const skippedMidnight = exclusiveEnd && (date.getHours() !== 0 || date.getMinutes() !== 0);
   // Keep the instant, expressing a skipped-midnight end with the offset just before the boundary.
@@ -626,7 +614,13 @@ export function exportRangeExceedsLimit(startDay: string, endDay: string): boole
 }
 
 function httpError(response: Response, text: string) {
-  return { error: { status: response.status, data: text } } as const;
+  let data: unknown = text;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Plain text errors still pass through the shared display sanitizer.
+  }
+  return { error: { status: response.status, data } } as const;
 }
 
 function networkError(err: unknown) {
@@ -698,6 +692,64 @@ function parsingError(response: Response, error: string) {
   };
 }
 
+async function readRevisionedResource<T>(
+  baseQuery: (path: string) => ReturnType<ReturnType<typeof fetchBaseQuery>>,
+  path: string,
+  normalize: (data: unknown) => T,
+): Promise<{ data: { data: T; revision: string } } | { error: FetchBaseQueryError }> {
+  const result = await baseQuery(path);
+  if (result.error) return { error: result.error };
+  const revision = result.meta?.response?.headers.get('etag');
+  if (!revision) return { error: { status: 'CUSTOM_ERROR', error: 'Missing resource revision' } };
+  return { data: { data: normalize(result.data), revision } };
+}
+
+async function downloadResource(url: string, filename: string, api: BaseQueryApi) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException('Download headers timed out.', 'TimeoutError')),
+      DOWNLOAD_TIMEOUT_MS,
+    );
+    const response = await fetchWithCsrf(
+      url,
+      { signal: AbortSignal.any([api.signal, controller.signal]) },
+      api,
+    ).finally(() => clearTimeout(timer));
+    if (!response.ok) return httpError(response, await response.text());
+    triggerBlobDownload(await response.blob(), filename);
+    return { data: null };
+  } catch (err) {
+    return networkError(err);
+  }
+}
+
+function participantDataQuery({
+  dataType,
+  participantIds,
+  startDate,
+  endDate,
+}: {
+  dataType: string;
+  participantIds: string[];
+  startDate?: string | undefined;
+  endDate?: string | undefined;
+}): string {
+  const params = new URLSearchParams({ dataType });
+  for (const pid of participantIds) params.append('participantId', pid);
+  if (startDate) params.set('startDate', toExportDateTime(startDate));
+  if (endDate) params.set('endDate', toExportDateTime(endDate, true));
+  return params.toString();
+}
+
+function lifecycleTags(studyId: string) {
+  return [
+    { id: studyId, type: 'Study' as const },
+    { id: 'LIST', type: 'Study' as const },
+    { id: studyId, type: 'Lifecycle' as const },
+  ];
+}
+
 const baseQueryOptions = {
   credentials: 'include',
   timeout: REQUEST_TIMEOUT_MS,
@@ -714,7 +766,7 @@ const baseQueryOptions = {
     }
     const participantCsrfToken = getParticipantCsrfToken();
     if (participantCsrfToken) {
-      headers.set('X-Chronicle-Form-CSRF', participantCsrfToken);
+      headers.set(PARTICIPANT_CSRF_HEADER, participantCsrfToken);
       if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
     }
     return headers;
@@ -730,13 +782,44 @@ export const studyOperationsApi = createApi({
   baseQuery: async (args: string | FetchArgs, api: BaseQueryApi, extraOptions: StudyOperationsExtraOptions = {}) => {
     if (extraOptions.participantPublic) return participantBaseQuery(args, api, extraOptions);
     const result = await researcherBaseQuery(args, api, extraOptions);
-    // A 401 here means the dashboard session expired: sign out to the login screen instead of
-    // rendering it as "no access". logoutSession.pending leaves 'authenticated', so this fires once.
-    const session = (api.getState() as { session?: { status?: string } }).session;
-    if (result.error?.status === 401 && session?.status === 'authenticated') void api.dispatch(logoutSession());
+    applyResponseIdleDeadline(result.meta?.response, api);
+    if (await logoutExpiredSession(result.error?.status, api)) {
+      const retried = await researcherBaseQuery(args, api, extraOptions);
+      applyResponseIdleDeadline(retried.meta?.response, api);
+      if (retried.error?.status === 401) api.dispatch(expireSession());
+      return retried;
+    }
     return result;
   },
   endpoints: (builder) => ({
+    issueParticipantAccessCode: builder.mutation<
+      { accessCode?: unknown },
+      { studyId: string; participantId: string; formKind: ParticipantFormKind; logicalDate?: string }
+    >({
+      queryFn: async ({ studyId, participantId, formKind, logicalDate }, api) => {
+        try {
+          const response = await fetchWithCsrf(
+            participantAccessCodeIssueUrl(studyId, participantId),
+            {
+              body: JSON.stringify({
+                formKind,
+                ...(logicalDate ? { logicalDate } : {}),
+                ...(formKind === 'ENROLLMENT'
+                  ? { expiresAt: new Date(Date.now() + ENROLLMENT_ACCESS_CODE_EXPIRY_MS).toISOString() }
+                  : {}),
+              }),
+              headers: { 'Content-Type': 'application/json' },
+              method: 'POST',
+            },
+            api,
+          );
+          if (!response.ok) return httpError(response, '');
+          return { data: (await response.json()) as { accessCode?: unknown } };
+        } catch (err) {
+          return networkError(err);
+        }
+      },
+    }),
     createStudy: builder.mutation<string, { study: Record<string, unknown>; idempotencyKey: string }>({
       invalidatesTags: ['Study'],
       query: ({ study, idempotencyKey }) => ({
@@ -778,13 +861,17 @@ export const studyOperationsApi = createApi({
       { studyId: string; limits: Record<string, unknown>; ifMatch?: string }
     >({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Study' }],
-      queryFn: async ({ studyId, limits, ifMatch }) => {
+      queryFn: async ({ studyId, limits, ifMatch }, api) => {
         try {
-          const response = await fetchWithCsrf(`/chronicle/api/web/limits/study/${encodeURIComponent(studyId)}`, {
-            body: JSON.stringify(limits),
-            headers: { 'Content-Type': 'application/json', ...(ifMatch ? { 'If-Match': ifMatch } : {}) },
-            method: 'PUT',
-          });
+          const response = await fetchWithCsrf(
+            `/chronicle/api/web/limits/study/${encodeURIComponent(studyId)}`,
+            {
+              body: JSON.stringify(limits),
+              headers: { 'Content-Type': 'application/json', ...(ifMatch ? { 'If-Match': ifMatch } : {}) },
+              method: 'PUT',
+            },
+            api,
+          );
           if (!response.ok) return httpError(response, await response.text());
           rememberSettingsRevision(studyId, response.headers);
           const data: unknown = await response.json().catch(() => null);
@@ -794,7 +881,10 @@ export const studyOperationsApi = createApi({
         }
       },
     }),
-    createQuestionnaire: builder.mutation<string, { questionnaire: QuestionnaireDraft; studyId: string; idempotencyKey: string }>({
+    createQuestionnaire: builder.mutation<
+      string,
+      { questionnaire: QuestionnaireDraft; studyId: string; idempotencyKey: string }
+    >({
       invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Questionnaires' }],
       query: ({ questionnaire, studyId, idempotencyKey }) => ({
         body: questionnaire,
@@ -860,14 +950,23 @@ export const studyOperationsApi = createApi({
       },
     }),
     getDeletionOperation: builder.query<DataDeletionOperation, { operationId: string; studyId: string }>({
-      query: ({ operationId, studyId }) =>
-        `/study/${encodeURIComponent(studyId)}/deletions/${encodeURIComponent(operationId)}`,
+      queryFn: async ({ operationId, studyId }, api, _options, baseQuery) => {
+        const statusQuery: BaseQueryFn<string, unknown, FetchBaseQueryError> = (url) => baseQuery(url);
+        const result = await retry(statusQuery, {
+          maxRetries: DELETION_STATUS_RETRIES,
+        })(`/study/${encodeURIComponent(studyId)}/deletions/${encodeURIComponent(operationId)}`, api, {});
+        return result.error ? { error: result.error } : { data: result.data as DataDeletionOperation };
+      },
     }),
     getComplianceViolations: builder.query<ComplianceViolationsMap, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Compliance' }],
-      queryFn: async (studyId) => {
+      queryFn: async (studyId, api) => {
         try {
-          const response = await fetchWithCsrf(`/chronicle/api/web/compliance/study/${encodeURIComponent(studyId)}`);
+          const response = await fetchWithCsrf(
+            `/chronicle/api/web/compliance/study/${encodeURIComponent(studyId)}`,
+            undefined,
+            api,
+          );
           if (!response.ok) return httpError(response, await response.text());
           return { data: (await response.json()) as ComplianceViolationsMap };
         } catch (err) {
@@ -876,15 +975,20 @@ export const studyOperationsApi = createApi({
       },
     }),
     getParticipantStats: builder.query<ParticipantStatsMap, string>({
+      ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
       queryFn: async (studyId, _api, _extra, baseQuery) => {
         const result = await readAllPages(baseQuery, `/study/${encodeURIComponent(studyId)}/participants/stats`, 500);
-        return 'error' in result ? result : { data: Object.assign({}, ...result.data) as ParticipantStatsMap };
+        return 'error' in result
+          ? result
+          : { data: normalizeParticipantMap(...(result.data as ParticipantStatsMap[])) };
       },
     }),
     getIosUploadStatus: builder.query<IosUploadStatusMap, string>({
+      ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/ios/upload-status`,
+      transformResponse: (body: IosUploadStatusMap) => normalizeParticipantMap(body),
     }),
     getAndroidDiagnostics: builder.query<
       AndroidDiagnosticsPage,
@@ -906,8 +1010,10 @@ export const studyOperationsApi = createApi({
       query: androidDiagnosticsUrl,
     }),
     getStudyDevices: builder.query<StudyDeviceInstancesMap, string>({
+      ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Devices' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}/devices`,
+      transformResponse: (body: StudyDeviceInstancesMap) => normalizeParticipantMap(body),
     }),
     getStudyParticipants: builder.query<Participant[], string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Participants' }],
@@ -951,12 +1057,13 @@ export const studyOperationsApi = createApi({
     }),
     getStudyTudSubmissionGroups: builder.query<
       StudySubmissionGroup[],
-      { endDate: string; startDate: string; studyId: string }
+      { endDate: string; startDate: string; studyId: string; timeZone?: string }
     >({
-      query: ({ endDate, startDate, studyId }) => {
+      query: ({ endDate, startDate, studyId, timeZone }) => {
         const params = new URLSearchParams({
           endDate,
           startDate,
+          ...(timeZone ? { timeZone } : {}),
         });
 
         return `/time-use-diary/${encodeURIComponent(studyId)}/ids?${params.toString()}`;
@@ -979,29 +1086,32 @@ export const studyOperationsApi = createApi({
       { data: { participantNotes?: string; participantTags?: string[] }; revision: string },
       { participantId: string; studyId: string }
     >({
-      queryFn: async ({ participantId, studyId }, _api, _extra, baseQuery) => {
-        const result = await baseQuery(`/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/annotations`);
-        if (result.error) return { error: result.error };
-        const revision = result.meta?.response?.headers.get('etag');
-        if (!revision) return { error: { status: 'CUSTOM_ERROR', error: 'Missing resource revision' } };
-        return { data: { data: result.data as { participantNotes?: string; participantTags?: string[] }, revision } };
-      },
+      queryFn: ({ participantId, studyId }, _api, _extra, baseQuery) =>
+        readRevisionedResource(
+          baseQuery,
+          `/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/annotations`,
+          (data) => data as { participantNotes?: string; participantTags?: string[] },
+        ),
     }),
     loadQuestionnaire: builder.mutation<
       { data: QuestionnaireRecord; revision: string },
       { questionnaireId: string; studyId: string }
     >({
-      queryFn: async ({ questionnaireId, studyId }, _api, _extra, baseQuery) => {
-        const result = await baseQuery(`/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`);
-        if (result.error) return { error: result.error };
-        const revision = result.meta?.response?.headers.get('etag');
-        if (!revision) return { error: { status: 'CUSTOM_ERROR', error: 'Missing resource revision' } };
-        return { data: { data: normalizeQuestionnaireRecord(result.data), revision } };
-      },
+      queryFn: ({ questionnaireId, studyId }, _api, _extra, baseQuery) =>
+        readRevisionedResource(
+          baseQuery,
+          `/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
+          normalizeQuestionnaireRecord,
+        ),
     }),
     updateParticipantAnnotations: builder.mutation<
       unknown,
-      { annotations: { participantNotes?: string; participantTags?: string[] }; participantId: string; studyId: string; ifMatch: string }
+      {
+        annotations: { participantNotes?: string; participantTags?: string[] };
+        participantId: string;
+        studyId: string;
+        ifMatch: string;
+      }
     >({
       invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Participants' }],
       query: ({ annotations, participantId, studyId, ifMatch }) => ({
@@ -1053,44 +1163,28 @@ export const studyOperationsApi = createApi({
       },
     }),
     archiveStudy: builder.mutation<unknown, string>({
-      invalidatesTags: (_r, _e, studyId) => [
-        { id: studyId, type: 'Study' },
-        { id: 'LIST', type: 'Study' },
-        { id: studyId, type: 'Lifecycle' },
-      ],
+      invalidatesTags: (_r, _e, studyId) => lifecycleTags(studyId),
       query: (studyId) => ({
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/archive`,
       }),
     }),
     cancelScheduledDeletion: builder.mutation<unknown, string>({
-      invalidatesTags: (_r, _e, studyId) => [
-        { id: studyId, type: 'Study' },
-        { id: 'LIST', type: 'Study' },
-        { id: studyId, type: 'Lifecycle' },
-      ],
+      invalidatesTags: (_r, _e, studyId) => lifecycleTags(studyId),
       query: (studyId) => ({
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/schedule-delete`,
       }),
     }),
     unarchiveStudy: builder.mutation<unknown, string>({
-      invalidatesTags: (_r, _e, studyId) => [
-        { id: studyId, type: 'Study' },
-        { id: 'LIST', type: 'Study' },
-        { id: studyId, type: 'Lifecycle' },
-      ],
+      invalidatesTags: (_r, _e, studyId) => lifecycleTags(studyId),
       query: (studyId) => ({
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/unarchive`,
       }),
     }),
     scheduleStudyDeletion: builder.mutation<unknown, { deleteAfter: string; studyId: string }>({
-      invalidatesTags: (_r, _e, { studyId }) => [
-        { id: studyId, type: 'Study' },
-        { id: 'LIST', type: 'Study' },
-        { id: studyId, type: 'Lifecycle' },
-      ],
+      invalidatesTags: (_r, _e, { studyId }) => lifecycleTags(studyId),
       query: ({ deleteAfter, studyId }) => ({
         method: 'DELETE',
         url: `/study/${encodeURIComponent(studyId)}/schedule-delete?deleteAfter=${encodeURIComponent(deleteAfter)}`,
@@ -1107,25 +1201,18 @@ export const studyOperationsApi = createApi({
         filename?: string;
       }
     >({
-      queryFn: async ({ dataType, participantIds, studyId, startDate, endDate, filename }) => {
-        try {
-          const params = new URLSearchParams({ dataType });
-          for (const pid of participantIds) params.append('participantId', pid);
-          if (startDate) params.set('startDate', toExportDateTime(startDate));
-          if (endDate) params.set('endDate', toExportDateTime(endDate, true));
-          const response = await fetchWithCsrf(
-            `/chronicle/api/web/study/${encodeURIComponent(studyId)}/participants/data?${params.toString()}`,
-            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
-          );
-          if (!response.ok) return httpError(response, await response.text());
-          triggerBlobDownload(await response.blob(), filename || `${studyId}-${dataType}.csv`);
-          return { data: null };
-        } catch (err) {
-          return networkError(err);
-        }
+      queryFn: ({ dataType, participantIds, studyId, startDate, endDate, filename }, api) => {
+        return downloadResource(
+          `/chronicle/api/web/study/${encodeURIComponent(studyId)}/participants/data?${participantDataQuery({ dataType, participantIds, startDate, endDate })}`,
+          filename || `${studyId}-${dataType}.csv`,
+          api,
+        );
       },
     }),
-    createStudyExport: builder.mutation<StudyExportJobInfo, { request: CreateStudyExportRequest; studyId: string; idempotencyKey: string }>({
+    createStudyExport: builder.mutation<
+      StudyExportJobInfo,
+      { request: CreateStudyExportRequest; studyId: string; idempotencyKey: string }
+    >({
       invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Exports' }],
       query: ({ request, studyId, idempotencyKey }) => ({
         body: request,
@@ -1143,22 +1230,13 @@ export const studyOperationsApi = createApi({
       null,
       { exportId: string; filename?: string; format: StudyExportFormat; studyId: string }
     >({
-      queryFn: async ({ exportId, filename, format, studyId }) => {
-        try {
-          const response = await fetchWithCsrf(
-            `/chronicle/api/web/study/${encodeURIComponent(studyId)}/export/${encodeURIComponent(exportId)}/download`,
-            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
-          );
-          if (!response.ok) return httpError(response, await response.text());
-          const extension = format === 'EXCEL' ? 'xlsx' : format.toLowerCase();
-          triggerBlobDownload(
-            await response.blob(),
-            filename || `chronicle-${studyId}-export-${exportId}.${extension}`,
-          );
-          return { data: null };
-        } catch (err) {
-          return networkError(err);
-        }
+      queryFn: ({ exportId, filename, format, studyId }, api) => {
+        const extension = format === 'EXCEL' ? 'xlsx' : format.toLowerCase();
+        return downloadResource(
+          `/chronicle/api/web/study/${encodeURIComponent(studyId)}/export/${encodeURIComponent(exportId)}/download`,
+          filename || `chronicle-${studyId}-export-${exportId}.${extension}`,
+          api,
+        );
       },
     }),
     // Time Use Diary for a participant subset. Separate from downloadParticipantData
@@ -1176,22 +1254,12 @@ export const studyOperationsApi = createApi({
         filename?: string;
       }
     >({
-      queryFn: async ({ dataType, participantIds, studyId, startDate, endDate, filename }) => {
-        try {
-          const params = new URLSearchParams({ dataType });
-          for (const pid of participantIds) params.append('participantId', pid);
-          if (startDate) params.set('startDate', toExportDateTime(startDate));
-          if (endDate) params.set('endDate', toExportDateTime(endDate, true));
-          const response = await fetchWithCsrf(
-            `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/participants/data?${params.toString()}`,
-            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
-          );
-          if (!response.ok) return httpError(response, await response.text());
-          triggerBlobDownload(await response.blob(), filename || `${studyId}-time-use-diary-${dataType}.csv`);
-          return { data: null };
-        } catch (err) {
-          return networkError(err);
-        }
+      queryFn: ({ dataType, participantIds, studyId, startDate, endDate, filename }, api) => {
+        return downloadResource(
+          `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/participants/data?${participantDataQuery({ dataType, participantIds, startDate, endDate })}`,
+          filename || `${studyId}-time-use-diary-${dataType}.csv`,
+          api,
+        );
       },
     }),
     // Whole-study Time Use Diary (every participant). The bulk counterpart of
@@ -1201,44 +1269,35 @@ export const studyOperationsApi = createApi({
       null,
       { dataType: TimeUseDiaryDataType; studyId: string; startDate: string; endDate: string; filename?: string }
     >({
-      queryFn: async ({ dataType, studyId, startDate, endDate, filename }) => {
-        try {
-          const params = new URLSearchParams({ dataType, endDate, startDate });
-          const response = await fetchWithCsrf(
-            `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/data?${params.toString()}`,
-            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
-          );
-          if (!response.ok) return httpError(response, await response.text());
-          triggerBlobDownload(await response.blob(), filename || `tud-${studyId}-${dataType}.csv`);
-          return { data: null };
-        } catch (err) {
-          return networkError(err);
-        }
+      queryFn: ({ dataType, studyId, startDate, endDate, filename }, api) => {
+        return downloadResource(
+          `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/data?${new URLSearchParams({ dataType, endDate, startDate }).toString()}`,
+          filename || `tud-${studyId}-${dataType}.csv`,
+          api,
+        );
       },
     }),
     downloadQuestionnaireResponses: builder.mutation<
       null,
       { questionnaireId: string; studyId: string; filename?: string }
     >({
-      queryFn: async ({ questionnaireId, studyId, filename }) => {
-        try {
-          const response = await fetchWithCsrf(
-            `/chronicle/v3/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}/data?type=csv`,
-            { signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) },
-          );
-          if (!response.ok) return httpError(response, await response.text());
-          triggerBlobDownload(await response.blob(), filename || `${studyId}-questionnaire-${questionnaireId}.csv`);
-          return { data: null };
-        } catch (err) {
-          return networkError(err);
-        }
+      queryFn: ({ questionnaireId, studyId, filename }, api) => {
+        return downloadResource(
+          `/chronicle/v3/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}/data?type=csv`,
+          filename || `${studyId}-questionnaire-${questionnaireId}.csv`,
+          api,
+        );
       },
     }),
     getStudyLifecycleStatus: builder.query<StudyLifecycleStatus, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Lifecycle' }],
-      queryFn: async (studyId) => {
+      queryFn: async (studyId, api) => {
         try {
-          const response = await fetchWithCsrf(`/chronicle/api/web/study/${encodeURIComponent(studyId)}/lifecycle`);
+          const response = await fetchWithCsrf(
+            `/chronicle/api/web/study/${encodeURIComponent(studyId)}/lifecycle`,
+            undefined,
+            api,
+          );
           if (!response.ok) return httpError(response, await response.text());
           let data: unknown;
           try {
@@ -1258,9 +1317,13 @@ export const studyOperationsApi = createApi({
     }),
     getStudyLimits: builder.query<StudyLimits, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
-      queryFn: async (studyId) => {
+      queryFn: async (studyId, api) => {
         try {
-          const response = await fetchWithCsrf(`/chronicle/api/web/limits/study/${encodeURIComponent(studyId)}`);
+          const response = await fetchWithCsrf(
+            `/chronicle/api/web/limits/study/${encodeURIComponent(studyId)}`,
+            undefined,
+            api,
+          );
           if (!response.ok) return httpError(response, await response.text());
           const text = await response.text();
           const data = text ? (JSON.parse(text) as StudyLimits) : {};
@@ -1387,7 +1450,9 @@ export const studyOperationsApi = createApi({
   ],
 });
 
+/** @public Hooks generated by RTK Query for the study API. */
 export const {
+  useIssueParticipantAccessCodeMutation,
   useArchiveStudyMutation,
   useCancelScheduledDeletionMutation,
   useUnarchiveStudyMutation,

@@ -1,6 +1,6 @@
 /** Budget for one API round trip: a backend that hangs with the socket open fails instead of spinning. */
 export const REQUEST_TIMEOUT_MS = 30_000;
-/** Downloads stream a whole export, so they get a long budget rather than none. */
+/** Downloads allow a longer wait for headers; body transfers have no fixed deadline. */
 export const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 
 /**

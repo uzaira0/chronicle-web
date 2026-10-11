@@ -271,6 +271,7 @@ exports[`normalizer snapshots normalizeParticipantList full participant list 1`]
       "wave-1",
     ],
     "participationStatus": "ENROLLED",
+    "withdrawnAt": null,
   },
   {
     "candidate": {
@@ -280,6 +281,7 @@ exports[`normalizer snapshots normalizeParticipantList full participant list 1`]
     "participantNotes": undefined,
     "participantTags": [],
     "participationStatus": "PAUSED",
+    "withdrawnAt": null,
   },
 ]
 `;
@@ -294,6 +296,7 @@ exports[`normalizer snapshots normalizeParticipantList participant with missing 
     "participantNotes": undefined,
     "participantTags": [],
     "participationStatus": "UNKNOWN",
+    "withdrawnAt": null,
   },
 ]
 `;
@@ -308,6 +311,7 @@ exports[`normalizer snapshots normalizeParticipantList non-array participantTags
     "participantNotes": undefined,
     "participantTags": [],
     "participationStatus": "UNKNOWN",
+    "withdrawnAt": null,
   },
 ]
 `;
@@ -322,6 +326,7 @@ exports[`normalizer snapshots normalizeParticipantList missing participationStat
     "participantNotes": undefined,
     "participantTags": [],
     "participationStatus": "UNKNOWN",
+    "withdrawnAt": null,
   },
 ]
 `;

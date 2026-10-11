@@ -106,6 +106,7 @@ describe('sessionReducer — initial state', () => {
       csrfToken: null,
       errorMessage: null,
       expiresAt: null,
+      idleExpiresAt: null,
       hasAppShell: true,
       loginUrl: null,
       providerLabel: 'Institutional SSO',

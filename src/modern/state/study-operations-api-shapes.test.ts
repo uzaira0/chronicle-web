@@ -336,13 +336,13 @@ describe('ComplianceViolation shape', () => {
     description: 'No data for 7 days',
     reason: 'DATA_GAP',
   };
-  const map: ComplianceViolationsMap = { 'p-1': [violation] };
+  const map: ComplianceViolationsMap = { 'study-1': { 'p-1': [violation] } };
 
   it('has description string', () => {
     expect(typeof violation.description).toBe('string');
   });
   it('keeps participantId on the map key, not the wire violation', () => {
-    expect(map['p-1']?.[0]).toEqual({ description: 'No data for 7 days', reason: 'DATA_GAP' });
+    expect(map['study-1']?.['p-1']?.[0]).toEqual({ description: 'No data for 7 days', reason: 'DATA_GAP' });
     expect(violation).not.toHaveProperty('participantId');
   });
   it('has reason string', () => {

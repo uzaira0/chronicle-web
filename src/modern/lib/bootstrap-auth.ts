@@ -1,14 +1,9 @@
-import {
-  AUTH_DASHBOARD_LOGIN_ENDPOINT,
-  AUTH_SESSION_ENDPOINT,
-  AUTH_TESTING_LOGIN_ENDPOINT,
-} from '@/lib/auth-endpoints';
+import { AUTH_DASHBOARD_LOGIN_ENDPOINT, AUTH_SESSION_ENDPOINT } from '@/lib/auth-endpoints';
 import { getErrorMessage } from '@/lib/errors';
 import { timeoutSignal } from '@/lib/request-timeout';
 
 const CSRF_COOKIE = 'ol_csrf_token';
 const INSTITUTIONAL_SSO_LABEL = 'Institutional SSO';
-const TESTING_PROVIDER_LABEL = 'Chronicle testing session';
 const DASHBOARD_PROVIDER_LABEL = 'Chronicle dashboard';
 
 // User-facing copy for every way the dashboard password exchange can fail. These are read
@@ -44,6 +39,7 @@ export type BootstrapSession = {
   authMode: 'cookie-bootstrap' | 'institutional-sso';
   csrfToken: string | null;
   expiresAt: number | null;
+  idleExpiresAt?: number | null;
   loginUrl: string | null;
   providerLabel: string;
   status: 'authenticated' | 'awaiting-sso';
@@ -85,6 +81,7 @@ type ServerSessionResponse = {
   authMode?: BootstrapSession['authMode'];
   csrfToken?: string | null;
   expiresAt?: number | null;
+  idleExpiresAt?: number | null;
   loginUrl?: string | null;
   providerLabel?: string;
   status?: BootstrapSession['status'];
@@ -104,10 +101,7 @@ async function fetchServerSession(): Promise<ServerSessionResponse> {
     throw new Error(AUTH_SESSION_NETWORK_FAILED_MESSAGE);
   }
 
-  // A 401 means the security filter rejected an expired/invalid cookie before
-  // the controller could respond. Do not infer testing-login from this path:
-  // production must only try the test bridge when the session endpoint
-  // explicitly advertises it.
+  // An expired or invalid cookie requires sign-in again.
   if (response.status === 401) {
     return { authenticated: false, testingLoginEnabled: false };
   }
@@ -116,58 +110,38 @@ async function fetchServerSession(): Promise<ServerSessionResponse> {
     throw new Error(`${AUTH_SESSION_FAILED_PREFIX}${response.status}.`);
   }
 
-  const payload = (await response.json()) as unknown;
-  if (!payload || typeof payload !== 'object') {
-    return {};
-  }
-
-  return payload;
+  return readJsonObject(response, AUTH_SESSION_NETWORK_FAILED_MESSAGE);
 }
 
-async function requestTestingLogin(): Promise<ServerSessionResponse | null> {
-  const response = await fetch(AUTH_TESTING_LOGIN_ENDPOINT, {
-    body: JSON.stringify({}),
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    method: 'POST',
-    signal: timeoutSignal(),
-  });
-
-  if (response.status === 403) {
-    return null;
-  }
-
-  if (response.status === 500) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new Error(`${TESTING_LOGIN_FAILED_PREFIX}${response.status}.`);
-  }
-
-  const payload = (await response.json()) as unknown;
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  return payload;
-}
-
-async function readJsonObject(response: Response): Promise<ServerSessionResponse & { error?: string }> {
+async function readJsonObject(
+  response: Response,
+  failureMessage?: string,
+): Promise<ServerSessionResponse & { error?: string }> {
   try {
     const payload = (await response.json()) as unknown;
-    return payload && typeof payload === 'object' ? payload : {};
+    if (!payload || typeof payload !== 'object') return {};
+    const session = payload as ServerSessionResponse & { error?: string };
+    return {
+      ...session,
+      expiresAt: browserSessionDeadline(session.expiresAt, response.headers),
+      idleExpiresAt: browserSessionDeadline(session.idleExpiresAt, response.headers),
+    };
   } catch {
+    if (failureMessage) throw new Error(failureMessage);
     return {};
   }
+}
+
+/** Keep server deadlines in the same clock as the dashboard's expiry timer. */
+export function browserSessionDeadline(value: number | null | undefined, headers: Headers): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const serverNow = Date.parse(headers.get('Date') ?? '');
+  return Number.isFinite(serverNow) ? Date.now() + (value - serverNow) : value;
 }
 
 /**
  * Exchanges the dashboard password for a session cookie. The backend sets `chronicle_auth`
- * and `ol_csrf_token` on the response, so — exactly like the testing-login bridge — this
- * sends no CSRF header and reads the token back out of the response body or the cookie.
+ * and `ol_csrf_token` on the response. Read the CSRF token from the response body or cookie.
  */
 export async function requestDashboardLogin(password: string): Promise<BootstrapSession> {
   let response: Response;
@@ -221,6 +195,7 @@ function toAuthenticatedBootstrapSession(
     authMode: session.authMode ?? 'cookie-bootstrap',
     csrfToken: session.csrfToken ?? getCookie(CSRF_COOKIE),
     expiresAt: session.expiresAt ?? null,
+    idleExpiresAt: session.idleExpiresAt ?? null,
     loginUrl: null,
     providerLabel: session.providerLabel ?? providerLabel,
     status: session.status ?? 'authenticated',
@@ -250,18 +225,6 @@ export async function initializeBootstrapSession(): Promise<BootstrapSession> {
 
   if (session.authenticated) {
     return toAuthenticatedBootstrapSession(session, INSTITUTIONAL_SSO_LABEL, 'sso-session', testingLoginEnabled);
-  }
-
-  if (session.testingLoginEnabled) {
-    const testingSession = await requestTestingLogin();
-    if (testingSession?.authenticated) {
-      return toAuthenticatedBootstrapSession(
-        testingSession,
-        TESTING_PROVIDER_LABEL,
-        'testing-login',
-        testingLoginEnabled || testingSession.testingLoginEnabled === true,
-      );
-    }
   }
 
   return toAwaitingSsoSession(session);

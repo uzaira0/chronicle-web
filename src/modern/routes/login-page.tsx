@@ -109,7 +109,11 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
               />
             </div>
 
-            {errorMessage && <p className="text-sm text-destructive" role="alert">{errorMessage}</p>}
+            {errorMessage && (
+              <p className="text-sm text-destructive" role="alert">
+                {errorMessage}
+              </p>
+            )}
 
             <Button disabled={isSubmitting} type="submit">
               {isSubmitting ? (

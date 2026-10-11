@@ -1,4 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { toExportDateTime } from '@/state/study-operations-api';
+
+test('study IANA zone resolves both sides of Santiago skipped midnight independently of the browser zone', () => {
+  expect(toExportDateTime('2026-09-06', false, 'America/Santiago')).toBe('2026-09-06T04:00:00.000Z');
+  expect(toExportDateTime('2026-09-06', true, 'America/Santiago')).toBe('2026-09-07T03:00:00.000Z');
+  expect(toExportDateTime('2026-09-07', false, 'America/Santiago')).toBe('2026-09-07T03:00:00.000Z');
+});
 
 describe.each(['America/Santiago', 'Asia/Tokyo'])('calendar dates in %s', (timeZone) => {
   test('keeps date-only calendar fields and displays offset date-times as local instants', async () => {
@@ -31,16 +38,25 @@ describe.each(['America/Santiago', 'Asia/Tokyo'])('calendar dates in %s', (timeZ
       stderr: 'pipe',
     });
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
     ]);
     expect(stderr).toBe('');
     expect(exitCode).toBe(0);
     const results = JSON.parse(stdout) as {
       dates: { fields: number[]; date: string; expectedDate: string; time: string; expectedTime: string }[];
-      instants: { timestamp: number; expectedTimestamp: number; date: string; expectedDate: string; time: string; expectedTime: string }[];
+      instants: {
+        timestamp: number;
+        expectedTimestamp: number;
+        date: string;
+        expectedDate: string;
+        time: string;
+        expectedTime: string;
+      }[];
     };
     for (const [index, result] of results.dates.entries()) {
-      expect(result.fields).toEqual(dates[index]!.split('-').map(Number));
+      expect(result.fields).toEqual((dates[index] ?? '').split('-').map(Number));
       expect(result.date).toBe(result.expectedDate);
       expect(result.time).toBe(result.expectedTime);
     }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
+import { MemoryRouter } from 'react-router';
 import { logoutSession } from '@/state/session-slice';
 import { store } from '@/state/store';
 import { SessionBootstrap } from './session-bootstrap';
@@ -9,9 +9,11 @@ import { SessionBootstrap } from './session-bootstrap';
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
+  // Unmount first: a mounted SessionBootstrap re-bootstraps when the reset below makes the session idle.
+  cleanup();
   globalThis.fetch = originalFetch;
   mock.restore();
-  store.dispatch(logoutSession.pending('w20-reset', undefined));
+  store.dispatch(logoutSession.fulfilled(undefined, 'w20-reset', undefined));
 });
 
 describe('SessionBootstrap transport failure', () => {
@@ -35,8 +37,9 @@ describe('SessionBootstrap transport failure', () => {
     );
 
     const retry = await screen.findByRole('button', { name: 'Retry' });
-    expect(screen.getByText('Unable to reach the Chronicle session service. Check your connection and try again.'))
-      .toBeDefined();
+    expect(
+      screen.getByText('Unable to reach the Chronicle session service. Check your connection and try again.'),
+    ).toBeDefined();
     expect(screen.queryByText('W20_BOOTSTRAP_NETWORK_SENTINEL')).toBeNull();
     fireEvent.click(retry);
     await waitFor(() => expect(store.getState().session.status).toBe('awaiting-sso'));

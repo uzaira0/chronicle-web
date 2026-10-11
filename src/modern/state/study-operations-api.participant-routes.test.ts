@@ -1,31 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
+import { installRelativeRequest } from '@/test/http-fixtures';
+import { createApiStore } from '@/test/study-operations-store';
 
 import { studyOperationsApi } from './study-operations-api';
 
 // A self-host participant listener serves /chronicle/v3 and refuses /chronicle/api/web, so
 // every participant-form call must use the public prefix (researcher calls keep api/web).
 
-const SavedRequest = globalThis.Request;
-class RelativeRequest extends SavedRequest {
-  constructor(input: RequestInfo | URL, init?: RequestInit) {
-    super(typeof input === 'string' && input.startsWith('/') ? `http://localhost${input}` : input, init);
-  }
-}
+let restoreRequest: () => void;
 
 let savedFetch: typeof globalThis.fetch;
 let savedDocument: typeof globalThis.document | undefined;
 let requested: string[];
 
 async function call<T>(endpoint: { initiate: (arg: T) => unknown }, arg: T) {
-  const store = configureStore({
-    middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
-    reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-  });
-  const request = store.dispatch(endpoint.initiate(arg) as never) as {
-    unwrap: () => Promise<unknown>;
-    unsubscribe?: () => void;
-  };
+  const store = createApiStore();
+  const request: { unwrap: () => Promise<unknown>; unsubscribe?: () => void } = store.dispatch(
+    endpoint.initiate(arg) as never,
+  );
   await request.unwrap().catch(() => undefined);
   request.unsubscribe?.();
 }
@@ -35,7 +27,7 @@ beforeEach(() => {
   savedFetch = globalThis.fetch;
   savedDocument = globalThis.document;
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: '' }, writable: true });
-  Object.defineProperty(globalThis, 'Request', { configurable: true, value: RelativeRequest, writable: true });
+  restoreRequest = installRelativeRequest();
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: (input: RequestInfo | URL) => {
@@ -47,7 +39,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  Object.defineProperty(globalThis, 'Request', { configurable: true, value: SavedRequest, writable: true });
+  restoreRequest();
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: savedDocument, writable: true });
 });
@@ -59,7 +51,12 @@ describe('participant form routes', () => {
 
   it('send every participant-form call to /chronicle/v3', async () => {
     await call(endpoints.getParticipantQuestionnaire, { questionnaireId: 'q1', studyId });
-    await call(endpoints.submitQuestionnaireResponses, { participantId, questionnaireId: 'q1', responses: [], studyId });
+    await call(endpoints.submitQuestionnaireResponses, {
+      participantId,
+      questionnaireId: 'q1',
+      responses: [],
+      studyId,
+    });
     await call(endpoints.getTimeUseDiarySettings, studyId);
     await call(endpoints.submitTimeUseDiary, { data: [], participantId, studyId });
     await call(endpoints.getAppUsageFrequency, studyId);
@@ -79,5 +76,19 @@ describe('participant form routes', () => {
   it('keep researcher calls on /chronicle/api/web', async () => {
     await call(endpoints.getStudyLifecycleStatus, studyId);
     expect(requested).toEqual(['/chronicle/api/web/study/s1/lifecycle']);
+  });
+
+  it.each([
+    'id with spaces',
+    'id/with/slashes',
+    'id?with=query#hash',
+    'unicode-é',
+    'id%20encoded',
+  ])('encodes %s in real study requests', async (studyId) => {
+    await call(endpoints.getStudySummary, studyId);
+    await call(endpoints.getStudyDevices, studyId);
+    await call(endpoints.getStudySettingsAudit, { studyId });
+    const prefix = `/chronicle/api/web/study/${encodeURIComponent(studyId)}`;
+    expect(requested).toEqual([prefix, `${prefix}/devices`, `${prefix}/settings/audit`]);
   });
 });

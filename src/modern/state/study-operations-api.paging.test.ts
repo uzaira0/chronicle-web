@@ -1,20 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
 import { getErrorMessage } from '@/lib/errors';
+import { installRelativeRequest } from '@/test/http-fixtures';
+import { createApiStore } from '@/test/study-operations-store';
 
 import { studyOperationsApi } from './study-operations-api';
 
 // ai-built-code B1: the server pages every list (default page 100, max 500; audit and
 // acknowledgments max 200). A study with more rows than one page must still show them all.
 
-const SavedRequest = globalThis.Request;
-// fetchBaseQuery builds `new Request('/chronicle/api/web/...')`; outside a browser a relative
-// URL has no base, so resolve it against a dummy origin the way the page would.
-class RelativeRequest extends SavedRequest {
-  constructor(input: RequestInfo | URL, init?: RequestInit) {
-    super(typeof input === 'string' && input.startsWith('/') ? `http://localhost${input}` : input, init);
-  }
-}
+let restoreRequest: () => void;
 
 let savedFetch: typeof globalThis.fetch;
 let savedDocument: typeof globalThis.document | undefined;
@@ -41,10 +35,7 @@ function serve(path: string, rows: unknown[], { defaultLimit = 100, maxLimit = 5
 }
 
 async function read<T>(endpoint: { initiate: (arg: T) => unknown }, arg: T) {
-  const store = configureStore({
-    middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
-    reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-  });
+  const store = createApiStore();
   const request: { unwrap: () => Promise<unknown>; unsubscribe: () => void } = store.dispatch(
     endpoint.initiate(arg) as never,
   );
@@ -62,11 +53,11 @@ beforeEach(() => {
   savedFetch = globalThis.fetch;
   savedDocument = globalThis.document;
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: '' }, writable: true });
-  Object.defineProperty(globalThis, 'Request', { configurable: true, value: RelativeRequest, writable: true });
+  restoreRequest = installRelativeRequest();
 });
 
 afterEach(() => {
-  Object.defineProperty(globalThis, 'Request', { configurable: true, value: SavedRequest, writable: true });
+  restoreRequest();
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: savedDocument, writable: true });
 });
@@ -107,6 +98,38 @@ describe('list endpoints read every server page', () => {
     );
     const stats = (await read(studyOperationsApi.endpoints.getParticipantStats, 's1')) as Record<string, unknown>;
     expect(Object.keys(stats)).toHaveLength(120);
+  });
+
+  it.each([
+    ['statistics', studyOperationsApi.endpoints.getParticipantStats],
+    ['devices', studyOperationsApi.endpoints.getStudyDevices],
+    ['upload status', studyOperationsApi.endpoints.getIosUploadStatus],
+  ] as const)('keeps prototype-named IDs safe in participant %s maps', async (_name, endpoint) => {
+    const participantIds = ['constructor', '__proto__', 'toString'];
+    let body: Record<string, unknown> = {};
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: () => Promise.resolve(Response.json(body)),
+      writable: true,
+    });
+    const store = createApiStore();
+    type QueryResult = ReturnType<ReturnType<typeof endpoint.initiate>>;
+    const request = store.dispatch<QueryResult>(endpoint.initiate('s1'));
+    try {
+      const empty = (await request.unwrap()) as Record<string, unknown>;
+      expect(Object.getPrototypeOf(empty)).toBeNull();
+      for (const id of participantIds) expect(empty[id]).toBeUndefined();
+
+      body = Object.fromEntries(participantIds.map((id) => [id, { participantId: id }]));
+      const refreshed = store.dispatch<QueryResult>(endpoint.initiate('s1', { forceRefetch: true }));
+      const populated = (await refreshed.unwrap()) as Record<string, unknown>;
+      expect(Object.getPrototypeOf(populated)).toBeNull();
+      for (const id of participantIds) expect(populated[id]).toEqual({ participantId: id });
+      refreshed.unsubscribe();
+    } finally {
+      request.unsubscribe();
+      store.dispatch(studyOperationsApi.util.resetApiState());
+    }
   });
 
   it('the settings audit trail reaches entries older than the first 200', async () => {
@@ -164,8 +187,10 @@ describe('list endpoints read every server page', () => {
   });
 
   it('rejects a full final page at the list-page cap', async () => {
-    serve('/chronicle/api/web/study/s1/participants',
-      range(100_001).map((i) => ({ participantId: `p-${i}`, participationStatus: 'ENROLLED' })));
+    serve(
+      '/chronicle/api/web/study/s1/participants',
+      range(100_001).map((i) => ({ participantId: `p-${i}`, participationStatus: 'ENROLLED' })),
+    );
     const error = await read(studyOperationsApi.endpoints.getStudyParticipants, 's1').then(
       () => null,
       (reason: unknown) => reason,

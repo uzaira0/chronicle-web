@@ -10,6 +10,15 @@ import {
 
 // --- normalizeQuestionnaireQuestion ---
 
+it('rejects object and numeric participant identifiers and preserves valid string identifiers', () => {
+  for (const participantId of [{ id: 'participant-1' }, ['participant-1'], 123]) {
+    expect(() => normalizeParticipantList([{ participantId, participationStatus: 'ENROLLED' }])).toThrow();
+  }
+  expect(
+    normalizeParticipantList([{ participantId: 'participant-1', participationStatus: 'ENROLLED' }])[0]?.participantId,
+  ).toBe('participant-1');
+});
+
 describe('normalizeQuestionnaireQuestion()', () => {
   it('returns defaults for null input', () => {
     expect(normalizeQuestionnaireQuestion(null)).toEqual({ choices: [], title: '' });
@@ -192,8 +201,9 @@ describe('normalizeParticipantList()', () => {
   });
 
   it('rejects the page when an entry lacks participantId', () => {
-    expect(() => normalizeParticipantList([{ participantId: 'p-1' }, { candidate: { id: 'c-2' } }, {}]))
-      .toThrow(/participantId/);
+    expect(() => normalizeParticipantList([{ participantId: 'p-1' }, { candidate: { id: 'c-2' } }, {}])).toThrow(
+      /participantId/,
+    );
   });
 
   it('defaults candidate to { id: "" } when missing', () => {
@@ -211,9 +221,8 @@ describe('normalizeParticipantList()', () => {
     expect(result[0]?.participantTags).toEqual([]);
   });
 
-  it('converts participantId to string', () => {
-    const result = normalizeParticipantList([{ participantId: 123 }]);
-    expect(result[0]?.participantId).toBe('123');
+  it('rejects numeric participantId', () => {
+    expect(() => normalizeParticipantList([{ participantId: 123 }])).toThrow(/participantId/);
   });
 
   it('returns empty array for empty input', () => {
@@ -552,9 +561,8 @@ describe('normalizeParticipantList() — exhaustive edge cases', () => {
     expect(() => normalizeParticipantList([{ participantId: '' }])).toThrow(/participantId/);
   });
 
-  it('converts numeric participantId to string', () => {
-    const result = normalizeParticipantList([{ participantId: 42 }]);
-    expect(result[0]?.participantId).toBe('42');
+  it('rejects numeric participantId', () => {
+    expect(() => normalizeParticipantList([{ participantId: 42 }])).toThrow(/participantId/);
   });
 
   it('preserves string participantId', () => {
@@ -625,7 +633,8 @@ describe('normalizeParticipantList() — exhaustive edge cases', () => {
   });
 
   it('rejects mixed valid and invalid entries as a whole page', () => {
-    expect(() => normalizeParticipantList([{ participantId: 'p-1' }, {}, { participantId: 'p-2' }, { noId: true }]))
-      .toThrow(/participantId/);
+    expect(() =>
+      normalizeParticipantList([{ participantId: 'p-1' }, {}, { participantId: 'p-2' }, { noId: true }]),
+    ).toThrow(/participantId/);
   });
 });

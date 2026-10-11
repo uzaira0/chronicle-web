@@ -164,8 +164,8 @@ describe('normalizer snapshots', () => {
       expect(normalizeParticipantList([{ participantId: 'p-3' }])).toMatchSnapshot();
     });
     it('rejects items without participantId', () => {
-      expect(
-        () => normalizeParticipantList([
+      expect(() =>
+        normalizeParticipantList([
           { participantId: 'p-4', candidate: { id: 'c-4' } },
           { candidate: { id: 'c-5' } },
           { participantId: '', candidate: { id: 'c-6' } },

@@ -1,17 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
+import { createApiStore } from '@/test/study-operations-store';
 
 import { studyOperationsApi } from './study-operations-api';
 
 let savedDocumentDescriptor: PropertyDescriptor | undefined;
 let savedFetch: typeof globalThis.fetch;
-
-function createApiStore() {
-  return configureStore({
-    reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(studyOperationsApi.middleware),
-  });
-}
 
 function installFetch(response: () => Response) {
   Object.defineProperty(globalThis, 'fetch', {

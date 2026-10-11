@@ -1,8 +1,10 @@
 import { AlertTriangle, LoaderCircle, RefreshCcw } from 'lucide-react';
-import { type PropsWithChildren, useEffect } from 'react';
+import { Activity, type PropsWithChildren, useEffect, useState } from 'react';
 import { StatePanel } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
+import { PortalContainerContext } from '@/components/ui/dialog';
 import { useTranslator } from '@/i18n';
+import { SIGN_OUT_FAILED_MESSAGE } from '@/lib/auth-utils';
 import {
   AUTH_SESSION_FAILED_PREFIX,
   AUTH_SESSION_NETWORK_FAILED_MESSAGE,
@@ -11,10 +13,15 @@ import {
 import { LoginPage } from '@/routes/login-page';
 import {
   bootstrapSession,
+  expireSession,
+  logoutSession,
   SESSION_INIT_FAILED_MESSAGE,
+  SESSION_STATUS,
+  sessionDeadline,
   UNKNOWN_BOOTSTRAP_FAILURE_MESSAGE,
 } from '@/state/session-slice';
-import { store, useAppSelector } from '@/state/store';
+import { type RootState, store, useAppSelector } from '@/state/store';
+import { studyOperationsApi } from '@/state/study-operations-api';
 
 // The session slice and the auth transport store their English fallback sentences (state
 // stays serializable and language-agnostic); the shell renders the translated equivalent.
@@ -23,6 +30,8 @@ const WHOLE_MESSAGE_KEYS: Record<string, string> = {
   [SESSION_INIT_FAILED_MESSAGE]: 'session.init_failed',
   [UNKNOWN_BOOTSTRAP_FAILURE_MESSAGE]: 'session.unknown_bootstrap_failure',
 };
+
+const MAX_BROWSER_TIMEOUT_MS = 2 ** 31 - 1;
 
 const STATUS_PREFIX_KEYS: ReadonlyArray<readonly [string, string]> = [
   [AUTH_SESSION_FAILED_PREFIX, 'session.auth_request_failed'],
@@ -53,17 +62,104 @@ function runBootstrap(): void {
     });
 }
 
+function useSessionDeadline(session: RootState['session']): void {
+  const expiresAt = sessionDeadline(session);
+  useEffect(() => {
+    if (session.status !== SESSION_STATUS.authenticated || expiresAt === null) return;
+    let deadline: number | undefined;
+    const checkExpiry = () => {
+      window.clearTimeout(deadline);
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) store.dispatch(expireSession());
+      else deadline = window.setTimeout(checkExpiry, Math.min(remaining, MAX_BROWSER_TIMEOUT_MS));
+    };
+    checkExpiry();
+    // Recheck on resume too: background tabs may have their timers suspended.
+    window.addEventListener('focus', checkExpiry);
+    document.addEventListener('visibilitychange', checkExpiry);
+    return () => {
+      window.clearTimeout(deadline);
+      window.removeEventListener('focus', checkExpiry);
+      document.removeEventListener('visibilitychange', checkExpiry);
+    };
+  }, [session.status, expiresAt]);
+}
+
+function SessionViews({ children, session }: PropsWithChildren<{ session: RootState['session'] }>) {
+  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
+  const { t } = useTranslator();
+  const isLocked =
+    session.status !== SESSION_STATUS.authenticated || (sessionDeadline(session) ?? Infinity) <= Date.now();
+  const signOutFailed = session.errorMessage === SIGN_OUT_FAILED_MESSAGE;
+  useSessionDeadline(session);
+
+  useEffect(() => {
+    if (session.status !== SESSION_STATUS.locked && session.status !== SESSION_STATUS.signingOut) return;
+    // Activity suspends query hooks. Keep their caches subscribed while signing in so
+    // cache eviction cannot unmount an unsaved form when the hidden tree resumes.
+    const subscriptions = Object.values(store.getState()[studyOperationsApi.reducerPath].queries).flatMap((query) => {
+      if (!query?.endpointName) return [];
+      const endpoint = studyOperationsApi.endpoints[query.endpointName as keyof typeof studyOperationsApi.endpoints];
+      if (!('useQuery' in endpoint)) return [];
+      const subscription = store.dispatch<ReturnType<ReturnType<typeof endpoint.initiate>>>(
+        endpoint.initiate(query.originalArgs as never),
+      );
+      return [subscription];
+    });
+    return () => {
+      for (const subscription of subscriptions) subscription.unsubscribe();
+    };
+  }, [session.status]);
+
+  return (
+    <>
+      {/* Keep dialogs inside the hidden subtree as well. Preserve the container when Activity
+          detaches refs; moving a portal back to body would expose it on the lock screen. */}
+      <PortalContainerContext.Provider value={portalContainer}>
+        <Activity key={session.user?.id ?? ''} mode={isLocked ? 'hidden' : 'visible'}>
+          <div
+            ref={(node) => {
+              if (node) setPortalContainer(node);
+            }}
+          >
+            {children}
+          </div>
+        </Activity>
+      </PortalContainerContext.Provider>
+      {isLocked && (
+        <div>
+          <p className="px-6 pt-6 text-center text-sm" role="alert">
+            {session.status === SESSION_STATUS.signingOut
+              ? t('session.signing_out')
+              : signOutFailed
+                ? t('session.sign_out_failed')
+                : t('session.locked')}
+          </p>
+          {signOutFailed && (
+            <div className="flex justify-center pt-3">
+              <Button onClick={() => void store.dispatch(logoutSession())}>{t('session.retry_sign_out')}</Button>
+            </div>
+          )}
+          {session.status !== SESSION_STATUS.signingOut && !signOutFailed && (
+            <LoginPage loginUrl={session.loginUrl} providerLabel={session.providerLabel} />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function SessionBootstrap({ children }: PropsWithChildren) {
   const session = useAppSelector((state) => state.session);
   const { t } = useTranslator();
 
   useEffect(() => {
-    if (session.status === 'idle') {
+    if (session.status === SESSION_STATUS.idle) {
       runBootstrap();
     }
   }, [session.status]);
 
-  if (session.status === 'bootstrapping' || session.status === 'idle') {
+  if (session.status === SESSION_STATUS.bootstrapping || session.status === SESSION_STATUS.idle) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <StatePanel
@@ -76,7 +172,7 @@ export function SessionBootstrap({ children }: PropsWithChildren) {
     );
   }
 
-  if (session.status === 'error') {
+  if (session.status === SESSION_STATUS.error) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6">
         <StatePanel
@@ -103,9 +199,9 @@ export function SessionBootstrap({ children }: PropsWithChildren) {
 
   // No session: render the login page *instead of* the dashboard. Rendering the dashboard
   // behind a banner used to expose every authenticated view to an unauthenticated visitor.
-  if (session.status === 'awaiting-sso') {
+  if (session.status === SESSION_STATUS.awaitingSso) {
     return <LoginPage loginUrl={session.loginUrl} providerLabel={session.providerLabel} />;
   }
 
-  return children;
+  return <SessionViews session={session}>{children}</SessionViews>;
 }

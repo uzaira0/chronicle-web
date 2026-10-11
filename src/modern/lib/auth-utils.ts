@@ -3,6 +3,8 @@ import { timeoutSignal } from '@/lib/request-timeout';
 
 import type { RootState } from '@/state/store';
 
+export const SIGN_OUT_FAILED_MESSAGE = 'Sign-out did not complete. Retry before leaving this workstation.';
+
 /**
  * Selector: returns true when the session user has the 'admin' role.
  * Use with `useAppSelector(selectIsAdmin)` in React components.
@@ -30,13 +32,14 @@ export function selectUserDisplayName(state: RootState): string | null {
  */
 export async function logoutSession(): Promise<void> {
   try {
-    await fetch(AUTH_LOGOUT_ENDPOINT, {
+    const response = await fetch(AUTH_LOGOUT_ENDPOINT, {
       method: 'POST',
       credentials: 'same-origin',
       signal: timeoutSignal(),
     });
+    if (!response.ok) throw new Error(SIGN_OUT_FAILED_MESSAGE);
   } catch {
-    // Best-effort: if the endpoint is unreachable the cookie will expire naturally.
+    throw new Error(SIGN_OUT_FAILED_MESSAGE);
   }
 
   // Clear any non-sensitive localStorage artifacts from the legacy auth system.

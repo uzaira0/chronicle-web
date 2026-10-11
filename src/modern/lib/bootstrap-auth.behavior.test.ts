@@ -88,97 +88,33 @@ describe('bootstrap-auth — fetchServerSession behavior (via initializeBootstra
   });
 });
 
-describe('bootstrap-auth — requestTestingLogin behavior', () => {
+describe('bootstrap-auth — idle expiry', () => {
   beforeEach(() => {
-    installBrowserEnv({ cookie: 'ol_csrf_token=cookie-csrf' });
+    installBrowserEnv({ cookie: 'chronicle_auth=idle-expired; ol_csrf_token=cookie-csrf' });
   });
   afterEach(() => {
     uninstallBrowserEnv();
     delete (globalThis as Partial<typeof globalThis>).fetch;
   });
 
-  function sessionAdvertisingTesting(): Response {
-    return new Response(JSON.stringify({ authenticated: false, testingLoginEnabled: true }), { status: 200 });
-  }
-
-  it('sends the testing-login POST with JSON content-type, empty-object body and same-origin creds', async () => {
+  it('requires sign-in after refreshing an idle-expired session even when testing login is enabled', async () => {
     const calls: FetchCall[] = [];
     installRouter((path) => {
-      if (path.endsWith('/session')) return sessionAdvertisingTesting();
-      return new Response(
-        JSON.stringify({ authenticated: true, user: { email: null, id: null, name: null, roles: [] } }),
-        { status: 200 },
-      );
+      if (path.endsWith('/session')) return Response.json({ authenticated: false, testingLoginEnabled: true });
+      return Response.json({ authenticated: true });
     }, calls);
-
-    const { initializeBootstrapSession } = await load();
-    await initializeBootstrapSession();
-
-    const loginCall = calls[1];
-    expect(loginCall?.init?.method).toBe('POST');
-    expect(loginCall?.init?.credentials).toBe('same-origin');
-    expect(loginCall?.init?.body).toBe(JSON.stringify({}));
-    expect((loginCall?.init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
-  });
-
-  it('falls back to awaiting-sso when testing-login is forbidden (403 → null)', async () => {
-    const calls: FetchCall[] = [];
-    installRouter((path) => {
-      if (path.endsWith('/session')) return sessionAdvertisingTesting();
-      return new Response('forbidden', { status: 403 });
-    }, calls);
-
     const { initializeBootstrapSession } = await load();
     const session = await initializeBootstrapSession();
-    expect(calls).toHaveLength(2);
+
+    expect(calls.map((call) => requestUrl(call.input))).toEqual([SESSION_PATH]);
     expect(session.status).toBe('awaiting-sso');
+    expect(session.user).toBeNull();
   });
 
-  it('falls back to awaiting-sso when testing-login errors (500 → null)', async () => {
-    const calls: FetchCall[] = [];
-    installRouter((path) => {
-      if (path.endsWith('/session')) return sessionAdvertisingTesting();
-      return new Response('server error', { status: 500 });
-    }, calls);
-
-    const { initializeBootstrapSession } = await load();
-    const session = await initializeBootstrapSession();
-    expect(session.status).toBe('awaiting-sso');
-  });
-
-  it('throws when testing-login returns an unexpected error status (e.g. 502)', async () => {
-    const calls: FetchCall[] = [];
-    installRouter((path) => {
-      if (path.endsWith('/session')) return sessionAdvertisingTesting();
-      return new Response('bad gateway', { status: 502 });
-    }, calls);
-
-    const { initializeBootstrapSession } = await load();
-    await expect(initializeBootstrapSession()).rejects.toThrow('Testing login request failed with status 502.');
-  });
-
-  it('falls back to awaiting-sso when testing-login returns a non-object body', async () => {
-    const calls: FetchCall[] = [];
-    installRouter((path) => {
-      if (path.endsWith('/session')) return sessionAdvertisingTesting();
-      return new Response(JSON.stringify(42), { status: 200 });
-    }, calls);
-
-    const { initializeBootstrapSession } = await load();
-    const session = await initializeBootstrapSession();
-    expect(session.status).toBe('awaiting-sso');
-  });
-
-  it('falls back to awaiting-sso when testing-login responds 200 but authenticated is false', async () => {
-    const calls: FetchCall[] = [];
-    installRouter((path) => {
-      if (path.endsWith('/session')) return sessionAdvertisingTesting();
-      return new Response(JSON.stringify({ authenticated: false }), { status: 200 });
-    }, calls);
-
-    const { initializeBootstrapSession } = await load();
-    const session = await initializeBootstrapSession();
-    expect(session.status).toBe('awaiting-sso');
+  it('sanitizes malformed session JSON with an actionable session message', async () => {
+    installRouter(() => new Response('private malformed response'), []);
+    const { initializeBootstrapSession, AUTH_SESSION_NETWORK_FAILED_MESSAGE } = await load();
+    await expect(initializeBootstrapSession()).rejects.toThrow(AUTH_SESSION_NETWORK_FAILED_MESSAGE);
   });
 });
 
@@ -391,22 +327,5 @@ describe('bootstrap-auth — authenticated/awaiting field fallbacks', () => {
     expect(session.providerLabel).toBe('Institutional SSO');
     expect(session.loginUrl).toBeNull();
     expect(session.testingLoginEnabled).toBe(false);
-  });
-
-  it('testing-login session is labeled "Chronicle testing session" with tokenSource testing-login', async () => {
-    installRouter((path) => {
-      if (path.endsWith('/session')) {
-        return new Response(JSON.stringify({ authenticated: false, testingLoginEnabled: true }), { status: 200 });
-      }
-      return new Response(
-        JSON.stringify({ authenticated: true, user: { email: 'e', id: 'i', name: 'n', roles: [] } }),
-        { status: 200 },
-      );
-    }, []);
-    const { initializeBootstrapSession } = await load();
-    const session = await initializeBootstrapSession();
-    expect(session.providerLabel).toBe('Chronicle testing session');
-    expect(session.tokenSource).toBe('testing-login');
-    expect(session.testingLoginEnabled).toBe(true);
   });
 });

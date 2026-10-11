@@ -29,8 +29,8 @@ describe('toExportDateTime', () => {
   });
 
   test('rejects a 31-calendar-day range when autumn clock change makes it over 31 days', () => {
-    const hasAutumnShift = new Date('2026-10-10T00:00:00').getTimezoneOffset() !==
-      new Date('2026-11-10T00:00:00').getTimezoneOffset();
+    const hasAutumnShift =
+      new Date('2026-10-10T00:00:00').getTimezoneOffset() !== new Date('2026-11-10T00:00:00').getTimezoneOffset();
     expect(exportRangeExceedsLimit('2026-10-10', '2026-11-09')).toBe(hasAutumnShift);
   });
 

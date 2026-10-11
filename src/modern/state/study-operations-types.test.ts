@@ -548,9 +548,8 @@ describe('normalizeParticipantList — edge cases', () => {
     expect(result[0]?.participationStatus).toBe('UNKNOWN');
   });
 
-  it('number participantId gets stringified', () => {
-    const result = normalizeParticipantList([{ participantId: 123 }]);
-    expect(result[0]?.participantId).toBe('123');
+  it('rejects numeric participantId', () => {
+    expect(() => normalizeParticipantList([{ participantId: 123 }])).toThrow(/participantId/);
   });
 
   it('participantNotes is preserved as-is', () => {

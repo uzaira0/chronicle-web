@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
-
 import {
   AUTH_SESSION_NETWORK_FAILED_MESSAGE,
   initializeBootstrapSession,
@@ -8,6 +6,8 @@ import {
 } from '@/lib/bootstrap-auth';
 import { getErrorMessage } from '@/lib/errors';
 import { REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
+import { installRelativeRequest } from '@/test/http-fixtures';
+import { createApiStore } from '@/test/study-operations-store';
 
 import { fetchWithCsrf, studyOperationsApi } from './study-operations-api';
 
@@ -15,14 +15,7 @@ import { fetchWithCsrf, studyOperationsApi } from './study-operations-api';
 // answers must not leave a spinner up forever. Every call gives up after REQUEST_TIMEOUT_MS.
 
 let savedFetch: typeof globalThis.fetch;
-const SavedRequest = globalThis.Request;
-// fetchBaseQuery builds `new Request('/chronicle/api/web/...')`; outside a browser a relative
-// URL has no base, so resolve it against a dummy origin the way the page would.
-class RelativeRequest extends SavedRequest {
-  constructor(input: RequestInfo | URL, init?: RequestInit) {
-    super(typeof input === 'string' && input.startsWith('/') ? `http://localhost${input}` : input, init);
-  }
-}
+let restoreRequest: () => void;
 let savedDocument: typeof globalThis.document | undefined;
 let fetchStarted: Promise<void>;
 let calls: { init: RequestInit | undefined; input: RequestInfo | URL }[];
@@ -85,14 +78,17 @@ beforeEach(() => {
     value: { cookie: '' },
     writable: true,
   });
-  Object.defineProperty(globalThis, 'Request', { configurable: true, value: RelativeRequest, writable: true });
+  restoreRequest = installRelativeRequest();
   jest.useFakeTimers();
   installHungFetch();
 });
 
 afterEach(() => {
+  // Fire what the fake clock still holds (RTK subscription sync, cache removal, request deadlines).
+  // Restoring real timers over pending RTK callbacks leaves Bun never firing later zero-delay timers.
+  jest.runOnlyPendingTimers();
   jest.useRealTimers();
-  Object.defineProperty(globalThis, 'Request', { configurable: true, value: SavedRequest, writable: true });
+  restoreRequest();
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: savedDocument, writable: true });
 });
@@ -112,10 +108,7 @@ describe('request timeouts', () => {
   });
 
   it('an RTK Query endpoint ends in TIMEOUT_ERROR with a timeout sentence', async () => {
-    const store = configureStore({
-      middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
-      reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-    });
+    const store = createApiStore();
     const query = store.dispatch(studyOperationsApi.endpoints.getStudySummary.initiate('s1'));
     await afterTimeout();
     const settled = await outcome(query);
@@ -127,10 +120,7 @@ describe('request timeouts', () => {
   });
 
   it('a queryFn endpoint built on fetchWithCsrf also ends in TIMEOUT_ERROR', async () => {
-    const store = configureStore({
-      middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
-      reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-    });
+    const store = createApiStore();
     const query = store.dispatch(studyOperationsApi.endpoints.getComplianceViolations.initiate('s1'));
     await afterTimeout();
     const settled = await outcome(query);

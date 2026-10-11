@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { RootState } from '@/state/store';
 import { installBrowserEnv, uninstallBrowserEnv } from '../test/browser-env';
-import { AUTH_LOGOUT_ENDPOINT } from './auth-endpoints';
-import { logoutSession, selectIsAdmin, selectUserDisplayName } from './auth-utils';
+import { AUTH_LOGOUT_ENDPOINT, AUTH_SESSION_ENDPOINT } from './auth-endpoints';
+import { logoutSession, SIGN_OUT_FAILED_MESSAGE, selectIsAdmin, selectUserDisplayName } from './auth-utils';
+import { initializeBootstrapSession } from './bootstrap-auth';
 
 // Builds a minimal RootState with only the session slice the selectors read.
 function stateWithUser(user: unknown): RootState {
@@ -142,15 +143,33 @@ describe('logoutSession()', () => {
     expect((window as unknown as { __replaced: string }).__replaced).toBe('https://chronicle.test/');
   });
 
-  it('still purges storage and reloads even when the logout fetch rejects', async () => {
+  it('remains signed out after logout and bootstrap even when the server advertises testing login', async () => {
+    installFetch((input) =>
+      Promise.resolve(
+        input === AUTH_SESSION_ENDPOINT
+          ? Response.json({ authenticated: false, testingLoginEnabled: true })
+          : Response.json({ authenticated: true }),
+      ),
+    );
+    await logoutSession();
+    const session = await initializeBootstrapSession();
+
+    expect(fetchCalls.map((call) => call.input)).toEqual([AUTH_LOGOUT_ENDPOINT, AUTH_SESSION_ENDPOINT]);
+    expect(session.status).toBe('awaiting-sso');
+    expect(session.user).toBeNull();
+  });
+
+  it('rejects without reloading when the logout fetch fails', async () => {
     installFetch(() => Promise.reject(new Error('network down')));
 
-    await expect(logoutSession()).resolves.toBeUndefined();
+    await expect(logoutSession()).rejects.toThrow(SIGN_OUT_FAILED_MESSAGE);
 
-    // Best-effort fetch failed but the cleanup path must still run.
-    expect(localStorage.getItem('chronicle_user_info')).toBeNull();
-    expect(localStorage.getItem('auth0_user_info')).toBeNull();
-    expect(localStorage.getItem('auth0_id_token')).toBeNull();
-    expect((window as unknown as { __replaced: string }).__replaced).toBe('https://chronicle.test/');
+    expect((window as unknown as { __replaced?: string }).__replaced).toBeUndefined();
+  });
+
+  it.each([429, 500])('rejects without reloading after a logout HTTP %i', async (status) => {
+    installFetch(() => Promise.resolve(new Response(null, { status })));
+    await expect(logoutSession()).rejects.toThrow(SIGN_OUT_FAILED_MESSAGE);
+    expect((window as unknown as { __replaced?: string }).__replaced).toBeUndefined();
   });
 });
