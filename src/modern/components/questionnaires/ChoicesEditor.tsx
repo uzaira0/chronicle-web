@@ -1,10 +1,12 @@
 import { ArrowDown, ArrowUp, GripVertical, Plus, Trash2 } from 'lucide-react';
-import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useTranslator } from '@/i18n';
+import { moveItem, useDragReorder } from '@/lib/use-drag-reorder';
+import { cn } from '@/lib/utils';
 
 type IdentifiedChoice = { id: number; value: string };
 
@@ -20,8 +22,6 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
   const toIdentified = (values: string[]): IdentifiedChoice[] => values.map((value) => ({ id: nextId(), value }));
 
   const [newChoice, setNewChoice] = useState('');
-  const dragIndexRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
   const lastExternalRef = useRef(choices);
 
   const [items, setItems] = useState<IdentifiedChoice[]>(() => toIdentified(choices));
@@ -57,15 +57,11 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
     emitChange(items.filter((_, i) => i !== index));
   };
 
-  const handleMoveChoice = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= items.length) return;
-    const updated = [...items];
-    const [moved] = updated.splice(index, 1);
-    if (!moved) return;
-    updated.splice(target, 0, moved);
-    emitChange(updated);
+  const moveChoiceTo = (source: number, target: number) => {
+    const updated = moveItem(items, source, target);
+    if (updated !== items) emitChange(updated);
   };
+  const { handleDragStart, handleDragOver, handleDragEnd, isDragging } = useDragReorder(moveChoiceTo);
 
   const handleChoiceChange = (index: number, value: string) => {
     const updated = [...items];
@@ -76,38 +72,6 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
     emitChange(updated);
   };
 
-  const handleDragStart = (index: number) => {
-    dragIndexRef.current = index;
-  };
-
-  const handleDragOver = (event: DragEvent, index: number) => {
-    event.preventDefault();
-    const dragIndex = dragIndexRef.current;
-    if (dragIndex === null || dragIndex === index) return;
-
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      const currentDragIndex = dragIndexRef.current;
-      if (currentDragIndex === null || currentDragIndex === index) return;
-
-      const updated = [...items];
-      const moved = updated.splice(currentDragIndex, 1)[0];
-      if (moved === undefined) return;
-      updated.splice(index, 0, moved);
-      emitChange(updated);
-      dragIndexRef.current = index;
-    });
-  };
-
-  const handleDragEnd = () => {
-    dragIndexRef.current = null;
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-  };
-
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -116,7 +80,7 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
   };
 
   return (
-    <div className="space-y-3">
+    <div className={cn('space-y-3', isDragging && 'select-none')}>
       <p className="text-sm font-semibold uppercase tracking-eyebrow text-muted-foreground">
         {t('questionnaire_builder.choices')}
       </p>
@@ -143,7 +107,7 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
           <Button
             aria-label={t('questionnaire_builder.move_up', { number: String(index + 1) })}
             disabled={index === 0}
-            onClick={() => handleMoveChoice(index, -1)}
+            onClick={() => moveChoiceTo(index, index - 1)}
             size="icon"
             type="button"
             variant="ghost"
@@ -153,7 +117,7 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
           <Button
             aria-label={t('questionnaire_builder.move_down', { number: String(index + 1) })}
             disabled={index === items.length - 1}
-            onClick={() => handleMoveChoice(index, 1)}
+            onClick={() => moveChoiceTo(index, index + 1)}
             size="icon"
             type="button"
             variant="ghost"
@@ -173,6 +137,7 @@ export function ChoicesEditor({ choices, onChange }: ChoicesEditorProps) {
       ))}
       <div className="flex items-center gap-3">
         <Input
+          aria-label={t('questionnaire_builder.choice_placeholder')}
           className="flex-1"
           onChange={(event) => setNewChoice(event.currentTarget.value)}
           onKeyDown={handleKeyDown}

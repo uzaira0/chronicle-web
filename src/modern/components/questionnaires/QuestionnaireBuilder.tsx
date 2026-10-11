@@ -1,5 +1,4 @@
 import { Eye, Plus } from 'lucide-react';
-import type { DragEvent } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { QuestionEditor } from '@/components/questionnaires/QuestionEditor';
 import { QuestionnairePreviewModal } from '@/components/questionnaires/QuestionnairePreviewModal';
@@ -9,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
 import { REQUEST_STATES, type RequestState } from '@/lib/request-state';
+import { moveItem, useDragReorder } from '@/lib/use-drag-reorder';
 import type { QuestionnaireDraft, QuestionnaireQuestion } from '@/state/study-operations-api';
 
 type IdentifiedQuestion = QuestionnaireQuestion & { _id: number };
@@ -47,8 +47,6 @@ export function QuestionnaireBuilder({
 
   const [questions, setQuestions] = useState<IdentifiedQuestion[]>(seededQuestions ?? [makeQuestion()]);
   const [showPreview, setShowPreview] = useState(false);
-  const dragIndexRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
   const saveInFlightRef = useRef(false);
 
   const isPending = requestState === REQUEST_STATES.PENDING;
@@ -83,42 +81,14 @@ export function QuestionnaireBuilder({
     setQuestions((prev) => [...prev, makeQuestion()]);
   };
 
-  const handleDragStart = useCallback((index: number) => {
-    dragIndexRef.current = index;
+  const moveQuestionTo = useCallback((source: number, target: number) => {
+    setQuestions((prev) => moveItem(prev, source, target));
   }, []);
-
-  const handleDragOver = useCallback((event: DragEvent, index: number) => {
-    event.preventDefault();
-    const dragIndex = dragIndexRef.current;
-    if (dragIndex === null || dragIndex === index) return;
-
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      const currentDragIndex = dragIndexRef.current;
-      if (currentDragIndex === null || currentDragIndex === index) return;
-
-      setQuestions((prev) => {
-        const updated = [...prev];
-        const moved = updated.splice(currentDragIndex, 1)[0];
-        if (moved === undefined) return prev;
-        updated.splice(index, 0, moved);
-        return updated;
-      });
-      dragIndexRef.current = index;
-    });
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    dragIndexRef.current = null;
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-  }, []);
+  const { handleDragStart, handleDragOver, handleDragEnd } = useDragReorder(moveQuestionTo);
+  const canSave = !isPending && !!title.trim() && preparedQuestionnaire.length > 0;
 
   const handleSave = async () => {
-    if (isPending || saveInFlightRef.current || !title.trim()) return;
+    if (!canSave || saveInFlightRef.current) return;
     saveInFlightRef.current = true;
     try {
       await onSave({
@@ -219,7 +189,7 @@ export function QuestionnaireBuilder({
           {t('common.cancel')}
         </Button>
         <Button
-          disabled={isPending || !title.trim()}
+          disabled={!canSave}
           onClick={() => {
             void handleSave();
           }}
