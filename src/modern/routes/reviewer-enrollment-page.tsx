@@ -1,20 +1,20 @@
-import { ShieldCheck, Smartphone } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { type FormEvent, useRef, useState } from 'react';
 
+import { EnrollmentDetails, EnrollmentHandoff } from '@/components/enrollment-details';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createTranslator, getCurrentLanguage, isRtlLanguage, LanguageSwitcher, useTranslator } from '@/i18n';
-import { getDefaultEnrollmentServerUrl, normalizePublicServerUrl } from '@/lib/participant-links';
-import { timeoutSignal } from '@/lib/request-timeout';
+import { isRtlLanguage, LanguageSwitcher, useTranslator } from '@/i18n';
 import {
-  ANDROID_PLAY_STORE_URL,
   type EnrollmentPreview,
   enrollmentInvitationFromPreview,
-  formatEnrollmentExpiry,
+  enrollmentTranslator,
   getAndroidEnrollmentHandoffUrl,
   validateEnrollmentPreview,
-} from '@/routes/public-enrollment-page';
+} from '@/lib/enrollment-preview';
+import { getDefaultEnrollmentServerUrl, normalizePublicServerUrl } from '@/lib/participant-links';
+import { timeoutSignal } from '@/lib/request-timeout';
 
 type ReviewerPageState =
   | { kind: 'entry' }
@@ -33,7 +33,7 @@ function sameOriginPublicServer(): string {
   // configured origin; it cannot redirect reviewer enrollment to a different host.
   const pageOrigin = normalizePublicServerUrl(window.location.origin, { allowPrivateHost: true });
   if (!pageOrigin || pageOrigin !== configuredServer) {
-    throw new Error(createTranslator(getCurrentLanguage()).t('reviewer.error_wrong_server_detail'));
+    throw new Error(enrollmentTranslator().t('reviewer.error_wrong_server_detail'));
   }
   return configuredServer;
 }
@@ -165,57 +165,19 @@ export function ReviewerEnrollmentPage() {
               </div>
               <h2 className="text-2xl font-semibold">{state.preview.studyTitle}</h2>
               <p className="leading-7 text-muted-foreground">{state.preview.studyDescription}</p>
-              <dl className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('enrollment.responsible_institution')}
-                  </dt>
-                  <dd className="mt-1">{state.preview.participantPolicy.responsibleInstitution}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('enrollment.server_operator')}
-                  </dt>
-                  <dd className="mt-1">{state.preview.participantPolicy.serverOperator}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('enrollment.purpose')}
-                  </dt>
-                  <dd className="mt-1">{state.preview.participantPolicy.purpose}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('reviewer.one_time_expires')}
-                  </dt>
-                  <dd className="mt-1">
-                    <time dateTime={state.preview.expiresAt}>{formatEnrollmentExpiry(state.preview.expiresAt)}</time>
-                  </dd>
-                </div>
-              </dl>
+              <EnrollmentDetails
+                preview={state.preview}
+                contactLabel={t('enrollment.purpose')}
+                contactValue={state.preview.participantPolicy.purpose}
+                expiryLabel={t('reviewer.one_time_expires')}
+              />
             </section>
 
-            <section className="space-y-4 rounded-xl border border-border bg-card p-6">
-              <div className="flex items-center gap-3">
-                <Smartphone className="h-6 w-6 text-primary" />
-                <h2 className="text-xl font-semibold">{t('enrollment.continue_title')}</h2>
-              </div>
-              <p className="leading-7 text-muted-foreground">{t('reviewer.continue_body')}</p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button asChild size="lg">
-                  <a href={state.handoffUrl}>{t('enrollment.open_android')}</a>
-                </Button>
-                <a
-                  className="text-sm text-primary underline"
-                  href={ANDROID_PLAY_STORE_URL}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {t('enrollment.get_on_play')}
-                </a>
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">{t('reviewer.play_fallback_note')}</p>
-            </section>
+            <EnrollmentHandoff
+              handoffUrl={state.handoffUrl}
+              continueBody={t('reviewer.continue_body')}
+              playFallbackNote={t('reviewer.play_fallback_note')}
+            />
           </>
         )}
       </div>

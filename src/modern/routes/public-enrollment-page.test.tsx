@@ -32,6 +32,7 @@ function previewResponse() {
         version: 'consent-7',
         withdrawalUrl: 'https://public-study.example.org/withdrawal',
       },
+      withdrawalMode: 'ERASE',
       schemaVersion: 1,
       serverOrigin: 'https://public-study.example.org',
       settingsVersion: 7,
@@ -78,6 +79,19 @@ describe('PublicEnrollmentPage', () => {
     window.location.href = 'https://public-study.example.org/';
   });
 
+  test.each([
+    ['ERASE', 'Withdrawing erases data previously collected by this study.'],
+    ['KEEP_PRIOR_DATA', 'Withdrawing stops collection; this study keeps data collected before withdrawal.'],
+  ])('discloses %s before the participant continues enrollment', async (mode, disclosure) => {
+    const preview = previewResponse();
+    preview.manifest.withdrawalMode = mode;
+    globalThis.fetch = mock(() =>
+      Promise.resolve(new Response(JSON.stringify(preview), { status: 200 })),
+    ) as unknown as typeof fetch;
+    render(<PublicEnrollmentPage />);
+    expect(await screen.findByText(disclosure)).toBeTruthy();
+  });
+
   test('loads and displays the authoritative server preview without putting the code in the URL', async () => {
     const fetchMock = mock(() => Promise.resolve(new Response(JSON.stringify(previewResponse()), { status: 200 })));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -88,7 +102,14 @@ describe('PublicEnrollmentPage', () => {
     expect(screen.getByText('Example Research Institute')).toBeTruthy();
     expect(screen.getByText('Example Research Institute IT')).toBeTruthy();
     expect(screen.getByText('https://public-study.example.org')).toBeTruthy();
-    expect(screen.getByText(/always records your IP address/)).toBeTruthy();
+    const disclosure = screen.getByText(/Participant IP addresses are withheld/).textContent;
+    expect(disclosure).toContain('User-Agent');
+    expect(disclosure).toContain('Staff requests may retain keyed IP fingerprints when configured');
+    expect(disclosure).toContain('rotated backups');
+    expect(disclosure).toContain('Consent evidence retains participant and device IDs');
+    expect(disclosure).toContain('versions, decisions and timestamps after participant or study erasure');
+    expect(disclosure).toContain('without automatic purge');
+    expect(disclosure).not.toContain('always records your IP address');
 
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(requestUrl).toBe(

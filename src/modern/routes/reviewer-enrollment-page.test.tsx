@@ -40,6 +40,7 @@ function reviewerResponse() {
         studyDescription: 'Synthetic study data for store review.',
         studyId: STUDY_ID,
         studyTitle: 'Chronicle Reviewer Study',
+        withdrawalMode: 'ERASE',
       },
       manifestDigest: 'a'.repeat(64),
     },
