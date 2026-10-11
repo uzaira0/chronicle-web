@@ -1,11 +1,18 @@
-import { describe, expect, mock, test } from 'bun:test';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
+import type { StudyExportJobInfo } from '@/state/study-operations-api';
 
 let createCalls = 0;
 type CreateArg = { request: { startDate?: string; endDate?: string } };
 let lastCreate: CreateArg | undefined;
 let resolveCreate: ((value: { exportId: string }) => void) | undefined;
+let exportJobs: StudyExportJobInfo[] = [];
+
+afterEach(() => {
+  cleanup();
+  exportJobs = [];
+});
 
 const studyOperationsApiModule = await import('@/state/study-operations-api');
 
@@ -36,7 +43,7 @@ await mock.module('@/state/study-operations-api', () => ({
     isLoading: false,
   }),
   useListStudyExportsQuery: () => ({
-    data: [],
+    data: exportJobs,
     error: undefined,
     isError: false,
     isFetching: false,
@@ -46,6 +53,34 @@ await mock.module('@/state/study-operations-api', () => ({
 }));
 
 const { StudyBulkDownloadsPage } = await import('./study-bulk-downloads-page');
+
+test.each([
+  ['Export expired; create a new export', 'Export expired; create a new export'],
+  [
+    'java.lang.IllegalStateException\n  at com.openlattice.ExportService.run(ExportService.kt:10)',
+    'Download failed. Try again; if it keeps failing, contact the study team.',
+  ],
+])('shows sanitized failed-export recovery details: %s', (errorMessage, expected) => {
+  exportJobs = [
+    {
+      exportId: 'expired-export',
+      studyId: 'study-1',
+      format: 'CSV',
+      status: 'FAILED',
+      rowCount: 0,
+      createdAt: '2026-10-06T10:00:00Z',
+      errorMessage,
+    },
+  ];
+  render(
+    <MemoryRouter initialEntries={['/studies/study-1/downloads']}>
+      <Routes>
+        <Route element={<StudyBulkDownloadsPage />} path="/studies/:studyId/downloads" />
+      </Routes>
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('alert').textContent).toBe(expected);
+});
 
 describe('StudyBulkDownloadsPage submission fence', () => {
   test('coalesces two synchronous start clicks into one export job', async () => {

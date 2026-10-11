@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { translateCatalog, useTranslator } from '@/i18n';
+import { type Translator, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
+import { localDay } from '@/lib/format';
 import { participantDataTypesForModules } from '@/lib/participant-data-types';
 import type { StudyModule } from '@/lib/study-constants';
 import {
-  type TimeUseDiaryDataType,
   exportRangeExceedsLimit,
+  type TimeUseDiaryDataType,
   useDownloadParticipantDataMutation,
   useDownloadParticipantTudDataMutation,
 } from '@/state/study-operations-api';
@@ -38,6 +39,12 @@ const TUD_SUB_TYPES = [
   { labelKey: 'tud_exports.summarized', value: 'Summarized' },
 ] as const;
 
+function dateRangeError(start: string, end: string, t: Translator['t']) {
+  if (!start || !end) return null;
+  if (start > end) return t('download_modal.range_reversed');
+  return exportRangeExceedsLimit(start, end) ? t('download_modal.range_too_long') : null;
+}
+
 export function DownloadParticipantDataModal({
   modules,
   onClose,
@@ -46,29 +53,25 @@ export function DownloadParticipantDataModal({
 }: DownloadParticipantDataModalProps) {
   const [downloadData, { isLoading }] = useDownloadParticipantDataMutation();
   const [downloadTud, { isLoading: isTudLoading }] = useDownloadParticipantTudDataMutation();
-  const [selectedType, setSelectedType] = useState('');
-  const [tudSubType, setTudSubType] = useState<TimeUseDiaryDataType>('DayTime');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [filename, setFilename] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const { t } = useTranslator();
-
   const availableTypes = [
     ...participantDataTypesForModules(modules),
     ...(modules.includes(TUD_TYPE.module) ? [{ ...TUD_TYPE, label: t('download_modal.tud_label') }] : []),
   ];
+  const [selectedType, setSelectedType] = useState(availableTypes.length === 1 ? (availableTypes[0]?.value ?? '') : '');
+  const [tudSubType, setTudSubType] = useState<TimeUseDiaryDataType>('DayTime');
+  const [startDate, setStartDate] = useState(() => localDay(new Date()));
+  const [endDate, setEndDate] = useState(() => localDay(new Date()));
+  const [filename, setFilename] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const rangeError = dateRangeError(startDate, endDate, t);
   const isBatch = participantIds.length > 1;
   const isTud = selectedType === TUD_TYPE.value;
   const busy = isLoading || isTudLoading;
 
   const handleDownload = async () => {
-    if (!selectedType) return;
+    if (!selectedType || !startDate || !endDate || rangeError) return;
     setError(null);
-    if (exportRangeExceedsLimit(startDate, endDate)) {
-      setError(t('download_modal.range_too_long'));
-      return;
-    }
 
     // Two endpoints, not one: TUD goes to TimeUseDiaryController with its own enum,
     // everything else to StudyController's participants/data.
@@ -121,9 +124,10 @@ export function DownloadParticipantDataModal({
               {availableTypes.map((dt) => (
                 <Button
                   key={dt.value}
+                  aria-pressed={selectedType === dt.value}
                   onClick={() => setSelectedType(dt.value)}
                   size="sm"
-                  variant={selectedType === dt.value ? 'default' : 'outline'}
+                  variant={selectedType === dt.value ? 'selected' : 'outline'}
                 >
                   {dt.value === TUD_TYPE.value ? dt.label : translateCatalog(t, 'data_type', dt.value, dt.label)}
                 </Button>
@@ -142,9 +146,10 @@ export function DownloadParticipantDataModal({
                 {TUD_SUB_TYPES.map((st) => (
                   <Button
                     key={st.value}
+                    aria-pressed={tudSubType === st.value}
                     onClick={() => setTudSubType(st.value)}
                     size="sm"
-                    variant={tudSubType === st.value ? 'default' : 'outline'}
+                    variant={tudSubType === st.value ? 'selected' : 'outline'}
                   >
                     {t(st.labelKey)}
                   </Button>
@@ -156,14 +161,39 @@ export function DownloadParticipantDataModal({
           {/* Date range */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="download-start">{t('download_modal.start_optional')}</Label>
-              <Input id="download-start" onChange={(e) => setStartDate(e.target.value)} type="date" value={startDate} />
+              <Label htmlFor="download-start" required>
+                {t('common.start_date')}
+              </Label>
+              <Input
+                id="download-start"
+                max={endDate || undefined}
+                required
+                aria-invalid={Boolean(rangeError)}
+                onChange={(e) => setStartDate(e.target.value)}
+                type="date"
+                value={startDate}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="download-end">{t('download_modal.end_optional')}</Label>
-              <Input id="download-end" onChange={(e) => setEndDate(e.target.value)} type="date" value={endDate} />
+              <Label htmlFor="download-end" required>
+                {t('common.end_date')}
+              </Label>
+              <Input
+                id="download-end"
+                min={startDate || undefined}
+                required
+                aria-invalid={Boolean(rangeError)}
+                onChange={(e) => setEndDate(e.target.value)}
+                type="date"
+                value={endDate}
+              />
             </div>
             <p className="text-xs text-muted-foreground sm:col-span-2">{t('download_modal.date_range_hint')}</p>
+            {rangeError && (
+              <p className="text-sm text-destructive sm:col-span-2" role="alert">
+                {rangeError}
+              </p>
+            )}
           </div>
 
           {/* Custom filename */}
@@ -177,14 +207,18 @@ export function DownloadParticipantDataModal({
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
 
           <div className="flex justify-end gap-3 border-t border-border pt-4">
             <Button onClick={onClose} variant="ghost">
               {t('common.cancel')}
             </Button>
             <Button
-              disabled={!selectedType || busy || !startDate || !endDate}
+              disabled={!selectedType || busy || !startDate || !endDate || Boolean(rangeError)}
               onClick={() => {
                 handleDownload().catch((err) => {
                   setError(getErrorMessage(err, t('common.download_failed')));

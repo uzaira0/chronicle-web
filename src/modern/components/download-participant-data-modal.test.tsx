@@ -19,8 +19,8 @@ await mock.module('@/state/study-operations-api', () => ({
 const { DownloadParticipantDataModal } = await import('./download-participant-data-modal');
 
 function pickRange() {
-  fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-09-01' } });
-  fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-09-07' } });
+  fireEvent.change(screen.getByLabelText(/^Start date/), { target: { value: '2026-09-01' } });
+  fireEvent.change(screen.getByLabelText(/^End date/), { target: { value: '2026-09-07' } });
 }
 
 afterEach(cleanup);
@@ -36,8 +36,8 @@ describe('DownloadParticipantDataModal export coverage', () => {
       />,
     );
     act(() => screen.getByRole('button', { name: 'Upload Diagnostics' }).click());
-    fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-09-01' } });
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-10-02' } });
+    fireEvent.change(screen.getByLabelText(/^Start date/), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText(/^End date/), { target: { value: '2026-10-02' } });
     act(() => screen.getByRole('button', { name: 'Download' }).click());
     expect(downloadCalls).toHaveLength(0);
     expect(screen.getByText(/Choose a range of at most 31 days/)).toBeDefined();
@@ -77,7 +77,7 @@ describe('DownloadParticipantDataModal export coverage', () => {
     }
 
     act(() => screen.getByRole('button', { name: 'Device Settings' }).click());
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Download' }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Download' }).disabled).toBe(false);
     pickRange();
     act(() => screen.getByRole('button', { name: 'Download' }).click());
     await act(async () => {

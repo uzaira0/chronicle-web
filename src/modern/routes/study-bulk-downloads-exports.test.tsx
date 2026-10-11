@@ -11,7 +11,10 @@ const questionnaireCalls: unknown[] = [];
 const exportCalls: unknown[] = [];
 // The study's DataCollection setting; undefined = not loaded, so nothing starts deselected.
 let dataCollectionSetting: { modules: Record<string, { enabled: boolean }> } | undefined;
+let secondaryFailure = '';
+const retrySecondary = mock(() => undefined);
 let studyModules: Record<string, Record<string, never>> = { CHRONICLE_DATA_COLLECTION: {}, TIME_USE_DIARY: {} };
+let studyTimeZone: string | undefined;
 
 const studyOperationsApiModule = await import('@/state/study-operations-api');
 
@@ -39,16 +42,24 @@ await mock.module('@/state/study-operations-api', () => ({
     },
     { isLoading: false },
   ],
-  useGetStudyDataCollectionSettingQuery: () => ({ data: dataCollectionSetting }),
+  useGetStudyDataCollectionSettingQuery: () => ({
+    data: dataCollectionSetting,
+    isError: secondaryFailure === 'collection',
+    error: { status: 503 },
+    refetch: retrySecondary,
+  }),
   useGetStudyQuestionnairesQuery: () => ({
     data: [{ active: true, description: '', id: 'q-1', questions: [{ choices: [], title: 'Q1' }], title: 'Sleep log' }],
-    isError: false,
+    isError: secondaryFailure === 'questionnaires',
+    error: { status: 503 },
+    refetch: retrySecondary,
     isLoading: false,
   }),
   useGetStudySummaryQuery: () => ({
     data: {
       id: 'study-1',
       modules: studyModules,
+      settings: { TimeUseDiary: { timeZone: studyTimeZone } },
       title: 'Export Study',
     },
     error: undefined,
@@ -72,7 +83,10 @@ const { StudyBulkDownloadsPage } = await import('./study-bulk-downloads-page');
 afterEach(() => {
   cleanup();
   dataCollectionSetting = undefined;
+  secondaryFailure = '';
+  retrySecondary.mockClear();
   studyModules = { CHRONICLE_DATA_COLLECTION: {}, TIME_USE_DIARY: {} };
+  studyTimeZone = undefined;
 });
 
 function renderPage() {
@@ -120,32 +134,34 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    await waitFor(() => expect(exportCalls.at(-1)).toMatchObject({
-      request: {
-        dataTypes: [
-          'UsageEvents',
-          'Preprocessed',
-          'AppUsageSurvey',
-          'IOSSensor',
-          'AndroidSensor',
-          'SensorAvailability',
-          'BatteryTelemetry',
-          'InteractionEvents',
-          'AudioActivity',
-          'AudioContent',
-          'NotificationActivity',
-          'SleepEvents',
-          'ActivityRecognition',
-          'HealthMetrics',
-          'ConnectivityState',
-          'AppNetworkUsage',
-          'DeviceSettings',
-          'UploadDiagnostics',
-          'DataQualityAlerts',
-        ],
-      },
-      studyId: 'study-1',
-    }));
+    await waitFor(() =>
+      expect(exportCalls.at(-1)).toMatchObject({
+        request: {
+          dataTypes: [
+            'UsageEvents',
+            'Preprocessed',
+            'AppUsageSurvey',
+            'IOSSensor',
+            'AndroidSensor',
+            'SensorAvailability',
+            'BatteryTelemetry',
+            'InteractionEvents',
+            'AudioActivity',
+            'AudioContent',
+            'NotificationActivity',
+            'SleepEvents',
+            'ActivityRecognition',
+            'HealthMetrics',
+            'ConnectivityState',
+            'AppNetworkUsage',
+            'DeviceSettings',
+            'UploadDiagnostics',
+            'DataQualityAlerts',
+          ],
+        },
+        studyId: 'study-1',
+      }),
+    );
   });
 
   test('offers and includes retained diagnostics when no collection module is enabled', async () => {
@@ -157,10 +173,12 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    await waitFor(() => expect(exportCalls.at(-1)).toMatchObject({
-      request: { dataTypes: ['UploadDiagnostics', 'DataQualityAlerts'] },
-      studyId: 'study-1',
-    }));
+    await waitFor(() =>
+      expect(exportCalls.at(-1)).toMatchObject({
+        request: { dataTypes: ['UploadDiagnostics', 'DataQualityAlerts'] },
+        studyId: 'study-1',
+      }),
+    );
   });
 
   test('offers every Time Use Diary variant for the whole study', () => {
@@ -181,6 +199,18 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     // sending empty params.
     expect(call.startDate.length).toBeGreaterThan(0);
     expect(call.endDate.length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    ['America/Santiago', '2026-09-06T04:00:00.000Z', '2026-09-07T03:00:00.000Z'],
+    [undefined, '2026-09-06T00:00:00.000Z', '2026-09-07T00:00:00.000Z'],
+  ])('uses the study diary zone for bulk TUD days: %s', (timeZone, startDate, endDate) => {
+    studyTimeZone = timeZone;
+    const { container } = renderPage();
+    fireEvent.change(container.querySelector('#tud-start') as HTMLElement, { target: { value: '2026-09-06' } });
+    fireEvent.change(container.querySelector('#tud-end') as HTMLElement, { target: { value: '2026-09-06' } });
+    fireEvent.click(screen.getByRole('button', { name: 'DayTime' }));
+    expect(tudCalls.at(-1)).toMatchObject({ dataType: 'DayTime', studyId: 'study-1', startDate, endDate });
   });
 
   test('offers a bulk download per questionnaire', () => {
@@ -209,7 +239,10 @@ describe('StudyBulkDownloadsPage non-export download surfaces', () => {
     fireEvent.change(screen.getByLabelText('Format'), { target: { value: 'CSV' } });
     fireEvent.change(screen.getByLabelText('Start date (optional)'), { target: { value: '2026-01-02' } });
 
-    act(() => screen.getByRole('link', { name: 'Open second study' }).click());
+    await act(async () => {
+      screen.getByRole('link', { name: 'Open second study' }).click();
+      await Promise.resolve();
+    });
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Usage Events' }).getAttribute('aria-pressed')).toBe('true');
@@ -232,10 +265,10 @@ describe('StudyBulkDownloadsPage export defaults', () => {
     expect(screen.getByRole('button', { name: 'Battery Telemetry' }).getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByRole('button', { name: 'Usage Events' }).getAttribute('aria-pressed')).toBe('true');
 
+    // exportCalls is shared across tests: wait for this click's call, not the previous test's.
+    const callsBefore = exportCalls.length;
     act(() => screen.getByRole('button', { name: 'Start export' }).click());
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await waitFor(() => expect(exportCalls.length).toBeGreaterThan(callsBefore));
     const { request } = exportCalls.at(-1) as { request: { dataTypes: string[] } };
     expect(request.dataTypes).toContain('UsageEvents');
     expect(request.dataTypes).not.toContain('SleepEvents');
@@ -245,4 +278,15 @@ describe('StudyBulkDownloadsPage export defaults', () => {
     act(() => screen.getByRole('button', { name: 'Sleep Events' }).click());
     expect(screen.getByRole('button', { name: 'Sleep Events' }).getAttribute('aria-pressed')).toBe('true');
   });
+});
+
+test.each(['collection', 'questionnaires'])('reports failed %s options with retry', (endpoint) => {
+  secondaryFailure = endpoint;
+  renderPage();
+  expect(screen.getByRole('alert').textContent).toContain('Export options could not be loaded');
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(retrySecondary).toHaveBeenCalledTimes(1);
+  if (endpoint === 'collection')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Start export' }).disabled).toBe(true);
+  else expect(screen.queryByText('Sleep log')).toBeNull();
 });

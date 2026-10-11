@@ -90,3 +90,11 @@ describe('isPreprocessingGuiAvailable', () => {
     expect(available).toBe(false);
   });
 });
+
+it('preprocessing documentation discloses the hosted destination and keeps selected files browser-local', () => {
+  const readme = readFileSync('README.md', 'utf8').replace(/\s+/g, ' ');
+  expect(readme).toContain(HOSTED_PREPROCESSING_GUI_URL);
+  expect(readme).toContain('GitHub Pages');
+  expect(readme).toContain('network IP address and User-Agent');
+  expect(readme).toContain('processed locally in the browser; they are not uploaded');
+});

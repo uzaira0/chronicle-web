@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 function renderWithGuiResponse(body: string) {
-  globalThis.fetch = (async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(body, { status: 200 }))) as unknown as typeof fetch;
   render(
     <MemoryRouter initialEntries={['/study/study-1/preprocessing']}>
       <Routes>

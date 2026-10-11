@@ -23,9 +23,10 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { localDay } from '@/lib/format';
 import { dataTypesOfDisabledModules, participantDataTypesForModules } from '@/lib/participant-data-types';
+import { DEFAULT_STUDY_TIME_ZONE } from '@/lib/study-constants';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import {
   type CreateStudyExportRequest,
   type ParticipantDataType,
@@ -126,7 +127,14 @@ export function StudyBulkDownloadsPage() {
     isLoading: exportListLoading,
     isFetching: isExportListFetching,
     refetch: refetchExportJobs,
-  } = useListStudyExportsQuery({ studyId }, { skip: !studyId });
+  } = useListStudyExportsQuery(
+    { studyId },
+    {
+      skip: !studyId,
+      refetchOnFocus: true,
+      refetchOnMountOrArgChange: true,
+    },
+  );
 
   const createIntent = useResearcherCreateIntent(`/study/${studyId}/export/async`);
   const [createExport, { isLoading: isCreating }] = useCreateStudyExportMutation();
@@ -168,15 +176,17 @@ export function StudyBulkDownloadsPage() {
   const [downloadStudyTud, { isLoading: isTudDownloading }] = useDownloadStudyTudDataMutation();
   const [downloadQuestionnaire, { isLoading: isQuestionnaireDownloading }] =
     useDownloadQuestionnaireResponsesMutation();
-  const { data: questionnaires = [] } = useGetStudyQuestionnairesQuery(studyId, { skip: !studyId });
+  const questionnairesQuery = useGetStudyQuestionnairesQuery(studyId, { skip: !studyId });
+  const { data: questionnaires = [] } = questionnairesQuery;
+  const studyTimeZone = study?.settings?.TimeUseDiary?.timeZone ?? DEFAULT_STUDY_TIME_ZONE;
 
   const handleTudDownload = async (dataType: TimeUseDiaryDataType) => {
     setActionError(null);
     try {
       await downloadStudyTud({
         dataType,
-        endDate: toExportDateTime(tudEnd, true),
-        startDate: toExportDateTime(tudStart),
+        endDate: toExportDateTime(tudEnd, true, studyTimeZone),
+        startDate: toExportDateTime(tudStart, false, studyTimeZone),
         studyId,
       }).unwrap();
       setActionMessage(t('bulk_downloads.downloaded_tud', { type: dataType }));
@@ -198,13 +208,14 @@ export function StudyBulkDownloadsPage() {
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
 
   const availableDataTypes = useMemo(() => participantDataTypesForModules(modules), [modules]);
-  const { data: dataCollection } = useGetStudyDataCollectionSettingQuery(studyId, { skip: !studyId });
+  const collectionQuery = useGetStudyDataCollectionSettingQuery(studyId, { skip: !studyId });
+  const { data: dataCollection } = collectionQuery;
   const offByDefault = useMemo(() => dataTypesOfDisabledModules(dataCollection), [dataCollection]);
   const isExcluded = (value: ParticipantDataType) => offByDefault.has(value) !== flippedTypes.has(value);
 
   const selectedDataTypes = availableDataTypes.filter((option) => !isExcluded(option.value));
   const createStatusKey = canCreateStatusKey(availableDataTypes.length, isCreating);
-  const canCreate = selectedDataTypes.length > 0;
+  const canCreate = selectedDataTypes.length > 0 && !collectionQuery.isError && !collectionQuery.isLoading;
 
   const toggleType = (value: ParticipantDataType) => {
     setFlippedTypes((prev) => {
@@ -231,7 +242,11 @@ export function StudyBulkDownloadsPage() {
         eyebrow={t('common.error')}
         icon={<CircleAlert className="h-5 w-5" />}
         isRetrying={isStudyFetching}
-        onRetry={() => refetchStudy().unwrap().catch(() => undefined)}
+        onRetry={() =>
+          refetchStudy()
+            .unwrap()
+            .catch(() => undefined)
+        }
         title={t('bulk_downloads.load_error_title')}
         tone="destructive"
       />
@@ -251,9 +266,10 @@ export function StudyBulkDownloadsPage() {
       };
       if (startDate) request.startDate = toExportDateTime(startDate);
       if (endDate) request.endDate = toExportDateTime(endDate, true);
-      const job = await createExport({ studyId, request, idempotencyKey: await createIntent.currentKey({ studyId, request }) }).unwrap();
-      await createIntent.rotateKey();
-      setActionMessage(t('bulk_downloads.queued', { id: job.exportId }));
+      const intent = await createIntent.currentIntent({ studyId, request });
+      await createExport({ studyId, request, idempotencyKey: intent.key }).unwrap();
+      await createIntent.acknowledge(intent);
+      setActionMessage(t('bulk_downloads.queued'));
       await refetchExportJobs();
     } catch (err) {
       setActionError(getErrorMessage(err, t('bulk_downloads.queue_failed')));
@@ -292,6 +308,21 @@ export function StudyBulkDownloadsPage() {
         icon={<FileArchive className="h-3.5 w-3.5" />}
         title={t('bulk_downloads.title', { name: study?.title || studyId })}
       />
+      {[
+        { key: 'collection', query: collectionQuery },
+        { key: 'questionnaires', query: questionnairesQuery },
+      ]
+        .filter(({ query }) => query.isError)
+        .map(({ key, query }) => (
+          <StatePanel
+            key={key}
+            icon={<CircleAlert className="h-5 w-5" />}
+            title={t('common.request_failed')}
+            description={getErrorMessage(query.error, t('bulk_downloads.options_failed'))}
+            onRetry={() => void query.refetch()}
+            tone="destructive"
+          />
+        ))}
 
       <Card>
         <CardHeader>
@@ -314,7 +345,7 @@ export function StudyBulkDownloadsPage() {
                     key={option.value}
                     onClick={() => toggleType(option.value)}
                     size="sm"
-                    variant={isExcluded(option.value) ? 'outline' : 'default'}
+                    variant={isExcluded(option.value) ? 'outline' : 'selected'}
                   >
                     {translateCatalog(t, 'data_type', option.value, option.label)}
                   </Button>
@@ -349,7 +380,7 @@ export function StudyBulkDownloadsPage() {
             </div>
           </div>
 
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm tabular-nums text-muted-foreground">
             {createStatusKey
               ? t(createStatusKey)
               : canCreate
@@ -360,7 +391,10 @@ export function StudyBulkDownloadsPage() {
                 : t('bulk_downloads.select_one_type')}
           </p>
           {(actionMessage || actionError) && (
-            <p className={`text-sm ${actionError ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <p
+              className={`text-sm ${actionError ? 'text-destructive' : 'text-muted-foreground'}`}
+              role={actionError ? 'alert' : 'status'}
+            >
               {actionError ?? actionMessage}
             </p>
           )}
@@ -390,6 +424,114 @@ export function StudyBulkDownloadsPage() {
               {t('bulk_downloads.start_export')}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex items-center justify-between sm:flex-row sm:items-center">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2">
+              <Clock3 className="h-4 w-4" />
+              {t('bulk_downloads.recent_jobs')}
+            </CardTitle>
+            <CardDescription>{t('bulk_downloads.recent_jobs_description')}</CardDescription>
+          </div>
+          <Button
+            disabled={isExportListFetching}
+            onClick={() => {
+              refetchExportJobs()
+                .unwrap()
+                .catch((err) => {
+                  setActionError(getErrorMessage(err, t('bulk_downloads.refresh_history_failed')));
+                });
+            }}
+            variant="outline"
+          >
+            <RotateCw className={`mr-2 h-4 w-4 ${isExportListFetching ? 'animate-spin' : ''}`} />
+            {t('common.refresh')}
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {exportListLoading ? (
+            <div className="px-6 py-4">
+              <TableSkeleton label={t('bulk_downloads.loading_exports_title')} />
+            </div>
+          ) : isExportListError ? (
+            <div className="px-6 py-4">
+              <StatePanel
+                description={getErrorMessage(exportListError, t('bulk_downloads.exports_error_fallback'))}
+                eyebrow={t('common.error')}
+                icon={<CircleAlert className="h-5 w-5" />}
+                isRetrying={isExportListFetching}
+                onRetry={() =>
+                  refetchExportJobs()
+                    .unwrap()
+                    .catch(() => undefined)
+                }
+                title={t('bulk_downloads.exports_error_title')}
+                tone="destructive"
+              />
+            </div>
+          ) : (
+            <Table aria-label={t('bulk_downloads.recent_jobs')}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('common.created')}</TableHead>
+                  <TableHead>{t('bulk_downloads.col_export_id')}</TableHead>
+                  <TableHead>{t('common.format')}</TableHead>
+                  <TableHead>{t('common.status')}</TableHead>
+                  <TableHead>{t('bulk_downloads.col_rows')}</TableHead>
+                  <TableHead className="w-32">{t('common.action')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {exportJobs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
+                      {t('bulk_downloads.no_exports')}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  exportJobs.map((job) => (
+                    <TableRow key={job.exportId}>
+                      <TableCell>{jobCreatedAt(job, t('common.unknown'))}</TableCell>
+                      <TableCell translate="no" className="font-mono text-xs">
+                        {job.exportId}
+                      </TableCell>
+                      <TableCell>{job.format}</TableCell>
+                      <TableCell>
+                        <Badge className="gap-1.5 uppercase" variant={statusVariant(job.status)}>
+                          {statusIcon(job.status)}
+                          {statusLabel(t, 'job', job.status)}
+                        </Badge>
+                        {job.status === 'FAILED' && job.errorMessage && (
+                          <p className="mt-2 text-sm text-destructive" role="alert">
+                            {getErrorMessage({ message: job.errorMessage }, t('bulk_downloads.download_failed'))}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className="tabular-nums">{job.rowCount.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Button
+                          disabled={!canDownloadJob(job) || isDownloading || downloadingExportId === job.exportId}
+                          onClick={() => {
+                            handleDownloadJob(job).catch((err) => {
+                              setActionError(getErrorMessage(err, t('bulk_downloads.download_failed')));
+                            });
+                          }}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Download className="mr-1.5 h-4 w-4" />
+                          {t('common.download')}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -438,7 +580,7 @@ export function StudyBulkDownloadsPage() {
         </Card>
       )}
 
-      {questionnaires.length > 0 && (
+      {!questionnairesQuery.isError && questionnaires.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -478,103 +620,6 @@ export function StudyBulkDownloadsPage() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader className="flex items-center justify-between sm:flex-row sm:items-center">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2">
-              <Clock3 className="h-4 w-4" />
-              {t('bulk_downloads.recent_jobs')}
-            </CardTitle>
-            <CardDescription>{t('bulk_downloads.recent_jobs_description')}</CardDescription>
-          </div>
-          <Button
-            disabled={isExportListFetching}
-            onClick={() => {
-              refetchExportJobs()
-                .unwrap()
-                .catch((err) => {
-                  setActionError(getErrorMessage(err, t('bulk_downloads.refresh_history_failed')));
-                });
-            }}
-            variant="outline"
-          >
-            <RotateCw className={`mr-2 h-4 w-4 ${isExportListFetching ? 'animate-spin' : ''}`} />
-            {t('common.refresh')}
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          {exportListLoading ? (
-            <div className="px-6 py-4">
-              <TableSkeleton label={t('bulk_downloads.loading_exports_title')} />
-            </div>
-          ) : isExportListError ? (
-            <div className="px-6 py-4">
-              <StatePanel
-                description={getErrorMessage(exportListError, t('bulk_downloads.exports_error_fallback'))}
-                eyebrow={t('common.error')}
-                icon={<CircleAlert className="h-5 w-5" />}
-                isRetrying={isExportListFetching}
-                onRetry={() => refetchExportJobs().unwrap().catch(() => undefined)}
-                title={t('bulk_downloads.exports_error_title')}
-                tone="destructive"
-              />
-            </div>
-          ) : (
-          <Table aria-label={t('bulk_downloads.recent_jobs')}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('common.created')}</TableHead>
-                  <TableHead>{t('bulk_downloads.col_export_id')}</TableHead>
-                  <TableHead>{t('common.format')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('bulk_downloads.col_rows')}</TableHead>
-                  <TableHead className="w-32">{t('common.action')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {exportJobs.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-sm text-muted-foreground">
-                      {t('bulk_downloads.no_exports')}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  exportJobs.map((job) => (
-                    <TableRow key={job.exportId}>
-                      <TableCell>{jobCreatedAt(job, t('common.unknown'))}</TableCell>
-                      <TableCell className="font-mono text-xs">{job.exportId}</TableCell>
-                      <TableCell>{job.format}</TableCell>
-                      <TableCell>
-                        <Badge className="gap-1.5 uppercase" variant={statusVariant(job.status)}>
-                          {statusIcon(job.status)}
-                          {statusLabel(t, 'job', job.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{job.rowCount.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Button
-                          disabled={!canDownloadJob(job) || isDownloading || downloadingExportId === job.exportId}
-                          onClick={() => {
-                            handleDownloadJob(job).catch((err) => {
-                              setActionError(getErrorMessage(err, t('bulk_downloads.download_failed')));
-                            });
-                          }}
-                          size="sm"
-                          variant="outline"
-                        >
-                          <Download className="mr-1.5 h-4 w-4" />
-                          {t('common.download')}
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }
