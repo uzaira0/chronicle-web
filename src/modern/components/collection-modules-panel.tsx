@@ -4,15 +4,17 @@ import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { translateCatalog, useTranslator } from '@/i18n';
-import { healthConnectRecordTypeLabel } from '@/lib/study-constants';
+import {
+  type CollectionModuleDescriptor,
+  collectionModuleEnabled,
+  healthConnectRecordTypeLabel,
+} from '@/lib/study-constants';
 import { cn } from '@/lib/utils';
 
-type CollectionModuleDescriptor = {
-  description: string;
-  label: string;
-  privacyClass: string;
-  value: string;
-};
+type PanelModuleDescriptor = Pick<
+  CollectionModuleDescriptor,
+  'defaultEnabled' | 'description' | 'label' | 'privacyClass' | 'value'
+>;
 
 type ModuleSetting = {
   disableDisposition?: unknown;
@@ -26,7 +28,7 @@ type CollectionModulesPanelProps = {
   isError?: boolean;
   /** The settings request is still open; nothing about enablement is known yet. */
   isLoading?: boolean;
-  modules: readonly CollectionModuleDescriptor[];
+  modules: readonly PanelModuleDescriptor[];
   settings: Record<string, ModuleSetting | undefined>;
 };
 
@@ -37,7 +39,7 @@ function titleCase(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-type ResolvedModule = CollectionModuleDescriptor & {
+type ResolvedModule = PanelModuleDescriptor & {
   disposition: string | undefined;
   enabled: boolean;
   healthConnectRecordTypes: string[];
@@ -70,7 +72,7 @@ export function CollectionModulesPanel({
             typeof disableDisposition === 'string'
               ? translateCatalog(t, 'disposition', disableDisposition, titleCase(disableDisposition))
               : undefined,
-          enabled: setting?.enabled ?? false,
+          enabled: collectionModuleEnabled(module, settings),
           healthConnectRecordTypes: Array.isArray(setting?.healthConnectRecordTypes)
             ? [
                 ...new Set(

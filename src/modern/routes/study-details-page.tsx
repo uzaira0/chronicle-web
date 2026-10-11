@@ -13,7 +13,7 @@ import { CopyButton } from '@/components/ui/copy-button';
 import { translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDate, isSentinelDate } from '@/lib/format';
-import { COLLECTION_MODULES, STUDY_FEATURES } from '@/lib/study-constants';
+import { COLLECTION_MODULES, collectionModuleEnabled, STUDY_FEATURES } from '@/lib/study-constants';
 import {
   useGetStudyDataCollectionSettingQuery,
   useGetStudyParticipantsQuery,
@@ -83,14 +83,16 @@ export function StudyDetailsPage() {
     [participants],
   );
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
-  const androidSettings = study?.settings?.AndroidSensor;
   const iosSensors = toStringArray(study?.settings?.Sensor?.[1]);
-  const androidSensors: string[] = Array.isArray(androidSettings?.sensors) ? androidSettings.sensors : [];
   const dataCollectionModules = dataCollectionSetting?.modules ?? {};
-  const enabledCollectionModuleCount = COLLECTION_MODULES.filter(
-    ({ value }) => dataCollectionModules[value]?.enabled ?? false,
+  const enabledCollectionModuleCount = COLLECTION_MODULES.filter((module) =>
+    collectionModuleEnabled(module, dataCollectionModules),
   ).length;
-  const showSensorCard = (modules.includes('ANDROID_SENSOR') || modules.includes('IOS_SENSOR')) && Boolean(study);
+  const showSensorCard =
+    (modules.includes('CHRONICLE_DATA_COLLECTION') ||
+      modules.includes('ANDROID_SENSOR') ||
+      modules.includes('IOS_SENSOR')) &&
+    Boolean(study);
 
   return (
     <div className="space-y-6">
@@ -134,7 +136,11 @@ export function StudyDetailsPage() {
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
           isRetrying={isParticipantsFetching}
-          onRetry={() => refetchParticipants().unwrap().catch(() => undefined)}
+          onRetry={() =>
+            refetchParticipants()
+              .unwrap()
+              .catch(() => undefined)
+          }
           title={t('study_details.participants_error_title')}
           tone="destructive"
         />
@@ -148,7 +154,9 @@ export function StudyDetailsPage() {
           <CardContent className="space-y-4 text-sm">
             <DetailField label={t('study_details.study_id')}>
               <div className="flex items-center gap-2">
-                <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{studyId}</code>
+                <code translate="no" className="rounded bg-muted px-2 py-1 font-mono text-xs">
+                  {studyId}
+                </code>
                 <CopyButton size="icon-xs" value={studyId} variant="ghost-muted" />
               </div>
             </DetailField>
@@ -222,12 +230,11 @@ export function StudyDetailsPage() {
         settings={dataCollectionModules}
       />
 
-      {showSensorCard && (
+      {showSensorCard && !isDataCollectionError && !isDataCollectionLoading && (
         <StudySensorsCard
-          androidSensors={androidSensors}
-          androidSettings={androidSettings}
+          collectionSettings={dataCollectionModules}
           iosSensors={iosSensors}
-          showAndroid={modules.includes('ANDROID_SENSOR')}
+          showAndroid={modules.includes('CHRONICLE_DATA_COLLECTION') || modules.includes('ANDROID_SENSOR')}
           showIos={modules.includes('IOS_SENSOR')}
         />
       )}

@@ -10,8 +10,7 @@ afterEach(cleanup);
 function renderCard(androidSettings: Record<string, unknown> | undefined) {
   return render(
     <StudySensorsCard
-      androidSensors={['ACCELEROMETER']}
-      androidSettings={androidSettings}
+      collectionSettings={{ sensor_accelerometer: { enabled: true, sensorPolicy: androidSettings ?? {} } }}
       iosSensors={[]}
       showAndroid
       showIos={false}
