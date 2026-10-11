@@ -56,10 +56,14 @@ const ParticipantGoldenSchema = z.object({
   participantNotes: z.string(),
   participantTags: z.array(z.string()),
   participationStatus: z.enum(['ENROLLED', 'NOT_ENROLLED', 'PAUSED', 'COLLECTION_COMPLETED', 'UNKNOWN']),
+  withdrawnAt: z.string().nullable().optional(),
 });
 
+// The normalizer always emits withdrawnAt; the raw backend payload may omit it.
+const NormalizedParticipantGoldenSchema = ParticipantGoldenSchema.extend({ withdrawnAt: z.string().nullable() });
+
 const ParticipantGoldenFileSchema = z.object({
-  expected: z.array(ParticipantGoldenSchema).min(1),
+  expected: z.array(NormalizedParticipantGoldenSchema).min(1),
   input: ParticipantGoldenSchema,
 });
 

@@ -4,14 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const rootHook = readFileSync(resolve(import.meta.dir, '../../lefthook.yml'), 'utf8');
-const checker = (await import('./check-domain-contracts')) as unknown as {
-  verifyGeneratedModule?: (
-    path: string,
-    text: string,
-    expectation: { provenance: RegExp; requiredExports: readonly string[] },
-    expectedSourceHash?: string,
-  ) => string[];
-};
+const checker = await import('./check-domain-contracts');
 
 test('domain contract hook watches source gitlinks and their nested files', () => {
   const glob = rootHook.match(/domain-contract-guardrails:\n\s+glob:\s+"([^"]+)"/)?.[1];
@@ -44,7 +37,7 @@ test('rejects source-only drift even when generated content integrity remains va
     body,
   ].join('\n');
   const path = 'synthetic/chronicle-payload-contracts.generated.ts';
-  const errors = checker.verifyGeneratedModule?.(
+  const errors = checker.verifyGeneratedModule(
     path,
     generated,
     {
@@ -52,7 +45,7 @@ test('rejects source-only drift even when generated content integrity remains va
       requiredExports: ['PAYLOAD_FIXTURE_REGISTRY', 'PAYLOAD_FIXTURES'],
     },
     currentSourceHash,
-  ) ?? [];
+  );
 
   expect(errors).toContain(
     `${path}: Source-SHA256 mismatch: generated artifact uses ${sourceHashInArtifact}, current sources hash to ${currentSourceHash}`,

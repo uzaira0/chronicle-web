@@ -178,7 +178,7 @@ const StudyLimitsSchema = z.object({
 // Map schemas — used for endpoints returning Record<string, T>
 const ParticipantStatsMapSchema = z.record(z.string(), ParticipantStatsSchema);
 const StudyDeviceInstancesMapSchema = z.record(z.string(), z.array(StudyDeviceInstanceSchema));
-const ComplianceViolationsMapSchema = z.record(z.string(), z.array(ComplianceViolationSchema));
+const ComplianceViolationsMapSchema = z.record(z.string(), z.record(z.string(), z.array(ComplianceViolationSchema)));
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -867,7 +867,7 @@ describe('Zod schema validation — API response contracts', () => {
     it('accepts valid violations map', () => {
       expect(
         ComplianceViolationsMapSchema.parse({
-          'p-1': [{ description: 'No data', reason: 'NO_DATA' }],
+          'study-1': { 'p-1': [{ description: 'No data', reason: 'NO_DATA' }] },
         }),
       ).toBeTruthy();
     });
@@ -879,7 +879,7 @@ describe('Zod schema validation — API response contracts', () => {
     it('rejects invalid violation in map', () => {
       expect(() =>
         ComplianceViolationsMapSchema.parse({
-          'p-1': [{ description: 'test' }],
+          'study-1': { 'p-1': [{ description: 'test' }] },
         }),
       ).toThrow();
     });

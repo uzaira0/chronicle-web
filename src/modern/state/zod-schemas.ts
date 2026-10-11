@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PARTICIPATION_STATUSES } from '@/generated/chronicle-contracts';
 
 // Built from the generated LinkML contract tuple — no hand-maintained literal copy.
-export const ParticipationStatusSchema = z.enum(PARTICIPATION_STATUSES);
+const ParticipationStatusSchema = z.enum(PARTICIPATION_STATUSES);
 
 export const StudySchema = z.object({
   id: z.string().uuid().optional(),
@@ -37,6 +37,7 @@ export const ParticipantSchema = z.object({
   participationStatus: ParticipationStatusSchema,
   participantNotes: z.string().nullable().optional(),
   participantTags: z.array(z.string()).optional().default([]),
+  withdrawnAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 export const UsageEventSchema = z.object({
@@ -47,10 +48,6 @@ export const UsageEventSchema = z.object({
   users: z.array(z.string()).min(1),
 });
 
-export type Study = z.infer<typeof StudySchema>;
-export type Participant = z.infer<typeof ParticipantSchema>;
-export type UsageEvent = z.infer<typeof UsageEventSchema>;
 // Single source: the canonical union lives in the generated contract module.
 // ParticipationStatusSchema (z.enum over the same generated tuple) infers an
 // identical type, so this re-export keeps exactly one exported ParticipationStatus.
-export type { ParticipationStatus } from '@/generated/chronicle-contracts';

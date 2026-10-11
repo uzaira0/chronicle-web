@@ -1,9 +1,8 @@
 {
-  "_comment": "Shape mirrors Kotlin: com.openlattice.chronicle.android.AndroidDeviceSensorAvailability",
   "participantId": "p-1",
   "deviceId": "device-abc-123",
-  "availableSensors": ["ACCELEROMETER", "GYROSCOPE"],
-  "unavailableSensors": ["BAROMETER"],
+  "availableSensors": ["accelerometer", "gyroscope"],
+  "unavailableSensors": ["magnetometer"],
   "screenWidthPixels": 1080,
   "screenHeightPixels": 2340,
   "screenDensityDpi": 440,

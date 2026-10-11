@@ -24,7 +24,8 @@
       "participantId": "p-golden-1",
       "participantNotes": "Completed all sessions",
       "participantTags": ["control", "wave-2"],
-      "participationStatus": "ENROLLED"
+      "participationStatus": "ENROLLED",
+      "withdrawnAt": null
     }
   ]
 }

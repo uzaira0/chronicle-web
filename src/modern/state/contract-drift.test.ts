@@ -2,15 +2,14 @@
  * Contract Drift Detection
  *
  * Validates that backend Kotlin model shapes (captured as golden JSON fixtures)
- * can be parsed by the frontend Zod schemas. When a backend field is added,
- * renamed, or removed, these tests fail — surfacing contract drift before it
- * reaches production.
+ * can be parsed by the frontend Zod schemas. WebGoldenSerializationTest serializes
+ * real JVM fixtures with ObjectMappers.getJsonMapper() and fails if these files drift.
  *
  * Golden fixtures live in: src/modern/test/golden/backend-*.json
  * Each fixture mirrors the serialized JSON output of its Kotlin data class.
  *
  * HOW TO UPDATE:
- *   1. If a backend model changes, update the matching backend-*.json fixture.
+ *   1. Run WebGoldenSerializationTest with UPDATE_WEB_GOLDENS=1, then without it.
  *   2. If the frontend type intentionally diverges, add to KNOWN_DRIFT below.
  *   3. If the frontend schema needs to accept new backend fields, update the
  *      Zod schema in this file (and the TypeScript type in study-operations-api.ts).
@@ -19,6 +18,8 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type ZodType, z } from 'zod';
+import { PARTICIPATION_STATUSES } from '@/generated/chronicle-contracts';
+import { ParticipantSchema } from './zod-schemas';
 
 // ---------------------------------------------------------------------------
 // Golden fixture loader
@@ -44,19 +45,7 @@ function withoutFixtureComment(value: unknown): unknown {
 // the parse will fail and the drift shows up.
 // ---------------------------------------------------------------------------
 
-const ParticipationStatusSchema = z.enum(['ENROLLED', 'NOT_ENROLLED', 'PAUSED', 'COLLECTION_COMPLETED', 'UNKNOWN']);
-
-const CandidateSchema = z.object({
-  id: z.string(),
-});
-
-const ParticipantSchema = z.object({
-  candidate: CandidateSchema.passthrough(),
-  participantId: z.string(),
-  participantNotes: z.string().nullable().optional(),
-  participantTags: z.array(z.string()),
-  participationStatus: ParticipationStatusSchema,
-});
+const ParticipationStatusSchema = z.enum(PARTICIPATION_STATUSES);
 
 const QuestionnaireQuestionSchema = z.object({
   choices: z.array(z.string()),
@@ -160,6 +149,11 @@ type DriftEntry = {
 const KNOWN_DRIFT: Record<string, DriftEntry[]> = {
   Study: [
     {
+      backendField: 'category',
+      frontendField: null,
+      reason: 'The securable-object category is implicit in the study endpoint.',
+    },
+    {
       backendField: 'lat',
       frontendField: null,
       reason: 'Geo coordinates not shown in web dashboard; server omits from summary endpoint',
@@ -232,7 +226,7 @@ describe('Contract drift detection — backend golden fixtures vs frontend schem
     });
 
     it('ParticipationStatus enum values match backend', () => {
-      const backendValues = ['ENROLLED', 'NOT_ENROLLED', 'PAUSED', 'COLLECTION_COMPLETED', 'UNKNOWN'];
+      const backendValues = PARTICIPATION_STATUSES;
       for (const val of backendValues) {
         expect(() => ParticipationStatusSchema.parse(val)).not.toThrow();
       }

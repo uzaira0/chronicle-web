@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/chronicle/v3/observability/browser-errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Count a browser failure without messages, URLs or stacks */
+        post: operations["reportBrowserError"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chronicle/v3/study": {
         parameters: {
             query?: never;
@@ -287,6 +304,26 @@ export interface paths {
          * @description Uploads the authenticated app instance's Android sensor sample batch. The app-instance id is carried in `X-Chronicle-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
          */
         post: operations["uploadAndroidSensorDataV4"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v4/study/{studyId}/participant/{participantId}/android/sensors/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Android sensors with exact row receipts
+         * @description Uploads the authenticated app instance's Android sensor sample batch. The app-instance id is carried in `X-Chronicle-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
+         */
+        post: operations["uploadAndroidSensorDataReceiptV4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1015,7 +1052,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/chronicle/v3/study/{studyId}/data-collection/": {
+    "/chronicle/v3/study/{studyId}/data-collection": {
         parameters: {
             query?: never;
             header?: never;
@@ -1098,23 +1135,6 @@ export interface paths {
         };
         /** Get server-observed iOS upload status for study participants */
         get: operations["getIosUploadStatus"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participants/android/data-drops": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get retained data Android devices discarded locally */
-        get: operations["getAndroidDataDrops"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1881,6 +1901,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        SensorUploadReceipt: {
+            acceptedIds: components["schemas"]["SensorReceiptIds"];
+            discardedIds: components["schemas"]["SensorReceiptIds"];
+            heldIds: components["schemas"]["SensorReceiptIds"];
+            settingsVersion: number;
+        };
+        SensorReceiptIds: string[];
         /**
          * @description Returned with HTTP 412 when an `If-Match` settings precondition no longer matches. Carries
          *     the current state so the client can re-render without issuing another GET and racing again.
@@ -1975,7 +2002,8 @@ export interface components {
          * @description Accepted participant self-service withdrawal. `requestId` is the exact
          *     client-supplied UUID bound to the authenticated credential, and exact
          *     retries observe the same response. The first winning withdrawal owns
-         *     the durable deletion job. A later request from another device records
+         *     the durable deletion job only when the study selects ERASE. KEEP_PRIOR_DATA
+         *     returns no deletion job and preserves prior data. A later request from another device records
          *     `alreadyWithdrawn: true` and may return no deletion job IDs rather than
          *     claiming the first device's operation.
          */
@@ -1987,9 +2015,9 @@ export interface components {
             requestId: string;
             /** @description Always `accepted` when the request succeeds. */
             status: string;
-            /** @description Deletion jobs owned by this exact withdrawal request. Empty when `alreadyWithdrawn` is true and another request already owns the participant's durable erasure operation. */
+            /** @description Deletion jobs owned by this exact withdrawal request. Empty when the study keeps prior data, or `alreadyWithdrawn` is true and another request already owns the participant's durable erasure operation. */
             deletionJobIds: string[];
-            /** @description True when the participant was already NOT_ENROLLED before this call. */
+            /** @description True when a prior withdrawal or erasure already applies to the participant. */
             alreadyWithdrawn: boolean;
         };
         /** @description One enrollment event for a deduped app-device instance. */
@@ -2323,9 +2351,11 @@ export interface components {
             participationStatus: components["schemas"]["ParticipationStatus"];
             participantNotes?: string | null;
             participantTags?: string[];
+            /** Format: date-time */
+            withdrawnAt?: string | null;
         };
         /** @enum {string} */
-        ParticipationStatus: "ENROLLED" | "NOT_ENROLLED" | "PAUSED" | "COLLECTION_COMPLETED" | "UNKNOWN";
+        ParticipationStatus: "ENROLLED" | "NOT_ENROLLED" | "PAUSED" | "COLLECTION_COMPLETED" | "UNKNOWN" | "ERASED";
         ParticipantStats: {
             participantId: string;
             /** Format: uuid */
@@ -2632,9 +2662,9 @@ export interface components {
              * @description Legacy normalized accessibility-node center. New consumers should derive positions from the raw node bounds and display context.
              */
             normalizedY?: number | null;
-            /** @description Signed horizontal scroll delta for a SCROLL event; null otherwise. */
+            /** @description Signed horizontal scroll delta in pixels for a SCROLL event; null otherwise. */
             scrollDeltaX?: number | null;
-            /** @description Signed vertical scroll delta for a SCROLL event; null otherwise. */
+            /** @description Signed vertical scroll delta in pixels for a SCROLL event; null otherwise. */
             scrollDeltaY?: number | null;
             /**
              * Format: int64
@@ -3315,6 +3345,8 @@ export interface components {
     };
     responses: never;
     parameters: {
+        /** @description Immutable settings revision recorded when this queue batch was captured. */
+        collectionVersionHeader: number;
         studyId: string;
         organizationId: string;
         participantId: string;
@@ -3344,6 +3376,45 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    reportBrowserError: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    kind: "ERROR" | "UNHANDLED_REJECTION";
+                };
+            };
+        };
+        responses: {
+            /** @description Failure counted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or unredacted report */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Report exceeds 2048 bytes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getAllStudies: {
         parameters: {
             query?: never;
@@ -3770,8 +3841,9 @@ export interface operations {
         requestBody?: never;
         responses: {
             /**
-             * @description Withdrawal accepted. Participation is marked NOT_ENROLLED, data
-             *     deletion jobs are queued, and the device API key is revoked.
+             * @description Withdrawal accepted. Participation is marked NOT_ENROLLED and the device
+             *     API key is revoked. Data collected before withdrawal stays available by
+             *     default; studies configured for ERASE quarantine it for erasure after seven days.
              */
             202: {
                 headers: {
@@ -3873,6 +3945,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": number;
+                };
+            };
+        };
+    };
+    uploadAndroidSensorDataReceiptV4: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
+                "X-Chronicle-Device-Id": components["parameters"]["chronicleDeviceIdHeader"];
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+                /** @description Immutable settings revision recorded when this queue batch was captured. */
+                "X-Chronicle-Collection-Version"?: components["parameters"]["collectionVersionHeader"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AndroidSensorSample"][];
+            };
+        };
+        responses: {
+            /** @description Accepted, deliberately discarded, and held sample IDs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorUploadReceipt"];
                 };
             };
         };
@@ -4970,30 +5076,6 @@ export interface operations {
             };
         };
     };
-    getAndroidDataDrops: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Map of participant ID to local drop counts by reason */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: components["schemas"]["AndroidDataDrop"][];
-                    };
-                };
-            };
-        };
-    };
     getAndroidDiagnostics: {
         parameters: {
             query?: {
@@ -5483,6 +5565,7 @@ export interface operations {
             query?: {
                 startDateTime?: string;
                 endDateTime?: string;
+                timeZone?: string;
             };
             header?: never;
             path: {
