@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   forgetSettingsRevision,
+  isConditionalWriteFailure,
   isSettingsConflict,
   knownSettingsRevision,
   rememberSettingsRevision,
@@ -33,5 +34,19 @@ describe('settings revision', () => {
     expect(isSettingsConflict({ status: 409 })).toBe(false);
     expect(isSettingsConflict(new Error('x'))).toBe(false);
     expect(isSettingsConflict(null)).toBe(false);
+  });
+
+  it.each([412, 428])('recognises conditional-write status %i', (status) => {
+    expect(isConditionalWriteFailure({ status })).toBe(true);
+  });
+
+  it.each([
+    null,
+    undefined,
+    {},
+    { status: 409 },
+    { status: '412' },
+  ])('rejects other conditional-write failures: %j', (error) => {
+    expect(isConditionalWriteFailure(error)).toBe(false);
   });
 });

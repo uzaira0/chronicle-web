@@ -1,5 +1,5 @@
 import { LoaderCircle, Plus, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { type Participant, useLoadParticipantAnnotationsMutation, useUpdateParticipantAnnotationsMutation } from '@/state/study-operations-api';
+import { isConditionalWriteFailure } from '@/state/settings-revision';
+import {
+  type Participant,
+  useLoadParticipantAnnotationsMutation,
+  useUpdateParticipantAnnotationsMutation,
+} from '@/state/study-operations-api';
 
 type ParticipantNotesEditorProps = {
   onClose: () => void;
@@ -26,9 +31,10 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
   const [tags, setTags] = useState<string[]>([...participant.participantTags]);
   const [newTag, setNewTag] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const initializedParticipant = useRef<string | null>(null);
   const { t } = useTranslator();
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setRevision(undefined);
     setError(null);
     try {
@@ -40,8 +46,13 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
     } catch (err) {
       setError(getErrorMessage(err, t('notes_editor.save_failed')));
     }
-  };
-  useEffect(() => { void reload(); }, [studyId, participant.participantId]);
+  }, [loadSnapshot, participant.participantId, studyId, t]);
+  useEffect(() => {
+    const target = JSON.stringify([studyId, participant.participantId]);
+    if (initializedParticipant.current === target) return;
+    initializedParticipant.current = target;
+    void reload();
+  }, [reload, participant.participantId, studyId]);
 
   const addTag = () => {
     const tag = newTag.trim();
@@ -67,7 +78,7 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
       }).unwrap();
       onClose();
     } catch (err) {
-      if (typeof err === 'object' && err !== null && 'status' in err && (err.status === 412 || err.status === 428)) setConflict(true);
+      if (isConditionalWriteFailure(err)) setConflict(true);
       setError(getErrorMessage(err, t('notes_editor.save_failed')));
     }
   };
@@ -143,8 +154,16 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
             </div>
           </div>
 
-          {error && <p className="text-sm text-destructive" role="alert">{conflict ? t('writes.conflict') : error}</p>}
-          {error && <Button onClick={() => void reload()} variant="outline">{t('writes.reload_discard')}</Button>}
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {conflict ? t('writes.conflict') : error}
+            </p>
+          )}
+          {error && (
+            <Button onClick={() => void reload()} variant="outline">
+              {t('writes.reload_discard')}
+            </Button>
+          )}
 
           <div className="flex justify-end gap-3 border-t border-border pt-4">
             <Button onClick={onClose} variant="ghost">

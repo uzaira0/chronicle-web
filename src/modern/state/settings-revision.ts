@@ -24,7 +24,8 @@ export function forgetSettingsRevision(studyId: string): void {
   revisions.delete(studyId);
 }
 
-export const SETTINGS_CONFLICT_STATUS = 412;
+const SETTINGS_CONFLICT_STATUS = 412;
+const PRECONDITION_REQUIRED_STATUS = 428;
 
 /** Thrown by the study save when a settings PATCH hit 412; the edit form reloads on it. */
 export class StudySettingsConflictError extends Error {
@@ -37,5 +38,12 @@ export function isSettingsConflict(error: unknown): boolean {
     error !== null &&
     'status' in error &&
     (error as { status?: unknown }).status === SETTINGS_CONFLICT_STATUS
+  );
+}
+
+export function isConditionalWriteFailure(error: unknown): boolean {
+  return (
+    isSettingsConflict(error) ||
+    (typeof error === 'object' && error !== null && 'status' in error && error.status === PRECONDITION_REQUIRED_STATUS)
   );
 }

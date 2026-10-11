@@ -13,8 +13,9 @@ import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { getMutationRequestState } from '@/lib/request-state';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
+import { isConditionalWriteFailure } from '@/state/settings-revision';
 import {
   type QuestionnaireDraft,
   type QuestionnaireRecord,
@@ -74,8 +75,13 @@ export function StudyQuestionnairesPage() {
   const handleCreate = async (questionnaire: QuestionnaireDraft) => {
     setActionError(null);
     try {
-      await createQuestionnaire({ questionnaire, studyId, idempotencyKey: await createIntent.currentKey({ questionnaire, studyId }) }).unwrap();
-      await createIntent.rotateKey();
+      const intent = await createIntent.currentIntent({ questionnaire, studyId });
+      await createQuestionnaire({
+        questionnaire,
+        studyId,
+        idempotencyKey: intent.key,
+      }).unwrap();
+      await createIntent.acknowledge(intent);
       setView('list');
     } catch (error) {
       setActionError(getErrorMessage(error, t('questionnaires.create_failed')));
@@ -111,7 +117,7 @@ export function StudyQuestionnairesPage() {
       setEditingQuestionnaire(null);
       setView('list');
     } catch (error) {
-      if (typeof error === 'object' && error !== null && 'status' in error && (error.status === 412 || error.status === 428)) {
+      if (isConditionalWriteFailure(error)) {
         setConflict(true);
         setActionError(t('writes.conflict'));
       } else setActionError(getErrorMessage(error, t('questionnaires.update_failed')));
@@ -164,7 +170,9 @@ export function StudyQuestionnairesPage() {
       )}
 
       {conflict && editingQuestionnaire && (
-        <Button onClick={() => void openEditor(editingQuestionnaire.id)} variant="outline">{t('writes.reload_discard')}</Button>
+        <Button onClick={() => void openEditor(editingQuestionnaire.id)} variant="outline">
+          {t('writes.reload_discard')}
+        </Button>
       )}
       {isLoading && <TableSkeleton label={t('questionnaires.loading_title')} />}
 
@@ -213,6 +221,7 @@ export function StudyQuestionnairesPage() {
               key={questionnaire.id}
               onDelete={() => {
                 setActionError(null);
+                deleteState.reset();
                 setDeleteTarget(questionnaire);
               }}
               onDownloadResponses={() => {
