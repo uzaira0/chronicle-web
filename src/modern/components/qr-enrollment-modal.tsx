@@ -1,5 +1,5 @@
 import { QRCodeSVG } from 'qrcode.react';
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
@@ -8,13 +8,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { participantAccessCodeIssueUrl } from '@/lib/participant-access';
 import {
   getDefaultEnrollmentServerUrl,
   getHttpsEnrollmentLink,
   isValidParticipantAccessCode,
 } from '@/lib/participant-links';
-import { fetchWithCsrf } from '@/state/study-operations-api';
+import { useIssueParticipantAccessCodeMutation } from '@/state/study-operations-api';
 
 type QrEnrollmentModalProps = {
   onClose: () => void;
@@ -48,11 +47,13 @@ function buildQrLink(
 }
 
 export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId }: QrEnrollmentModalProps) {
+  const [issueAccessCode, { isLoading: issuing }] = useIssueParticipantAccessCodeMutation();
   const [participantId, setParticipantId] = useState(initialPid ?? '');
   const [issued, setIssued] = useState<IssuedCode | null>(null);
   const currentParticipantId = useRef(participantId);
   const [linkError, setLinkError] = useState<string | null>(null);
-  const [issuing, setIssuing] = useState(false);
+  const autoIssued = useRef(false);
+  const inFlight = useRef(false);
   const { t } = useTranslator();
 
   const { error: configurationError, serverUrl: publicServerUrl } = readPublicServerConfiguration(
@@ -60,23 +61,18 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
   );
   const link = buildQrLink(issued, participantId, publicServerUrl, studyId);
 
-  async function issueEnrollmentLink() {
+  const issueEnrollmentLink = useCallback(async () => {
     const normalizedParticipantId = participantId.trim();
-    if (!normalizedParticipantId) return;
-    setIssuing(true);
+    if (!normalizedParticipantId || inFlight.current) return;
+    inFlight.current = true;
     setLinkError(null);
     setIssued(null);
     try {
-      const response = await fetchWithCsrf(participantAccessCodeIssueUrl(studyId, normalizedParticipantId), {
-        body: JSON.stringify({
-          expiresAt: new Date(Date.now() + 29 * 24 * 60 * 60 * 1000).toISOString(),
-          formKind: 'ENROLLMENT',
-        }),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      });
-      if (!response.ok) throw new Error(t('qr_modal.issue_failed', { status: String(response.status) }));
-      const payload = (await response.json()) as { accessCode?: unknown };
+      const payload = await issueAccessCode({
+        studyId,
+        participantId: normalizedParticipantId,
+        formKind: 'ENROLLMENT',
+      }).unwrap();
       if (!isValidParticipantAccessCode(payload.accessCode)) throw new Error(t('qr_modal.malformed'));
       // A response for an id that has since changed is stale.
       if (currentParticipantId.current.trim() !== normalizedParticipantId) return;
@@ -84,9 +80,14 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
     } catch (error: unknown) {
       setLinkError(getErrorMessage(error, t('qr_modal.issue_failed_generic')));
     } finally {
-      setIssuing(false);
+      inFlight.current = false;
     }
-  }
+  }, [participantId, issueAccessCode, studyId, t]);
+  useEffect(() => {
+    if (!initialPid || !publicServerUrl || autoIssued.current) return;
+    autoIssued.current = true;
+    void issueEnrollmentLink();
+  }, [initialPid, publicServerUrl, issueEnrollmentLink]);
 
   return (
     <Dialog
@@ -106,6 +107,8 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
               <Input
                 disabled={issuing}
                 id="qr-pid"
+                name="participant-id"
+                spellCheck={false}
                 onChange={(e) => {
                   currentParticipantId.current = e.target.value;
                   setParticipantId(e.target.value);
@@ -119,7 +122,7 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
 
           <div className="space-y-1.5">
             <Label>{t('qr_modal.public_server')}</Label>
-            <code className="block overflow-x-auto rounded bg-muted px-3 py-2 text-xs">
+            <code translate="no" className="block overflow-x-auto rounded bg-muted px-3 py-2 text-xs">
               {publicServerUrl ?? t('common.not_configured')}
             </code>
             <p className="text-xs text-muted-foreground">{t('qr_modal.server_note')}</p>
@@ -134,7 +137,11 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
           >
             {issuing ? t('qr_modal.issuing') : issued ? t('qr_modal.issue_new') : t('qr_modal.issue')}
           </Button>
-          {linkError && <p className="text-sm font-medium text-destructive">{linkError}</p>}
+          {linkError && (
+            <p className="text-sm font-medium text-destructive" role="alert">
+              {linkError}
+            </p>
+          )}
 
           {link ? (
             <>
@@ -153,7 +160,9 @@ export function QrEnrollmentModal({ onClose, participantId: initialPid, studyId 
               <div className="space-y-1.5">
                 <Label>{t('common.url')}</Label>
                 <div className="flex gap-2">
-                  <code className="flex-1 overflow-x-auto rounded bg-muted px-3 py-2 text-xs">{link}</code>
+                  <code translate="no" className="flex-1 overflow-x-auto rounded bg-muted px-3 py-2 text-xs">
+                    {link}
+                  </code>
                   <CopyButton aria-label={t('qr_modal.copy_link')} value={link} />
                 </div>
               </div>

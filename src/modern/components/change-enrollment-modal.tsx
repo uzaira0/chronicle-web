@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { statusLabel, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { getStatusVariant } from '@/lib/participant-status';
+import { canChangeEnrollment, getStatusVariant } from '@/lib/participant-status';
 import {
   type Participant,
   type ParticipationStatus,
@@ -34,11 +34,17 @@ export function ChangeEnrollmentModal({ onClose, participant, studyId }: ChangeE
   );
 
   const currentStatus = participant.participationStatus;
+  const canChange = canChangeEnrollment(participant);
   const isEnrolled = currentStatus === 'ENROLLED';
   const targetStatus: ParticipationStatus = isEnrolled ? 'PAUSED' : 'ENROLLED';
-  const actionLabel = isEnrolled ? t('change_enrollment.pause') : currentStatus === 'PAUSED' ? t('change_enrollment.resume') : t('change_enrollment.enroll');
+  const actionLabel = isEnrolled
+    ? t('change_enrollment.pause')
+    : currentStatus === 'PAUSED'
+      ? t('change_enrollment.resume')
+      : t('change_enrollment.enroll');
 
   const handleToggle = async () => {
+    if (!canChange) return;
     setError(null);
     try {
       await updateStatus({
@@ -76,13 +82,18 @@ export function ChangeEnrollmentModal({ onClose, participant, studyId }: ChangeE
             </div>
           ) : (
             <>
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {!canChange && <p className="text-sm text-muted-foreground">{t('change_enrollment.unavailable')}</p>}
+              {error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
               <div className="flex justify-end gap-3">
                 <Button onClick={onClose} variant="ghost">
                   {t('common.cancel')}
                 </Button>
                 <Button
-                  disabled={isLoading}
+                  disabled={isLoading || !canChange}
                   onClick={() => {
                     handleToggle().catch((err) => {
                       setError(getErrorMessage(err, t('change_enrollment.update_failed')));

@@ -1,10 +1,22 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { ComponentProps } from 'react';
+import { Provider } from 'react-redux';
+import { createApiStore } from '@/test/study-operations-store';
+
 const ACCESS_CODE = 'Abc_123-'.repeat(8);
 const originalFetch = globalThis.fetch;
 
 import { QrEnrollmentModal } from './qr-enrollment-modal';
+
+function renderModal(props: ComponentProps<typeof QrEnrollmentModal>) {
+  return render(
+    <Provider store={createApiStore()}>
+      <QrEnrollmentModal {...props} />
+    </Provider>,
+  );
+}
 
 beforeEach(() => {
   globalThis.fetch = mock(() =>
@@ -21,20 +33,18 @@ afterEach(() => {
 describe('QrEnrollmentModal public enrollment link', () => {
   test('generates only an HTTPS landing link with the one-time code isolated in the fragment', async () => {
     Reflect.set(window, '__CHRONICLE_RUNTIME_CONFIG__', { serverUrl: 'https://public-study.example.org' });
-    render(
-      <QrEnrollmentModal
-        onClose={() => undefined}
-        participantId="participant-7"
-        studyId="28d661b8-a45a-41b6-aec4-ed9988fa28dc"
-      />,
-    );
+    renderModal({
+      onClose: () => undefined,
+      participantId: 'participant-7',
+      studyId: '28d661b8-a45a-41b6-aec4-ed9988fa28dc',
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Issue one-time enrollment link' }));
     const displayedLink = await screen.findByText((text) =>
       text.startsWith('https://public-study.example.org/chronicle/enroll'),
     );
     const link = new URL(displayedLink.textContent ?? '');
 
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(link.protocol).toBe('https:');
     expect(link.pathname).toBe('/chronicle/enroll');
     expect(link.searchParams.has('accessCode')).toBe(false);
@@ -52,7 +62,7 @@ describe('QrEnrollmentModal public enrollment link', () => {
           respond = resolve;
         }),
     ) as unknown as typeof fetch;
-    render(<QrEnrollmentModal onClose={() => undefined} studyId="28d661b8-a45a-41b6-aec4-ed9988fa28dc" />);
+    renderModal({ onClose: () => undefined, studyId: '28d661b8-a45a-41b6-aec4-ed9988fa28dc' });
     const input = screen.getByLabelText<HTMLInputElement>('Participant ID');
 
     fireEvent.change(input, { target: { value: 'participant-a' } });
@@ -77,16 +87,18 @@ describe('QrEnrollmentModal public enrollment link', () => {
       if (calls === 1) return Promise.reject(new TypeError('W20_QR_NETWORK_SENTINEL'));
       return Promise.resolve(new Response(JSON.stringify({ accessCode: ACCESS_CODE }), { status: 200 }));
     }) as unknown as typeof fetch;
-    render(
-      <QrEnrollmentModal
-        onClose={() => undefined}
-        participantId="participant-7"
-        studyId="28d661b8-a45a-41b6-aec4-ed9988fa28dc"
-      />,
-    );
+    renderModal({
+      onClose: () => undefined,
+      participantId: 'participant-7',
+      studyId: '28d661b8-a45a-41b6-aec4-ed9988fa28dc',
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Issue one-time enrollment link' }));
-    expect(await screen.findByText('Unable to issue enrollment link.')).toBeDefined();
+    expect(
+      await screen.findByText(
+        'Unable to issue enrollment link. (could not reach the server; check your connection and try again)',
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole('alert').textContent).toContain('Unable to issue enrollment link.');
     expect(screen.queryByText('W20_QR_NETWORK_SENTINEL')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Issue one-time enrollment link' }));
     expect(

@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'bun:test';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useCallback, useState } from 'react';
 import { Table, TableBody } from '@/components/ui/table';
+import { formatDisplayDateTime } from '@/lib/format';
 
 // Every ParticipantRow body renders exactly one activity cell, so counting the cell's renders
 // counts row re-renders. The wrapper delegates to the real cell, so other tests are unaffected.
@@ -27,6 +28,35 @@ const mockParticipant = {
 };
 
 describe('StudyParticipantsPage - Accessibility', () => {
+  test('shows a withdrawn participant and the withdrawal date', () => {
+    const withdrawnAt = '2026-10-07T14:00:00Z';
+    render(
+      <Table>
+        <TableBody>
+          <ParticipantRow
+            colCount={11}
+            handleSingleDelete={() => {}}
+            hardwareSensorsEnabled={false}
+            hasTud={false}
+            isExpanded={false}
+            isSelected={false}
+            participant={{ ...mockParticipant, participationStatus: 'NOT_ENROLLED', withdrawnAt }}
+            studyId="study-test"
+            participantAcknowledgments={[]}
+            participantDevices={[]}
+            participantSensors={[]}
+            selectedAndroidSensors={[]}
+            setModal={() => {}}
+            toggleExpanded={() => {}}
+            toggleSelected={() => {}}
+          />
+        </TableBody>
+      </Table>,
+    );
+    expect(screen.getByText('Withdrawn')).toBeTruthy();
+    expect(screen.getByText(formatDisplayDateTime(withdrawnAt))).toBeTruthy();
+  });
+
   test('ParticipantRow has correct ARIA labels', () => {
     render(
       <Table>
@@ -221,5 +251,7 @@ describe('StudyParticipantsPage - row re-renders', () => {
     });
     expect(screen.getByLabelText<HTMLInputElement>('Select participant p-250').checked).toBe(true);
     expect(activityCellRenders).toBe(1);
-  });
+    // The claim is the render count; mounting 500 rows under happy-dom on a loaded host can
+    // pass the 5 s default without anything being wrong.
+  }, 60_000);
 });

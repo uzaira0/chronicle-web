@@ -1,3 +1,9 @@
+import type { Participant } from '@/state/study-operations-api';
+
+export function canChangeEnrollment(participant: Participant): boolean {
+  return !participant.withdrawnAt && participant.participationStatus !== 'ERASED';
+}
+
 export function getStatusVariant(status: unknown) {
   switch (status) {
     case 'ENROLLED':

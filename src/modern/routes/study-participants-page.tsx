@@ -25,7 +25,7 @@ import { ParticipantInfoModal } from '@/components/participant-info-modal';
 import { ParticipantNotesEditor } from '@/components/participant-notes-editor';
 import { QrEnrollmentModal } from '@/components/qr-enrollment-modal';
 import { SectionHeader } from '@/components/section-header';
-import { nextSort, SortableTableHead, type SortState } from '@/components/sortable-table-head';
+import { SortableTableHead } from '@/components/sortable-table-head';
 import { StatePanel, TableSkeleton } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,12 +42,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDateTime, parseDisplayDate } from '@/lib/format';
-import { getStatusVariant } from '@/lib/participant-status';
-import { ANDROID_SENSOR_TYPES, SENSOR_MODULE_IDS } from '@/lib/study-constants';
+import { canChangeEnrollment, getStatusVariant } from '@/lib/participant-status';
+import { ANDROID_SENSOR_TYPES, COLLECTION_MODULES } from '@/lib/study-constants';
+import { useListSearchParams } from '@/lib/use-list-search-params';
 import {
   type AndroidDeviceSensorAvailability,
   type CollectionAcknowledgmentEntry,
   type DataDeletionOperation,
+  EMPTY_PARTICIPANT_MAP,
   type IosUploadStatus,
   type Participant,
   type ParticipantStats,
@@ -79,8 +81,6 @@ type ModalState =
 // Stable empty array — avoids creating new references on every render for React.memo
 const EMPTY_ARRAY: never[] = [];
 
-type ParticipantSortKey = 'activity' | 'id' | 'status';
-
 /** Never-reported sorts alongside longest-idle rather than being stranded at one end. */
 function compareActivity(left: number | null, right: number | null, direction: number) {
   if (left === null && right === null) return 0;
@@ -107,6 +107,7 @@ type ParticipantRowProps = {
   iosUploadStatus?: IosUploadStatus | undefined;
   ps?: ParticipantStats | undefined;
   selectedAndroidSensors: string[];
+  settingsVersion?: number | undefined;
   hardwareSensorsEnabled: boolean;
   setModal: (state: ModalState) => void;
   toggleExpanded: (id: string) => void;
@@ -205,28 +206,44 @@ function dedupeSensorReports(rows: AndroidDeviceSensorAvailability[]): SensorDev
 }
 
 function sensorBucketsForReport({
-  hardwareAcknowledged,
+  acknowledgments,
   hardwareSensorsEnabled,
   report,
   selectedAndroidSensors,
+  settingsVersion,
 }: {
-  hardwareAcknowledged: boolean;
+  acknowledgments: CollectionAcknowledgmentEntry[];
   hardwareSensorsEnabled: boolean;
   report: SensorDeviceReport;
   selectedAndroidSensors: string[];
+  settingsVersion: number | undefined;
 }): SensorBuckets {
   const selectedSensors = new Set(selectedAndroidSensors);
   const buckets: SensorBuckets = {
     available: [],
     consented: [],
     notConsented: [],
-    unavailable: report.unavailable,
+    unavailable: [...report.unavailable],
   };
 
   for (const sensor of report.available) {
-    if (!hardwareSensorsEnabled || !selectedSensors.has(sensor)) {
+    const moduleId = COLLECTION_MODULES.find((module) => module.sensorType === sensor)?.value;
+    // Decisions are deltas, newest first. An unrelated module toggle leaves this sensor's decision intact.
+    const acknowledgment = acknowledgments.find(
+      (entry) =>
+        entry.trigger === 'WITHDRAWAL' ||
+        [...entry.acknowledgedModules, ...(entry.declinedModules ?? []), ...(entry.unavailableModules ?? [])].includes(
+          moduleId ?? '',
+        ),
+    );
+    const currentAcknowledgment =
+      acknowledgment?.trigger !== 'WITHDRAWAL' &&
+      (settingsVersion === undefined || acknowledgment?.settingsVersion === settingsVersion);
+    if (acknowledgment?.unavailableModules?.some((id) => id === moduleId)) {
+      if (!buckets.unavailable.includes(sensor)) buckets.unavailable.push(sensor);
+    } else if (!hardwareSensorsEnabled || !selectedSensors.has(sensor)) {
       buckets.available.push(sensor);
-    } else if (hardwareAcknowledged) {
+    } else if (currentAcknowledgment && moduleId && acknowledgment?.acknowledgedModules.includes(moduleId)) {
       buckets.consented.push(sensor);
     } else {
       buckets.notConsented.push(sensor);
@@ -234,19 +251,6 @@ function sensorBucketsForReport({
   }
 
   return buckets;
-}
-
-function hasHardwareSensorAcknowledgment(
-  acknowledgments: CollectionAcknowledgmentEntry[],
-  sourceDeviceId: string,
-): boolean {
-  // Any per-sensor module acknowledged counts as a hardware-sensor acknowledgment (sensors are
-  // per-sensor modules now, not one hardware_sensors umbrella).
-  return acknowledgments.some(
-    (entry) =>
-      entry.sourceDeviceId === sourceDeviceId &&
-      entry.acknowledgedModules.some((m) => (SENSOR_MODULE_IDS as ReadonlySet<string>).has(m)),
-  );
 }
 
 function shortDeviceId(sourceDeviceId: string) {
@@ -360,6 +364,7 @@ function ParticipantExpandedDetails({
   participantSensors,
   iosUploadStatus,
   selectedAndroidSensors,
+  settingsVersion,
 }: {
   hardwareSensorsEnabled: boolean;
   participant: Participant;
@@ -369,6 +374,7 @@ function ParticipantExpandedDetails({
   participantSensors: AndroidDeviceSensorAvailability[];
   iosUploadStatus?: IosUploadStatus | undefined;
   selectedAndroidSensors: string[];
+  settingsVersion: number | undefined;
 }) {
   const { t } = useTranslator();
   const deviceInstances = summarizeDeviceInstances(participantDevices, t('participants.unknown_device_type'));
@@ -425,13 +431,17 @@ function ParticipantExpandedDetails({
           )}
           <div className="grid gap-3 md:grid-cols-2">
             {sensorReports.map((report) => {
-              const acknowledged = hasHardwareSensorAcknowledgment(participantAcknowledgments, report.sourceDeviceId);
+              const acknowledgments = participant.withdrawnAt
+                ? EMPTY_ARRAY
+                : participantAcknowledgments.filter((entry) => entry.sourceDeviceId === report.sourceDeviceId);
               const buckets = sensorBucketsForReport({
-                hardwareAcknowledged: acknowledged,
+                acknowledgments,
                 hardwareSensorsEnabled,
                 report,
                 selectedAndroidSensors,
+                settingsVersion,
               });
+              const acknowledged = buckets.consented.length > 0;
               return (
                 <div className="space-y-3 rounded-lg border border-border bg-card/70 p-3" key={report.sourceDeviceId}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -508,6 +518,7 @@ function ParticipantRowBody({
   iosUploadStatus,
   ps,
   selectedAndroidSensors,
+  settingsVersion,
   setModal,
   toggleExpanded,
   toggleSelected,
@@ -541,7 +552,7 @@ function ParticipantRowBody({
             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
         </TableCell>
-        <TableCell className="font-medium">
+        <TableCell translate="no" className="font-medium">
           <div className="flex items-center gap-2">
             {participant.participantId}
             <ParticipantTagBadges tags={participant.participantTags} />
@@ -551,7 +562,12 @@ function ParticipantRowBody({
           {/* Nearly every participant is ENROLLED, so badging all of them carries no
               information. Render the expected state quietly and let the exceptions
               (withdrawn, paused, …) keep the badge treatment. */}
-          {participant.participationStatus === 'ENROLLED' ? (
+          {participant.withdrawnAt ? (
+            <div className="space-y-1">
+              <Badge variant="muted">{t('participants.withdrawn')}</Badge>
+              <div className="text-xs text-muted-foreground">{formatDisplayDateTime(participant.withdrawnAt)}</div>
+            </div>
+          ) : participant.participationStatus === 'ENROLLED' ? (
             <span className="text-xs text-muted-foreground">{t('participants.enrolled')}</span>
           ) : (
             <Badge variant={getStatusVariant(participant.participationStatus)}>
@@ -578,10 +594,12 @@ function ParticipantRowBody({
                 <Edit3 className="mr-2 h-4 w-4" />
                 {t('participants.edit_notes_tags')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setModal({ type: 'enrollment', participant })}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                {t('participants.change_enrollment')}
-              </DropdownMenuItem>
+              {canChangeEnrollment(participant) && (
+                <DropdownMenuItem onClick={() => setModal({ type: 'enrollment', participant })}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {t('participants.change_enrollment')}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => setModal({ type: 'download', participantIds: [participant.participantId] })}
               >
@@ -613,6 +631,7 @@ function ParticipantRowBody({
               participantSensors={participantSensors}
               iosUploadStatus={iosUploadStatus}
               selectedAndroidSensors={selectedAndroidSensors}
+              settingsVersion={settingsVersion}
             />
           </TableCell>
         </TableRow>
@@ -638,7 +657,8 @@ export function StudyParticipantsPage() {
     refetch: refetchParticipants,
   } = useGetStudyParticipantsQuery(studyId, { skip: !studyId });
 
-  const { data: stats = {}, isLoading: isStatsLoading } = useGetParticipantStatsQuery(studyId, { skip: !studyId });
+  const statsQuery = useGetParticipantStatsQuery(studyId, { skip: !studyId });
+  const { data: stats = EMPTY_PARTICIPANT_MAP, isLoading: isStatsLoading } = statsQuery;
 
   const enrolledCount = participants.filter((p) => p.participationStatus === 'ENROLLED').length;
 
@@ -646,39 +666,57 @@ export function StudyParticipantsPage() {
   const [deleteParticipants, { isLoading: isDeletingBatch }] = useDeleteStudyParticipantsMutation();
 
   const [newParticipantId, setNewParticipantId] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const { searchQuery, setSearchQuery, sort, handleSort, page, showMore } = useListSearchParams(
+    ['activity', 'id', 'status'],
+    'id',
+  );
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const [sort, setSort] = useState<SortState<ParticipantSortKey>>({ dir: 'asc', key: 'id' });
   const [actionError, setActionError] = useState<string | null>(null);
-  const [deletionOperations, setDeletionOperations] = useState<DataDeletionOperation[]>([]);
+  const [deletionOperations, setDeletionOperations] = useState<
+    (Partial<DataDeletionOperation> & { operationId: string })[]
+  >([]);
+  const [deletionStatusError, setDeletionStatusError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<ModalState>({ type: 'none' });
-  const [visibleCount, setVisibleCount] = useState(PARTICIPANT_PAGE_SIZE);
+  const visibleCount = page * PARTICIPANT_PAGE_SIZE;
   const [getDeletionOperation, deletionStatusRequest] = useLazyGetDeletionOperationQuery();
 
   const hasExpandedRows = expandedRows.size > 0;
-  const { data: devices = {} } = useGetStudyDevicesQuery(studyId, { skip: !studyId || !hasExpandedRows });
-  const { data: iosUploadStatus = {} } = useGetIosUploadStatusQuery(studyId, { skip: !studyId || !hasExpandedRows });
-  const { data: dataCollectionSetting } = useGetStudyDataCollectionSettingQuery(studyId, { skip: !studyId });
-  const { data: sensorAvailability = [] } = useGetStudySensorAvailabilityQuery(studyId, {
+  const devicesQuery = useGetStudyDevicesQuery(studyId, { skip: !studyId || !hasExpandedRows });
+  const { data: devices = EMPTY_PARTICIPANT_MAP } = devicesQuery;
+  const iosUploadQuery = useGetIosUploadStatusQuery(studyId, { skip: !studyId || !hasExpandedRows });
+  const { data: iosUploadStatus = EMPTY_PARTICIPANT_MAP } = iosUploadQuery;
+  const collectionQuery = useGetStudyDataCollectionSettingQuery(studyId, { skip: !studyId });
+  const { data: dataCollectionSetting } = collectionQuery;
+  const sensorsQuery = useGetStudySensorAvailabilityQuery(studyId, {
     skip: !studyId || !hasExpandedRows,
   });
-  const { data: acknowledgments = [] } = useGetStudyCollectionAcknowledgmentsQuery(
+  const { data: sensorAvailability = [] } = sensorsQuery;
+  const acknowledgmentsQuery = useGetStudyCollectionAcknowledgmentsQuery(
     { studyId },
     { skip: !studyId || !hasExpandedRows },
   );
+  const { data: acknowledgments = [] } = acknowledgmentsQuery;
+  const secondaryQueries = [
+    statsQuery,
+    collectionQuery,
+    ...(hasExpandedRows ? [devicesQuery, iosUploadQuery, sensorsQuery, acknowledgmentsQuery] : []),
+  ];
+  const secondaryFailure = secondaryQueries.find((query) => query.isError);
 
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
   const hasTud = modules.includes('TIME_USE_DIARY');
   const selectedAndroidSensors = useMemo(
-    () => (Array.isArray(study?.settings?.AndroidSensor?.sensors) ? study.settings.AndroidSensor.sensors : []),
-    [study?.settings?.AndroidSensor?.sensors],
+    () =>
+      dataCollectionSetting
+        ? COLLECTION_MODULES.flatMap(({ value, sensorType }) =>
+            sensorType && dataCollectionSetting.modules?.[value]?.enabled ? [sensorType] : [],
+          )
+        : (study?.settings?.AndroidSensor?.sensors ?? []),
+    [dataCollectionSetting, study?.settings?.AndroidSensor?.sensors],
   );
-  // Any per-sensor module enabled in DataCollection (or, legacy, any selected AndroidSensor).
-  const hardwareSensorsEnabled =
-    [...SENSOR_MODULE_IDS].some((id) => dataCollectionSetting?.modules?.[id]?.enabled) ||
-    selectedAndroidSensors.length > 0;
+  const hardwareSensorsEnabled = selectedAndroidSensors.length > 0;
 
   // Filter participants by search query (deferred to avoid jank on large lists)
   const searchedParticipants = useMemo(() => {
@@ -718,10 +756,6 @@ export function StudyParticipantsPage() {
   const visibleParticipants = filteredParticipants.slice(0, visibleCount);
   const hiddenCount = filteredParticipants.length - visibleParticipants.length;
 
-  const handleSort = useCallback((key: ParticipantSortKey) => {
-    setSort((prev) => nextSort(prev, key));
-  }, []);
-
   // Stable reference for setModal — useCallback prevents React.memo invalidation on ParticipantRow
   const stableSetModal = useCallback((state: ModalState) => setModal(state), []);
 
@@ -751,7 +785,7 @@ export function StudyParticipantsPage() {
   }, []);
 
   const sensorAvailabilityMap = useMemo(() => {
-    const map: Record<string, (typeof sensorAvailability)[number][]> = {};
+    const map = Object.create(null) as Record<string, (typeof sensorAvailability)[number][]>;
     for (const entry of sensorAvailability) {
       const list = map[entry.participantId] ?? [];
       list.push(entry);
@@ -761,7 +795,7 @@ export function StudyParticipantsPage() {
   }, [sensorAvailability]);
 
   const acknowledgmentsMap = useMemo(() => {
-    const map: Record<string, CollectionAcknowledgmentEntry[]> = {};
+    const map = Object.create(null) as Record<string, CollectionAcknowledgmentEntry[]>;
     for (const entry of acknowledgments) {
       const list = map[entry.participantId] ?? [];
       list.push(entry);
@@ -800,12 +834,15 @@ export function StudyParticipantsPage() {
     setActionError(null);
     try {
       const operationIds = await deleteParticipants({ participantIds: requested, studyId }).unwrap();
+      setDeletionOperations((current) => [
+        ...current,
+        ...operationIds
+          .filter((id) => !current.some(({ operationId }) => operationId === id))
+          .map((operationId) => ({ operationId })),
+      ]);
       setSelectedIds(new Set());
       setModal({ type: 'none' });
-      const operations = await Promise.all(
-        operationIds.map((operationId) => getDeletionOperation({ operationId, studyId }, false).unwrap()),
-      );
-      setDeletionOperations(operations);
+      await refreshDeletionOperations(operationIds);
       if (operationIds.length < requested.length) {
         setActionError(
           t('participants.queued_partial', {
@@ -819,16 +856,19 @@ export function StudyParticipantsPage() {
     }
   };
 
-  const refreshDeletionOperations = async () => {
-    setActionError(null);
-    try {
-      const operations = await Promise.all(
-        deletionOperations.map(({ operationId }) => getDeletionOperation({ operationId, studyId }, false).unwrap()),
-      );
-      setDeletionOperations(operations);
-    } catch (err: unknown) {
-      setActionError(getErrorMessage(err, t('participants.refresh_deletion_failed')));
-    }
+  const refreshDeletionOperations = async (operationIds = deletionOperations.map(({ operationId }) => operationId)) => {
+    setDeletionStatusError(null);
+    const results = await Promise.allSettled(
+      operationIds.map((operationId) => getDeletionOperation({ operationId, studyId }, false).unwrap()),
+    );
+    const operations = new Map(
+      results.flatMap((result) =>
+        result.status === 'fulfilled' ? [[result.value.operationId, result.value] as const] : [],
+      ),
+    );
+    setDeletionOperations((current) => current.map((operation) => operations.get(operation.operationId) ?? operation));
+    if (results.some((result) => result.status === 'rejected'))
+      setDeletionStatusError(t('participants.refresh_deletion_failed'));
   };
 
   // Select all acts on the rows on screen, so a bulk action never reaches rows nobody saw.
@@ -893,11 +933,18 @@ export function StudyParticipantsPage() {
             </Button>
           </div>
           <div className="space-y-2">
+            {deletionStatusError && (
+              <p className="text-sm text-destructive" role="alert">
+                {deletionStatusError}
+              </p>
+            )}
             {deletionOperations.map((operation) => (
               <div className="flex flex-wrap items-center gap-2 text-sm" key={operation.operationId}>
-                <code className="text-xs">{operation.operationId}</code>
+                <code translate="no" className="text-xs">
+                  {operation.operationId}
+                </code>
                 <Badge variant={operation.status === 'COMPLETED' ? 'success' : 'warning'}>
-                  {statusLabel(t, 'job', operation.status)}
+                  {operation.status ? statusLabel(t, 'job', operation.status) : t('common.loading')}
                 </Badge>
                 {operation.quarantineUntil && (
                   <span className="text-muted-foreground">
@@ -938,6 +985,9 @@ export function StudyParticipantsPage() {
                 aria-describedby={newIdInvalid ? 'new-participant-id-error' : undefined}
                 aria-invalid={newIdInvalid}
                 aria-label={t('participants.new_id_aria')}
+                name="participant-id"
+                autoComplete="off"
+                spellCheck={false}
                 className="sm:w-56"
                 onChange={(e) => setNewParticipantId(e.target.value)}
                 placeholder={t('participants.new_id_placeholder')}
@@ -993,6 +1043,16 @@ export function StudyParticipantsPage() {
 
       {isLoading ? (
         <TableSkeleton label={t('participants.loading_title')} />
+      ) : secondaryFailure ? (
+        <StatePanel
+          description={getErrorMessage(secondaryFailure.error, t('participants.details_failed'))}
+          title={t('common.request_failed')}
+          icon={<CircleAlert className="h-5 w-5" />}
+          onRetry={() => void secondaryFailure.refetch()}
+          tone="destructive"
+        />
+      ) : secondaryQueries.some((query) => query.isLoading) ? (
+        <TableSkeleton label={t('common.loading')} />
       ) : isParticipantsError ? (
         <StatePanel
           className="max-w-none"
@@ -1000,7 +1060,11 @@ export function StudyParticipantsPage() {
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
           isRetrying={isParticipantsFetching}
-          onRetry={() => refetchParticipants().unwrap().catch(() => undefined)}
+          onRetry={() =>
+            refetchParticipants()
+              .unwrap()
+              .catch(() => undefined)
+          }
           title={t('participants.load_error_title')}
           tone="destructive"
         />
@@ -1060,6 +1124,7 @@ export function StudyParticipantsPage() {
                     iosUploadStatus={iosUploadStatus[participant.participantId]}
                     ps={stats[participant.participantId]}
                     selectedAndroidSensors={selectedAndroidSensors}
+                    settingsVersion={dataCollectionSetting?.settingsVersion}
                     setModal={stableSetModal}
                     toggleExpanded={toggleExpanded}
                     toggleSelected={toggleSelected}
@@ -1070,7 +1135,7 @@ export function StudyParticipantsPage() {
           </Table>
           {hiddenCount > 0 && (
             <div className="flex justify-center border-t border-border p-3">
-              <Button onClick={() => setVisibleCount((count) => count + PARTICIPANT_PAGE_SIZE)} variant="outline">
+              <Button onClick={showMore} variant="outline">
                 {t('participants.show_more', { hidden: hiddenCount, step: PARTICIPANT_PAGE_SIZE })}
               </Button>
             </div>
@@ -1141,6 +1206,11 @@ export function StudyParticipantsPage() {
                 ? t('participants.delete_many_description', { count: String(modal.participantIds.length) })
                 : ''}
           </DialogDescription>
+          {actionError && (
+            <p className="text-sm font-medium text-destructive" role="alert">
+              {actionError}
+            </p>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <Button onClick={() => setModal({ type: 'none' })} variant="ghost">
               {t('common.cancel')}
