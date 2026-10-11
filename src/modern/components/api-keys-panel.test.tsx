@@ -1,11 +1,23 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { configureStore } from '@reduxjs/toolkit';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 
 import { studyOperationsApi } from '@/state/study-operations-api';
 
-import { ApiKeysPanel } from './api-keys-panel';
+import { ApiKeysPanel, MAX_EXPIRY_DAYS } from './api-keys-panel';
+
+test('API-key lifetime caps match the owning server constants', () => {
+  const server = readFileSync(
+    '../chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/apikeys/ApiKeyService.kt',
+    'utf8',
+  );
+  for (const [scope, days] of Object.entries(MAX_EXPIRY_DAYS)) {
+    const value = server.match(new RegExp(`MAX_${scope}_KEY_TTL_DAYS = (\\d+)`))?.[1];
+    expect(Number(value)).toBe(days);
+  }
+});
 
 const RAW_KEY = 'ck_abcd1234_secret-value';
 const OWNER_PERMISSIONS = { OWNER: true, READ: true, WRITE: true };
@@ -42,14 +54,20 @@ function jsonResponse(body: unknown): Response {
 }
 
 /** A real store over a stubbed server holding [KEYS], where the user holds [permissions] on the study. */
-function renderPanel(permissions: Record<string, boolean>, createGate?: Promise<void>, failList = false) {
+function renderPanel(
+  permissions: Record<string, boolean>,
+  createGate?: Promise<void>,
+  failList = false,
+  failScopes = false,
+) {
   window.location.href = 'http://localhost/';
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
     value: async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(String(input), init);
       const path = new URL(request.url, 'http://localhost').pathname;
-      if (path.endsWith('/authorizations')) return jsonResponse([{ aclKey: ['study-1'], permissions }]);
+      if (path.endsWith('/authorizations'))
+        return failScopes ? new Response('', { status: 503 }) : jsonResponse([{ aclKey: ['study-1'], permissions }]);
       if (failList && request.method === 'GET' && path.endsWith('/api-keys')) {
         return new Response('', { status: 503 });
       }
@@ -87,6 +105,12 @@ afterEach(() => {
 });
 
 describe('ApiKeysPanel', () => {
+  test('permission-query failure is reported with retry instead of silently hiding modification controls', async () => {
+    renderPanel(OWNER_PERMISSIONS, undefined, false, true);
+    expect((await screen.findByRole('alert')).textContent).toContain('permissions could not be loaded');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Create key' })).toBeNull();
+  });
   test('announces an API-key list failure once', async () => {
     renderPanel(OWNER_PERMISSIONS, undefined, true);
 

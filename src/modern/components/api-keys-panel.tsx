@@ -11,9 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { formatDisplayDate } from '@/lib/format';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import {
+  type ApiKeyInfo,
   type ApiKeyScope,
   useCreateStudyApiKeyMutation,
   useGetStudyApiKeyScopesQuery,
@@ -22,12 +23,16 @@ import {
 } from '@/state/study-operations-api';
 
 // The server caps a key's lifetime by scope (ApiKeyService.maxTtlDaysForScope).
-const MAX_EXPIRY_DAYS: Record<ApiKeyScope, number> = { ADMIN: 30, READ_ONLY: 365, WRITE: 90 };
+export const MAX_EXPIRY_DAYS: Record<ApiKeyScope, number> = { ADMIN: 30, READ_ONLY: 365, WRITE: 90 };
 const SCOPE_LABEL_KEYS: Record<ApiKeyScope, string> = {
   ADMIN: 'api_keys.scope_admin',
   READ_ONLY: 'api_keys.scope_read_only',
   WRITE: 'api_keys.scope_write',
 };
+
+function validKeyDraft(name: string, days: number, maxDays: number) {
+  return name.trim() !== '' && Number.isInteger(days) && days >= 1 && days <= maxDays;
+}
 
 /**
  * Researcher API keys for one study: list, and, for users who may modify the study, create and revoke.
@@ -37,8 +42,9 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
   const { t } = useTranslator();
   const { data: keys = [], error, isError, isLoading } = useListStudyApiKeysQuery(studyId);
   // Only scopes the user holds themselves are offered; creating or revoking needs study modify (WRITE) access.
-  const { data: heldScopes = [] } = useGetStudyApiKeyScopesQuery(studyId);
-  const canModify = heldScopes.includes('WRITE');
+  const scopesQuery = useGetStudyApiKeyScopesQuery(studyId);
+  const heldScopes = scopesQuery.data ?? [];
+  const canModify = !scopesQuery.isError && heldScopes.includes('WRITE');
   const createIntent = useResearcherCreateIntent(`/study/${studyId}/api-keys`);
   const [createKey, { isLoading: isCreating }] = useCreateStudyApiKeyMutation();
   const [revokeKey, { isLoading: isRevoking }] = useRevokeStudyApiKeyMutation();
@@ -67,16 +73,17 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
   const researcherKeys = keys.filter((key) => !key.participantId);
   const maxDays = MAX_EXPIRY_DAYS[scope];
   const days = Number(expiresInDays);
-  const canCreate = name.trim() !== '' && Number.isInteger(days) && days >= 1 && days <= maxDays && !isCreating;
+  const canCreate = validKeyDraft(name, days, maxDays) && !isCreating;
 
   const handleCreate = async () => {
     setActionError(null);
     const { generation } = studyGeneration.current;
     const body = { expiresInDays: days, name: name.trim(), scope, studyId };
-    const request = createKey({ ...body, idempotencyKey: await createIntent.currentKey(body) });
+    const intent = await createIntent.currentIntent(body);
+    const request = createKey({ ...body, idempotencyKey: intent.key });
     try {
       const created = await request.unwrap();
-      await createIntent.rotateKey();
+      await createIntent.acknowledge(intent);
       // A response issued before a study switch is never shown, on another study or on this one again.
       if (studyGeneration.current.generation !== generation) return;
       setRawKey(created.rawKey);
@@ -114,6 +121,16 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+          {scopesQuery.isError && (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive" role="alert">
+                {getErrorMessage(scopesQuery.error, t('api_keys.scopes_failed'))}
+              </p>
+              <Button variant="outline" onClick={() => void scopesQuery.refetch()}>
+                {t('common.retry')}
+              </Button>
+            </div>
+          )}
           {canModify && (
             <div className="grid gap-4 sm:grid-cols-4">
               <div className="space-y-1.5 sm:col-span-2">
@@ -158,77 +175,28 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
             </div>
           )}
 
-          {rawKey && (
-            <div className="space-y-2 rounded-md border border-warning bg-warning-bg p-3">
-              <p className="text-sm font-medium">{t('api_keys.shown_once')}</p>
-              <div className="flex items-center gap-2">
-                <code className="break-all rounded bg-muted px-2 py-1 font-mono text-xs">{rawKey}</code>
-                <CopyButton aria-label={t('api_keys.copy')} size="icon-xs" value={rawKey} variant="ghost-muted" />
-              </div>
-              <Button onClick={() => setRawKey(null)} size="sm" variant="outline">
-                {t('api_keys.dismiss')}
-              </Button>
-            </div>
+          {rawKey && <IssuedApiKey rawKey={rawKey} onDismiss={() => setRawKey(null)} />}
+
+          {actionError && (
+            <p className="text-sm text-destructive" role="alert">
+              {actionError}
+            </p>
           )}
 
-          {actionError && <p className="text-sm text-destructive" role="alert">{actionError}</p>}
-
           {isError ? (
-            <p className="text-sm text-destructive" role="alert">{getErrorMessage(error, t('api_keys.load_failed'))}</p>
+            <p className="text-sm text-destructive" role="alert">
+              {getErrorMessage(error, t('api_keys.load_failed'))}
+            </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('api_keys.name')}</TableHead>
-                  <TableHead>{t('api_keys.prefix')}</TableHead>
-                  <TableHead>{t('api_keys.scope')}</TableHead>
-                  <TableHead>{t('api_keys.created')}</TableHead>
-                  <TableHead>{t('api_keys.expires')}</TableHead>
-                  <TableHead>{t('api_keys.last_used')}</TableHead>
-                  {canModify && <TableHead className="w-24" />}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {researcherKeys.length === 0 ? (
-                  <TableRow>
-                    <TableCell className="h-16 text-center" colSpan={canModify ? 7 : 6}>
-                      {isLoading ? t('common.loading') : t('api_keys.none')}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  researcherKeys.map((key) => (
-                    <TableRow key={key.keyId}>
-                      <TableCell>{key.name}</TableCell>
-                      <TableCell>
-                        <code className="font-mono text-xs">{key.prefix}</code>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{t(SCOPE_LABEL_KEYS[key.scope])}</Badge>
-                      </TableCell>
-                      <TableCell>{formatDisplayDate(key.createdAt)}</TableCell>
-                      <TableCell>{formatDisplayDate(key.expiresAt)}</TableCell>
-                      <TableCell>
-                        {key.lastUsedAt ? formatDisplayDate(key.lastUsedAt) : t('api_keys.never_used')}
-                      </TableCell>
-                      {canModify && (
-                        <TableCell>
-                          <Button
-                            onClick={() => {
-                              setRevokeError(null);
-                              setRevokeTarget({ keyId: key.keyId, name: key.name });
-                            }}
-                            size="sm"
-                            variant="outline-destructive"
-                          >
-                            {t('api_keys.revoke')}
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+            <ApiKeysTable
+              researcherKeys={researcherKeys}
+              canModify={canModify}
+              isLoading={isLoading}
+              onRevoke={(key) => {
+                setRevokeError(null);
+                setRevokeTarget({ keyId: key.keyId, name: key.name });
+              }}
+            />
           )}
         </div>
       </CardContent>
@@ -241,7 +209,11 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
         <DialogContent className="w-11/12 max-w-md">
           <DialogTitle>{t('api_keys.revoke_title')}</DialogTitle>
           <DialogDescription>{t('api_keys.revoke_confirmation', { name: revokeTarget?.name ?? '' })}</DialogDescription>
-          {revokeError && <p className="text-sm text-destructive" role="alert">{revokeError}</p>}
+          {revokeError && (
+            <p className="text-sm text-destructive" role="alert">
+              {revokeError}
+            </p>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <Button disabled={isRevoking} onClick={() => setRevokeTarget(null)} variant="ghost">
               {t('common.cancel')}
@@ -253,5 +225,81 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+function IssuedApiKey({ rawKey, onDismiss }: { rawKey: string; onDismiss: () => void }) {
+  const { t } = useTranslator();
+  return (
+    <div className="space-y-2 rounded-md border border-warning bg-warning-bg p-3">
+      <p className="text-sm font-medium">{t('api_keys.shown_once')}</p>
+      <div className="flex items-center gap-2">
+        <code className="break-all rounded bg-muted px-2 py-1 font-mono text-xs">{rawKey}</code>
+        <CopyButton aria-label={t('api_keys.copy')} size="icon-xs" value={rawKey} variant="ghost-muted" />
+      </div>
+      <Button onClick={onDismiss} size="sm" variant="outline">
+        {t('api_keys.dismiss')}
+      </Button>
+    </div>
+  );
+}
+
+function ApiKeysTable({
+  researcherKeys,
+  canModify,
+  isLoading,
+  onRevoke,
+}: {
+  researcherKeys: ApiKeyInfo[];
+  canModify: boolean;
+  isLoading: boolean;
+  onRevoke: (key: ApiKeyInfo) => void;
+}) {
+  const { t } = useTranslator();
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{t('api_keys.name')}</TableHead>
+          <TableHead>{t('api_keys.prefix')}</TableHead>
+          <TableHead>{t('api_keys.scope')}</TableHead>
+          <TableHead>{t('api_keys.created')}</TableHead>
+          <TableHead>{t('api_keys.expires')}</TableHead>
+          <TableHead>{t('api_keys.last_used')}</TableHead>
+          {canModify && <TableHead className="w-24" />}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {researcherKeys.length === 0 ? (
+          <TableRow>
+            <TableCell className="h-16 text-center" colSpan={canModify ? 7 : 6}>
+              {isLoading ? t('common.loading') : t('api_keys.none')}
+            </TableCell>
+          </TableRow>
+        ) : (
+          researcherKeys.map((key) => (
+            <TableRow key={key.keyId}>
+              <TableCell>{key.name}</TableCell>
+              <TableCell>
+                <code className="font-mono text-xs">{key.prefix}</code>
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline">{t(SCOPE_LABEL_KEYS[key.scope])}</Badge>
+              </TableCell>
+              <TableCell>{formatDisplayDate(key.createdAt)}</TableCell>
+              <TableCell>{formatDisplayDate(key.expiresAt)}</TableCell>
+              <TableCell>{key.lastUsedAt ? formatDisplayDate(key.lastUsedAt) : t('api_keys.never_used')}</TableCell>
+              {canModify && (
+                <TableCell>
+                  <Button onClick={() => onRevoke(key)} size="sm" variant="outline-destructive">
+                    {t('api_keys.revoke')}
+                  </Button>
+                </TableCell>
+              )}
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
   );
 }
