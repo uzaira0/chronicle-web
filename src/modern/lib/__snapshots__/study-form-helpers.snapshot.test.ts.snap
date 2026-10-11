@@ -86,15 +86,15 @@ exports[`study form helper snapshots buildStudyLimits null when all empty 1`] = 
 exports[`study form helper snapshots buildStudyLimits all set 1`] = `
 {
   "dataRetentionDuration": {
-    "days": 0,
-    "months": 3,
+    "days": 90,
+    "months": 0,
     "years": 0,
   },
   "participantLimit": 100,
   "studyDuration": {
-    "days": 0,
+    "days": 365,
     "months": 0,
-    "years": 1,
+    "years": 0,
   },
 }
 `;
@@ -108,70 +108,14 @@ exports[`study form helper snapshots buildStudyLimits only participantLimit 1`] 
 exports[`study form helper snapshots buildStudyLimits only studyDurationDays 1`] = `
 {
   "studyDuration": {
-    "days": 0,
-    "months": 6,
+    "days": 180,
+    "months": 0,
     "years": 0,
   },
 }
 `;
 
 exports[`study form helper snapshots buildStudyLimits zero values return null 1`] = `null`;
-
-exports[`study form helper snapshots daysToStudyDuration 0 days 1`] = `
-{
-  "days": 0,
-  "months": 0,
-  "years": 0,
-}
-`;
-
-exports[`study form helper snapshots daysToStudyDuration 440 days 1`] = `
-{
-  "days": 15,
-  "months": 2,
-  "years": 1,
-}
-`;
-
-exports[`study form helper snapshots daysToStudyDuration 365 days 1`] = `
-{
-  "days": 0,
-  "months": 0,
-  "years": 1,
-}
-`;
-
-exports[`study form helper snapshots daysToStudyDuration 1095 days 1`] = `
-{
-  "days": 0,
-  "months": 0,
-  "years": 3,
-}
-`;
-
-exports[`study form helper snapshots daysToStudyDuration 30 days 1`] = `
-{
-  "days": 0,
-  "months": 1,
-  "years": 0,
-}
-`;
-
-exports[`study form helper snapshots daysToStudyDuration 1 day 1`] = `
-{
-  "days": 1,
-  "months": 0,
-  "years": 0,
-}
-`;
-
-exports[`study form helper snapshots daysToStudyDuration 730 days 1`] = `
-{
-  "days": 0,
-  "months": 0,
-  "years": 2,
-}
-`;
 
 exports[`study form helper snapshots buildDataCollectionSetting module entry shapes interval-configurable enabled module emits collectionCadence (plain object, no @class) 1`] = `
 {
@@ -197,5 +141,61 @@ exports[`study form helper snapshots buildDataCollectionSetting module entry sha
 {
   "enabled": true,
   "required": false,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 0 days 1`] = `
+{
+  "days": 0,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 440 days 1`] = `
+{
+  "days": 440,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 365 days 1`] = `
+{
+  "days": 365,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 1095 days 1`] = `
+{
+  "days": 1095,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 30 days 1`] = `
+{
+  "days": 30,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 1 day 1`] = `
+{
+  "days": 1,
+  "months": 0,
+  "years": 0,
+}
+`;
+
+exports[`study form helper snapshots daysToStudyDuration 730 days 1`] = `
+{
+  "days": 730,
+  "months": 0,
+  "years": 0,
 }
 `;

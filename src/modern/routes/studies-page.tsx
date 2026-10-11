@@ -1,9 +1,9 @@
 import { Bell, CircleAlert, Library, Search } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { SectionHeader } from '@/components/section-header';
-import { nextSort, SortableTableHead, type SortState } from '@/components/sortable-table-head';
+import { SortableTableHead } from '@/components/sortable-table-head';
 import { StatePanel } from '@/components/state-panel';
 import { type StudyFormData, StudyFormDialog } from '@/components/study-form-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { formatDisplayDate } from '@/lib/format';
 import { buildStudyParticipantPolicy, EMPTY_PARTICIPANT_POLICY_FORM } from '@/lib/participant-policy';
 import { STUDY_FEATURES } from '@/lib/study-constants';
@@ -23,6 +22,8 @@ import {
   buildSensorSetting,
   buildStudyLimits,
   buildStudyPayload,
+  buildTimeUseDiarySetting,
+  buildWithdrawalSetting,
 } from '@/lib/study-form-helpers';
 import {
   saveStep,
@@ -30,6 +31,8 @@ import {
   studyConfigurationNavigationState,
   writeSettingsInOrder,
 } from '@/lib/study-navigation';
+import { useListSearchParams } from '@/lib/use-list-search-params';
+import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { useAppSelector } from '@/state/store';
 import {
   type StudySummary,
@@ -42,8 +45,6 @@ import {
 function hasValidStudyId(study: StudySummary): study is StudySummary & { id: string } {
   return typeof study.id === 'string' && study.id.length > 0;
 }
-
-type StudySortKey = 'contact' | 'title' | 'updated';
 
 const FEATURE_LABELS = new Map<string, string>(STUDY_FEATURES.map(({ label, value }) => [value, label]));
 
@@ -81,7 +82,9 @@ function StudyTableRow({ study }: { study: StudySummary & { id: string } }) {
           <p className="line-clamp-1 max-w-xl text-xs text-muted-foreground" title={study.description ?? undefined}>
             {study.description || t('common.no_description')}
           </p>
-          <code className="font-mono text-2xs text-muted-foreground">{study.id}</code>
+          <code translate="no" className="font-mono text-2xs text-muted-foreground">
+            {study.id}
+          </code>
         </div>
       </TableCell>
       {/* Truncated: the shared study contact is a long address that otherwise wrapped to
@@ -122,8 +125,10 @@ export function StudiesPage() {
     skip: session.status !== 'authenticated',
   });
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sort, setSort] = useState<SortState<StudySortKey>>({ dir: 'asc', key: 'title' });
+  const { searchQuery, setSearchQuery, sort, handleSort } = useListSearchParams(
+    ['contact', 'title', 'updated'],
+    'title',
+  );
   const [createStudy] = useCreateStudyMutation();
   const createIntent = useResearcherCreateIntent('/study');
   const [updateStudySettings] = useUpdateStudySettingsMutation();
@@ -144,20 +149,19 @@ export function StudiesPage() {
       .sort((a, b) => direction * field(a).localeCompare(field(b)));
   }, [studies, searchQuery, sort]);
 
-  const handleSort = useCallback((key: StudySortKey) => {
-    setSort((prev) => nextSort(prev, key));
-  }, []);
-
   const handleCreateStudy = async (form: StudyFormData) => {
     const study = buildStudyPayload(form);
-    const studyId = await createStudy({ study, idempotencyKey: await createIntent.currentKey(study) }).unwrap();
-    await createIntent.rotateKey();
+    const intent = await createIntent.currentIntent(study);
+    const studyId = await createStudy({ study, idempotencyKey: intent.key }).unwrap();
+    await createIntent.acknowledge(intent);
 
     // Best-effort post-create config (the study already exists). The settings PATCHes run
     // in order and continue past a failure (writeSettingsInOrder); limits is a disjoint
     // write and runs in parallel. Every step that did not save is named on the study page.
     const limits = buildStudyLimits(form);
     const writes = settingWrites({
+      Withdrawal: buildWithdrawalSetting(form),
+      TimeUseDiary: buildTimeUseDiarySetting(form),
       AndroidSensor: buildSensorSetting(form),
       DataCollection: buildDataCollectionSetting(form),
       ParticipantPolicy: buildStudyParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM),
@@ -193,6 +197,8 @@ export function StudiesPage() {
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           aria-label={t('studies.search_aria')}
+          name="study-search"
+          autoComplete="off"
           className="pl-9"
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('studies.search_placeholder')}

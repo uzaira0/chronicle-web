@@ -408,23 +408,23 @@ describe('daysToStudyDuration shape', () => {
     expect(daysToStudyDuration(0)).toEqual({ years: 0, months: 0, days: 0 });
   });
 
-  it('365 days returns 1 year', () => {
-    expect(daysToStudyDuration(365)).toEqual({ years: 1, months: 0, days: 0 });
+  it('365 days stays an exact day count', () => {
+    expect(daysToStudyDuration(365)).toEqual({ years: 0, months: 0, days: 365 });
   });
 
-  it('30 days returns 1 month', () => {
-    expect(daysToStudyDuration(30)).toEqual({ years: 0, months: 1, days: 0 });
+  it('30 days stays an exact day count', () => {
+    expect(daysToStudyDuration(30)).toEqual({ years: 0, months: 0, days: 30 });
   });
 
   it('1 day returns 1 day', () => {
     expect(daysToStudyDuration(1)).toEqual({ years: 0, months: 0, days: 1 });
   });
 
-  it('395 days decomposes correctly', () => {
+  it('395 days stays an exact day count', () => {
     const result = daysToStudyDuration(395);
-    expect(result.years).toBe(1);
-    expect(result.months).toBe(1);
-    expect(result.days).toBe(0);
+    expect(result.years).toBe(0);
+    expect(result.months).toBe(0);
+    expect(result.days).toBe(395);
   });
 });
 

@@ -68,12 +68,9 @@ describe('studyDurationToDays — exhaustive matrix', () => {
 describe('daysToStudyDuration — round-trip for 0..1500 step 10', () => {
   for (let totalDays = 0; totalDays <= 1500; totalDays += 10) {
     it(`days=${totalDays}: round-trips correctly`, () => {
+      // Day limits stay exact day counts; calendar splitting changed their deadlines.
       const duration = daysToStudyDuration(totalDays);
-      expect(duration.years).toBeGreaterThanOrEqual(0);
-      expect(duration.months).toBeGreaterThanOrEqual(0);
-      expect(duration.months).toBeLessThan(13);
-      expect(duration.days).toBeGreaterThanOrEqual(0);
-      expect(duration.days).toBeLessThan(30);
+      expect(duration).toEqual({ years: 0, months: 0, days: totalDays });
       expect(studyDurationToDays(duration)).toBe(totalDays);
     });
   }
@@ -139,9 +136,9 @@ describe('buildSensorSetting — numeric string parsing matrix', () => {
             }),
           );
           expect(result).not.toBeNull();
-          // Empty/0 strings should fall back to defaults
+          // Zero is a valid active window; empty values use defaults.
           const expectedRate = parseInt(samplingRateHz, 10) || 5;
-          const expectedActive = parseInt(dutyCycleActiveSeconds, 10) || 30;
+          const expectedActive = dutyCycleActiveSeconds === '' ? 30 : Number(dutyCycleActiveSeconds);
           const expectedPeriod = parseInt(dutyCyclePeriodSeconds, 10) || 300;
           expect(result?.samplingRateHz).toBe(expectedRate);
           expect(result?.dutyCycleActiveSeconds).toBe(expectedActive);

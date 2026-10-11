@@ -4,8 +4,11 @@ import { createTranslator } from '@/i18n/translator';
 import {
   COLLECTION_MODULES,
   DEFAULT_DISPOSITION,
+  DEFAULT_SENSOR_DUTY_ACTIVE,
+  DEFAULT_STUDY_TIME_ZONE,
   INTERVAL_CONFIGURABLE_MODULES,
   SHARED_QUEUE_MODULES,
+  WITHDRAWAL_MODES,
 } from '@/lib/study-constants';
 
 export function studyDurationToDays(duration: { days: number; months: number; years: number }) {
@@ -13,11 +16,7 @@ export function studyDurationToDays(duration: { days: number; months: number; ye
 }
 
 export function daysToStudyDuration(totalDays: number) {
-  const years = Math.floor(totalDays / 365);
-  const remaining = totalDays % 365;
-  const months = Math.floor(remaining / 30);
-  const days = remaining % 30;
-  return { years, months, days };
+  return { years: 0, months: 0, days: totalDays };
 }
 
 export function buildStudyPayload(form: StudyFormData) {
@@ -37,6 +36,29 @@ export function buildStudyPayload(form: StudyFormData) {
   };
 }
 
+export function buildWithdrawalSetting(form: StudyFormData) {
+  const mode = form.withdrawalMode ?? WITHDRAWAL_MODES.erase;
+  if (form.loadedWithdrawalMode === mode) return null;
+  return {
+    '@class': 'com.openlattice.chronicle.study.StudyWithdrawalSetting',
+    mode,
+  };
+}
+
+export function buildTimeUseDiarySetting(form: StudyFormData) {
+  if (form.loadedTimeZone === (form.timeZone ?? DEFAULT_STUDY_TIME_ZONE)) return null;
+  return {
+    ...form.loadedTimeUseDiary,
+    '@class': 'com.openlattice.chronicle.timeusediary.TimeUseDiarySettings',
+    timeZone: form.timeZone ?? DEFAULT_STUDY_TIME_ZONE,
+  };
+}
+
+function parseDutyCycleActiveSeconds(value: string): number {
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? Number(DEFAULT_SENSOR_DUTY_ACTIVE) : parsed;
+}
+
 export function buildSensorSetting(form: StudyFormData) {
   if (!form.features.includes('ANDROID_SENSOR') || form.selectedSensors.length === 0) {
     return null;
@@ -46,7 +68,7 @@ export function buildSensorSetting(form: StudyFormData) {
     '@class': 'com.openlattice.chronicle.android.AndroidSensorSetting' as const,
     sensors: form.selectedSensors,
     samplingRateHz: parseInt(form.samplingRateHz, 10) || 5,
-    dutyCycleActiveSeconds: parseInt(form.dutyCycleActiveSeconds, 10) || 30,
+    dutyCycleActiveSeconds: parseDutyCycleActiveSeconds(form.dutyCycleActiveSeconds),
     dutyCyclePeriodSeconds: parseInt(form.dutyCyclePeriodSeconds, 10) || 300,
   };
 }
@@ -82,7 +104,7 @@ function buildPerSensorPolicy(form: StudyFormData, moduleId: string, sensorType:
     '@class': 'com.openlattice.chronicle.android.AndroidSensorSetting' as const,
     sensors: [sensorType],
     samplingRateHz: parseInt(form.sensorRateHz?.[moduleId] ?? '', 10) || 5,
-    dutyCycleActiveSeconds: parseInt(form.sensorDutyActive?.[moduleId] ?? '', 10) || 30,
+    dutyCycleActiveSeconds: parseDutyCycleActiveSeconds(form.sensorDutyActive?.[moduleId] ?? ''),
     dutyCyclePeriodSeconds: parseInt(form.sensorDutyPeriod?.[moduleId] ?? '', 10) || 300,
   };
 }
@@ -153,7 +175,9 @@ function buildModuleEntry(form: StudyFormData, module: (typeof COLLECTION_MODULE
   // enabled, but is always sent (mirrors `enabled`, keeps the write idempotent); defaults
   // optional (false), and a disabled module is never required. An always-on module is
   // written enabled whatever the form state says (stale state from before the lock).
-  const enabled = module.alwaysOn ? true : form.features.includes('CHRONICLE_DATA_COLLECTION') && (form.moduleSettings?.[value] ?? defaultEnabled);
+  const enabled = module.alwaysOn
+    ? true
+    : form.features.includes('CHRONICLE_DATA_COLLECTION') && (form.moduleSettings?.[value] ?? defaultEnabled);
   const required = enabled ? (form.moduleRequired?.[value] ?? false) : false;
   const moduleEntry: Record<string, unknown> = { enabled, required };
 
@@ -192,7 +216,9 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   const modules: Record<string, Record<string, unknown>> = {};
   for (const [moduleId, entry] of Object.entries(form.loadedModules ?? {})) {
     if (!known.has(moduleId) && entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      modules[moduleId] = collecting ? { ...(entry as Record<string, unknown>) } : { ...(entry as Record<string, unknown>), enabled: false, required: false };
+      modules[moduleId] = collecting
+        ? { ...(entry as Record<string, unknown>) }
+        : { ...(entry as Record<string, unknown>), enabled: false, required: false };
     }
   }
   for (const module of COLLECTION_MODULES) {
@@ -227,6 +253,15 @@ export function studyLimitsPartial(form: StudyFormData): boolean {
 
 // Null means "no request": the limits endpoint binds an empty body to the StudyLimits
 // defaults rather than clearing, so there is no wire representation of "no limit" yet.
+/** The stored duration when its day field is untouched, so a legacy calendar period ("1 year") is not rewritten as days. */
+function unchangedDuration(
+  form: StudyFormData,
+  field: 'dataRetentionDays' | 'studyDurationDays',
+  duration: 'dataRetentionDuration' | 'studyDuration',
+) {
+  return form[field].trim() === form.loadedLimits?.[field] ? form.loadedLimits[duration] : undefined;
+}
+
 export function buildStudyLimits(form: StudyFormData): Record<string, unknown> | null {
   const participantLimit = parseInt(form.participantLimit, 10);
   const studyDurationDays = parseInt(form.studyDurationDays, 10);
@@ -238,7 +273,13 @@ export function buildStudyLimits(form: StudyFormData): Record<string, unknown> |
 
   const limits: Record<string, unknown> = {};
   if (participantLimit > 0) limits.participantLimit = participantLimit;
-  if (studyDurationDays > 0) limits.studyDuration = daysToStudyDuration(studyDurationDays);
-  if (dataRetentionDays > 0) limits.dataRetentionDuration = daysToStudyDuration(dataRetentionDays);
+  if (studyDurationDays > 0) {
+    limits.studyDuration =
+      unchangedDuration(form, 'studyDurationDays', 'studyDuration') ?? daysToStudyDuration(studyDurationDays);
+  }
+  if (dataRetentionDays > 0) {
+    limits.dataRetentionDuration =
+      unchangedDuration(form, 'dataRetentionDays', 'dataRetentionDuration') ?? daysToStudyDuration(dataRetentionDays);
+  }
   return limits;
 }

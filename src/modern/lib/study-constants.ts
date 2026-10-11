@@ -375,6 +375,7 @@ const COLLECTION_MODULE_PRESENTATION = [
 // a presentation entry above (and, being typed CollectionModuleId, no retired id can appear).
 type PresentedModuleId = (typeof COLLECTION_MODULE_PRESENTATION)[number]['value'];
 type AssertNever<T extends never> = T;
+/** @public Compile-time proof that every active module has presentation. */
 export type _EveryActiveModuleHasPresentation = AssertNever<Exclude<ActiveCollectionModuleId, PresentedModuleId>>;
 
 const CONTRACT_BY_MODULE_ID = new Map(COLLECTION_MODULE_CONTRACTS.map((contract) => [contract.id, contract]));
@@ -419,6 +420,14 @@ export const COLLECTION_MODULES: ReadonlyArray<CollectionModuleDescriptor> = ORD
     };
   },
 );
+
+/** Match Android's defaults for omitted entries while preserving explicit opt-outs. */
+export function collectionModuleEnabled(
+  module: Pick<CollectionModuleDescriptor, 'value' | 'defaultEnabled'>,
+  settings: Readonly<Record<string, { enabled?: boolean } | undefined>>,
+): boolean {
+  return settings[module.value]?.enabled ?? module.defaultEnabled;
+}
 
 // Per-sensor module ids (every COLLECTION_MODULES entry that carries a sensorType).
 export const SENSOR_MODULE_IDS: ReadonlySet<CollectionModuleId> = new Set<CollectionModuleId>(
@@ -542,3 +551,7 @@ export const IOS_SENSOR_TYPES: ReadonlyArray<{
   label: string;
   value: (typeof OFFERED_IOS_SENSOR_TYPES)[number];
 }> = OFFERED_IOS_SENSOR_TYPES.map((value) => ({ label: IOS_SENSOR_LABELS[value], value }));
+
+export const WITHDRAWAL_MODES = { keepPriorData: 'KEEP_PRIOR_DATA', erase: 'ERASE' } as const;
+export type WithdrawalMode = (typeof WITHDRAWAL_MODES)[keyof typeof WITHDRAWAL_MODES];
+export const DEFAULT_STUDY_TIME_ZONE = 'UTC';

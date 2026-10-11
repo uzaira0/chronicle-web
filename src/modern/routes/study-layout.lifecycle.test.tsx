@@ -43,6 +43,40 @@ afterEach(() => {
 });
 
 describe('study lifecycle action visibility', () => {
+  test.each([
+    ['2020-01-01T00:00:00Z', true],
+    ['2099-01-01T00:00:00Z', false],
+    [null, false],
+  ])('shows the retention banner only after expiry: %s', async (studyDataExpires, expired) => {
+    window.location.href = 'http://localhost/';
+    installFetchFixture([
+      { matches: (url) => url.endsWith('/limits/study/retention'), respond: () => Response.json({ studyDataExpires }) },
+      { matches: (url) => url.endsWith('/study/retention/lifecycle'), respond: () => Response.json('ACTIVE') },
+      {
+        matches: (url) => url.endsWith('/study/retention'),
+        respond: () => Response.json({ id: 'retention', title: 'Retention study', modules: {} }),
+      },
+    ]);
+    const store = configureStore({
+      reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
+      middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(studyOperationsApi.middleware),
+    });
+    render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={['/studies/retention']}>
+          <Routes>
+            <Route element={<StudyLayout />} path="/studies/:studyId" />
+          </Routes>
+        </MemoryRouter>
+      </Provider>,
+    );
+    await waitFor(() =>
+      expect(studyOperationsApi.endpoints.getStudyLimits.select('retention')(store.getState()).isSuccess).toBe(true),
+    );
+    expect(screen.queryByText('Retention period ended — delete the study.') !== null).toBe(expired);
+    store.dispatch(studyOperationsApi.util.resetApiState());
+  });
+
   const hiddenActions = {
     showActions: false,
     showArchive: false,

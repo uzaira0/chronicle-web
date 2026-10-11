@@ -11,6 +11,8 @@ import {
   DEFAULT_SENSOR_DUTY_PERIOD,
   DEFAULT_SENSOR_RATE_HZ,
   STUDY_FEATURES,
+  WITHDRAWAL_MODES,
+  type WithdrawalMode,
 } from '@/lib/study-constants';
 
 // Portable study configuration: everything the study form edits, as one JSON document a
@@ -30,7 +32,7 @@ export const STUDY_CONFIG_FORMAT = 'chronicle-study-config';
 export const STUDY_CONFIG_VERSION = 1;
 export const STUDY_CONFIG_MAX_BYTES = 1_000_000;
 
-export type StudyConfigFile = {
+type StudyConfigFile = {
   format: typeof STUDY_CONFIG_FORMAT;
   version: typeof STUDY_CONFIG_VERSION;
   exportedAt: string;
@@ -62,6 +64,9 @@ export type PortableStudyConfig = Omit<
   | 'loadedLimits'
   | 'loadedModules'
   | 'loadedParticipantPolicy'
+  | 'loadedWithdrawalMode'
+  | 'loadedTimeZone'
+  | 'loadedTimeUseDiary'
   | (typeof NON_PORTABLE_FIELDS)[number]
 >;
 
@@ -76,9 +81,11 @@ const STRING_FIELDS = [
   'version',
 ] as const satisfies ReadonlyArray<keyof PortableStudyConfig>;
 
-const OPTIONAL_STRING_FIELDS = ['interactionGridRows', 'interactionGridCols'] as const satisfies ReadonlyArray<
-  keyof PortableStudyConfig
->;
+const OPTIONAL_STRING_FIELDS = [
+  'interactionGridRows',
+  'interactionGridCols',
+  'timeZone',
+] as const satisfies ReadonlyArray<keyof PortableStudyConfig>;
 
 const OPTIONAL_BOOLEAN_FIELDS = [
   'interactionCaptureClicks',
@@ -113,7 +120,9 @@ type CoveredField =
   | (typeof BOOLEAN_MAP_FIELDS)[number]
   | 'features'
   | 'notificationsEnabled'
-  | 'participantPolicy';
+  | 'participantPolicy'
+  | 'withdrawalMode';
+/** @public Compile-time proof that every portable field is parsed. */
 export const _everyPortableFieldIsParsed: Exclude<keyof PortableStudyConfig, CoveredField> extends never
   ? true
   : never = true;
@@ -129,6 +138,9 @@ export function toPortableStudyConfig(form: StudyFormData): PortableStudyConfig 
   delete portable.loadedIosSensorSetting;
   delete portable.loadedModules;
   delete portable.loadedParticipantPolicy;
+  delete portable.loadedWithdrawalMode;
+  delete portable.loadedTimeZone;
+  delete portable.loadedTimeUseDiary;
   for (const field of NON_PORTABLE_FIELDS) delete portable[field];
   return portable;
 }
@@ -247,6 +259,11 @@ export function parseStudyConfig(text: string): PortableStudyConfig {
   const config: Record<string, unknown> = {};
   for (const field of STRING_FIELDS) config[field] = requireField(study, field, isString);
   config.features = requireField(study, 'features', isStringArray).filter((feature) => OFFERED_FEATURES.has(feature));
+  config.withdrawalMode = optionalField(
+    study,
+    'withdrawalMode',
+    (value): value is WithdrawalMode => value === WITHDRAWAL_MODES.keepPriorData || value === WITHDRAWAL_MODES.erase,
+  );
   config.notificationsEnabled = requireField(study, 'notificationsEnabled', isBoolean);
   for (const field of OPTIONAL_STRING_FIELDS) config[field] = optionalField(study, field, isString);
   for (const field of OPTIONAL_BOOLEAN_FIELDS) config[field] = optionalField(study, field, isBoolean);

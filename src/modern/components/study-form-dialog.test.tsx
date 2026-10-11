@@ -1,21 +1,38 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-
-import { buildIosSensorSetting, iosSensorSettingUnchanged } from '@/lib/study-form-helpers';
+import { WITHDRAWAL_MODES } from '@/lib/study-constants';
+import {
+  buildIosSensorSetting,
+  buildTimeUseDiarySetting,
+  buildWithdrawalSetting,
+  iosSensorSettingUnchanged,
+} from '@/lib/study-form-helpers';
 
 let dataCollectionQuery: Record<string, unknown> = {};
 let limitsQuery: Record<string, unknown> = {};
 let studySettingsQuery: Record<string, unknown> = {};
 
+// mock.module is process-wide: spread the real module, and fake the hooks only while this file runs.
+const realStudyOperationsApi = await import('@/state/study-operations-api');
+const {
+  useGetStudyDataCollectionSettingQuery: realDataCollectionQuery,
+  useGetStudyLimitsQuery: realLimitsQuery,
+  useGetStudySettingsQuery: realStudySettingsQuery,
+} = realStudyOperationsApi;
+let faking = true;
+afterAll(() => {
+  faking = false;
+});
+const idle = { data: undefined, isError: false, isFetching: false };
+
 await mock.module('@/state/study-operations-api', () => ({
-  useGetStudyDataCollectionSettingQuery: () => ({
-    data: undefined,
-    isError: false,
-    isFetching: false,
-    ...dataCollectionQuery,
-  }),
-  useGetStudyLimitsQuery: () => ({ data: undefined, isError: false, isFetching: false, ...limitsQuery }),
-  useGetStudySettingsQuery: () => ({ data: {}, isError: false, isFetching: false, ...studySettingsQuery }),
+  ...realStudyOperationsApi,
+  useGetStudyDataCollectionSettingQuery: (...args: Parameters<typeof realDataCollectionQuery>) =>
+    faking ? { ...idle, ...dataCollectionQuery } : realDataCollectionQuery(...args),
+  useGetStudyLimitsQuery: (...args: Parameters<typeof realLimitsQuery>) =>
+    faking ? { ...idle, ...limitsQuery } : realLimitsQuery(...args),
+  useGetStudySettingsQuery: (...args: Parameters<typeof realStudySettingsQuery>) =>
+    faking ? { ...idle, data: {}, ...studySettingsQuery } : realStudySettingsQuery(...args),
 }));
 
 import { type StudyFormData, StudyFormDialog } from './study-form-dialog';
@@ -72,6 +89,11 @@ function fillParticipantPolicy() {
   }
 }
 
+function restoreOwn(target: object, key: string, original: PropertyDescriptor | undefined) {
+  if (original) Object.defineProperty(target, key, original);
+  else Reflect.deleteProperty(target, key);
+}
+
 afterEach(() => {
   cleanup();
   dataCollectionQuery = {};
@@ -80,6 +102,66 @@ afterEach(() => {
 });
 
 describe('StudyFormDialog submission fence', () => {
+  test('defaults new studies to erasing prior data', () => {
+    render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
+    expect(screen.getByLabelText<HTMLSelectElement>('Participant withdrawal').value).toBe(WITHDRAWAL_MODES.erase);
+  });
+
+  test('defaults existing studies without a withdrawal setting to erasing prior data', () => {
+    studySettingsQuery = { data: { ParticipantPolicy: POLICY } };
+    render(<StudyFormDialog mode="edit" study={EDIT_STUDY} onSubmit={mock(() => Promise.resolve())} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
+    expect(screen.getByLabelText<HTMLSelectElement>('Participant withdrawal').value).toBe(WITHDRAWAL_MODES.erase);
+  });
+
+  test('rejects an invalid study time zone before saving', () => {
+    studySettingsQuery = { data: { ParticipantPolicy: POLICY } };
+    const onSubmit = mock(() => Promise.resolve());
+    render(<StudyFormDialog mode="edit" study={EDIT_STUDY} onSubmit={onSubmit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
+    const timeZone = screen.getByLabelText('Study time zone (IANA)');
+    fireEvent.change(timeZone, { target: { value: 'Invalid/Zone' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(timeZone);
+    expect(screen.getByText('Enter a valid IANA time zone, such as America/Santiago.')).toBeTruthy();
+  });
+
+  test.each([
+    WITHDRAWAL_MODES.keepPriorData,
+    WITHDRAWAL_MODES.erase,
+  ])('loads and saves withdrawal mode %s with the study time zone', async (mode) => {
+    const priorMode = mode === WITHDRAWAL_MODES.erase ? WITHDRAWAL_MODES.keepPriorData : WITHDRAWAL_MODES.erase;
+    const diary = { timeZone: 'UTC', clockFormat: 24, enableChangesForOhioStateUniversity: true };
+    studySettingsQuery = { data: { ParticipantPolicy: POLICY, Withdrawal: { mode: priorMode }, TimeUseDiary: diary } };
+    const submissions: StudyFormData[] = [];
+    render(
+      <StudyFormDialog
+        mode="edit"
+        study={EDIT_STUDY}
+        onSubmit={(form) => {
+          submissions.push(form);
+          return Promise.resolve();
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
+    const setting = screen.getByLabelText<HTMLSelectElement>('Participant withdrawal');
+    expect(setting.value).toBe(priorMode);
+    fireEvent.change(setting, { target: { value: mode } });
+    fireEvent.change(screen.getByLabelText('Study time zone (IANA)'), { target: { value: 'America/Santiago' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(submissions).toHaveLength(1);
+    const form = submissions[0];
+    if (!form) throw new Error('Study settings were not submitted.');
+    expect(buildWithdrawalSetting(form)?.mode).toBe(mode);
+    expect(buildTimeUseDiarySetting(form)).toMatchObject({ ...diary, timeZone: 'America/Santiago' });
+  });
+
   test('coalesces two synchronous submit clicks into one request', async () => {
     let resolveSubmission: (() => void) | undefined;
     const onSubmit = mock(
@@ -90,13 +172,13 @@ describe('StudyFormDialog submission fence', () => {
     );
 
     render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
     fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Single creation' } });
     fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'researcher@example.org' } });
     fireEvent.click(screen.getByRole('button', { name: 'Custom Surveys' }));
     fillParticipantPolicy();
 
-    const submit = screen.getByRole('button', { name: 'Create Study' });
+    const submit = screen.getByRole('button', { name: 'Create study' });
     act(() => {
       submit.click();
       submit.click();
@@ -114,7 +196,7 @@ describe('StudyFormDialog submission fence', () => {
 describe('StudyFormDialog unsaved changes', () => {
   test('Escape keeps a dirty draft open until the researcher confirms discard', () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
     const title = screen.getByLabelText<HTMLInputElement>(/^Study Name/);
     fireEvent.change(title, { target: { value: 'Unsaved draft' } });
 
@@ -133,7 +215,7 @@ describe('StudyFormDialog unsaved changes', () => {
 
   test('outside dismissal also asks before discarding a dirty draft', async () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
     fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Outside-click draft' } });
 
     const overlay = Array.from(document.querySelectorAll('[data-state="open"]')).find((element) =>
@@ -151,7 +233,7 @@ describe('StudyFormDialog unsaved changes', () => {
 
   test('a clean study form still closes on Escape', () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
 
@@ -163,11 +245,11 @@ describe('StudyFormDialog participant policy', () => {
   test('announces a failed save once while retaining entered study details', async () => {
     const onSubmit = mock(() => Promise.reject(new Error('The study could not be saved.')));
     render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
     fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Retained draft' } });
     fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'researcher@example.org' } });
     fillParticipantPolicy();
-    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create study' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('The study could not be saved.');
@@ -178,16 +260,18 @@ describe('StudyFormDialog participant policy', () => {
   test('explains invalid email and missing policy fields, focuses the first error, then saves corrected values', async () => {
     const onSubmit = mock(() => Promise.resolve());
     render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
     fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Clear requirements' } });
     fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'not-an-email' } });
 
-    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Create Study' });
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Create study' });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
 
     expect(document.activeElement).toBe(screen.getByLabelText(/^Contact Email/));
-    expect(screen.getByText('Enter a valid contact email address.', { selector: 'p#study-contact-error' })).toBeTruthy();
+    expect(
+      screen.getByText('Enter a valid contact email address.', { selector: 'p#study-contact-error' }),
+    ).toBeTruthy();
     expect(
       screen.getByText('Responsible institution is required.', {
         selector: 'p#participant-policy-responsibleInstitution-error',
@@ -197,7 +281,7 @@ describe('StudyFormDialog participant policy', () => {
 
     fireEvent.change(screen.getByLabelText(/^Contact Email/), { target: { value: 'researcher@example.org' } });
     fillParticipantPolicy();
-    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create study' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -206,7 +290,7 @@ describe('StudyFormDialog participant policy', () => {
 
   test('exposes every policy field and identifies the study operator as responsible', () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     for (const label of [
       'Responsible Institution',
@@ -234,7 +318,11 @@ describe('StudyFormDialog participant policy', () => {
     expect(screen.getByLabelText(/^Data Use and Sharing/).getAttribute('aria-describedby')).toBe(
       'participant-policy-dataUseAndSharing-hint',
     );
-    expect(screen.getByText(/Also disclose what the platform always records/)).toBeTruthy();
+    const disclosure = screen.getByText(/Also disclose what the platform retains/).textContent;
+    expect(disclosure).toContain('Participant IP addresses are withheld');
+    expect(disclosure).toContain('User-Agent');
+    expect(disclosure).toContain('staff requests may retain keyed IP fingerprints when configured');
+    expect(disclosure).toContain('rotated backups');
   });
 
   test('loads every saved field without changing the policy effectiveAt offset', () => {
@@ -286,7 +374,7 @@ describe('StudyFormDialog legacy iOS sensors', () => {
     render(<StudyFormDialog mode="edit" onSubmit={onSubmit} study={study} />);
     fireEvent.click(screen.getByRole('button', { name: 'Edit Study' }));
     fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Renamed study' } });
-    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save Changes' });
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save changes' });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await act(async () => {
@@ -324,7 +412,7 @@ describe('StudyFormDialog Health Connect scope', () => {
     expect(screen.getByLabelText<HTMLInputElement>('Sleep sessions and stages').checked).toBe(true);
     expect(screen.getByLabelText<HTMLInputElement>('Heart rate').checked).toBe(false);
     fireEvent.click(screen.getByLabelText('Heart rate'));
-    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await act(async () => {
       await Promise.resolve();
@@ -343,7 +431,7 @@ describe('StudyFormDialog Health Connect scope', () => {
 
     expect(screen.getByText(/Select at least one record type or disable Health Connect/)).toBeTruthy();
     expect(screen.getByText(/With no record types selected, the app requests no Health Connect data/)).toBeTruthy();
-    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save Changes' });
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: 'Save changes' });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     expect(screen.getByText('Fix the highlighted fields before saving.')).toBeTruthy();
@@ -368,7 +456,7 @@ describe('StudyFormDialog Health Connect scope', () => {
 
     expect(screen.getByText(/future_metric/)).toBeTruthy();
     expect(screen.getByText(/preserved when you save/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -421,7 +509,7 @@ describe('StudyFormDialog configuration export and import', () => {
       return Promise.resolve();
     });
     render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     await importFile(JSON.stringify(CONFIG));
 
@@ -441,7 +529,7 @@ describe('StudyFormDialog configuration export and import', () => {
     expect(screen.getByLabelText<HTMLInputElement>('Steps').checked).toBe(true);
     expect((document.getElementById('interval-device_settings') as HTMLInputElement).value).toBe('3600');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create study' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -460,7 +548,7 @@ describe('StudyFormDialog configuration export and import', () => {
       return Promise.resolve();
     });
     render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     // CONFIG names two modules; usage_events is not one of them, and its contract default
     // is enabled — the form must not claim it is off while the save path turns it on.
@@ -470,7 +558,7 @@ describe('StudyFormDialog configuration export and import', () => {
     expect(usageEvents.querySelector<HTMLInputElement>('input[value="disabled"]')?.checked).toBe(false);
     expect(usageEvents.querySelector<HTMLInputElement>('input[value="optional"]')?.checked).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create study' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -484,7 +572,7 @@ describe('StudyFormDialog configuration export and import', () => {
       return Promise.resolve();
     });
     render(<StudyFormDialog mode="create" onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     await importFile(
       JSON.stringify({
@@ -498,7 +586,7 @@ describe('StudyFormDialog configuration export and import', () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create study' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -526,7 +614,7 @@ describe('StudyFormDialog configuration export and import', () => {
 
   test('refuses an oversized file without reading it into memory', async () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     const file = new File(['{}'], 'huge.json', { type: 'application/json' });
     Object.defineProperty(file, 'size', { value: 2_000_000 });
@@ -546,7 +634,7 @@ describe('StudyFormDialog configuration export and import', () => {
 
   test('reports an unreadable file in the dashboard language, not in browser engine English', async () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     const file = new File(['{}'], 'gone.json', { type: 'application/json' });
     file.text = () => Promise.reject(new Error('The requested file could not be read, typically due to permissions.'));
@@ -560,7 +648,7 @@ describe('StudyFormDialog configuration export and import', () => {
 
   test('offers exactly one keyboard-reachable import control and announces into a live region', () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
 
     const input = screen.getByTestId<HTMLInputElement>('study-config-file');
     expect(input.getAttribute('aria-hidden')).toBe('true');
@@ -572,7 +660,7 @@ describe('StudyFormDialog configuration export and import', () => {
 
   test('rejects a file that is not a study configuration and leaves the form untouched', async () => {
     render(<StudyFormDialog mode="create" onSubmit={mock(() => Promise.resolve())} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Create New Study' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create new study' }));
     fireEvent.change(screen.getByLabelText(/^Study Name/), { target: { value: 'Typed title' } });
 
     await importFile(JSON.stringify({ hello: 'world' }), 'notes.json');
@@ -616,9 +704,10 @@ describe('StudyFormDialog configuration export and import', () => {
       expect(exported.study.participantPolicy?.responsibleInstitution).toBe(POLICY.responsibleInstitution);
       expect(exported.study).not.toHaveProperty('loadedParticipantPolicy');
     } finally {
-      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
-      if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
-      if (originalClick) Object.defineProperty(HTMLAnchorElement.prototype, 'click', originalClick);
+      // A stub over an inherited member (anchor click lives on HTMLElement) is deleted, not left behind.
+      restoreOwn(URL, 'createObjectURL', originalCreateObjectURL);
+      restoreOwn(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      restoreOwn(HTMLAnchorElement.prototype, 'click', originalClick);
     }
   });
 });

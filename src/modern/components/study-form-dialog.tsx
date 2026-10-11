@@ -16,7 +16,7 @@ import { FieldHint } from '@/components/ui/field-hint';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { translateCatalog, useTranslator } from '@/i18n';
+import { type Translator, translateCatalog, useTranslator } from '@/i18n';
 import { isValidEmail } from '@/lib/data-validation';
 import { triggerBlobDownload } from '@/lib/download';
 import { getErrorMessage } from '@/lib/errors';
@@ -44,11 +44,14 @@ import {
   DEFAULT_SENSOR_DUTY_ACTIVE,
   DEFAULT_SENSOR_DUTY_PERIOD,
   DEFAULT_SENSOR_RATE_HZ,
+  DEFAULT_STUDY_TIME_ZONE,
   dispositionsForModule,
   HEALTH_CONNECT_RECORD_TYPES,
   INTERVAL_CONFIGURABLE_MODULES,
   isKnownHealthConnectRecordType,
   STUDY_FEATURES,
+  WITHDRAWAL_MODES,
+  type WithdrawalMode,
 } from '@/lib/study-constants';
 import {
   buildStudyLimits,
@@ -95,7 +98,11 @@ type StudyFormData = {
   loadedParticipantPolicy?: unknown;
   // The three limit inputs as loaded, so an edit that leaves them alone skips the admin-only
   // limits PUT (which also re-derives the study end date from "now" on every write).
-  loadedLimits?: Pick<StudyFormData, 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays'> | undefined;
+  // The stored durations ride along: an untouched day field resends its calendar duration unchanged.
+  loadedLimits?:
+    | (Pick<StudyFormData, 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays'> &
+        Pick<StudyLimits, 'dataRetentionDuration' | 'studyDuration'>)
+    | undefined;
   // The iOS setting as loaded, so unchanged edits skip its admin-only PATCH.
   loadedIosSensorSetting?: { enabled: boolean; sensors: string[] } | undefined;
   // Per-active-module "required for participation" flag (keyed by CollectionModuleId).
@@ -104,6 +111,11 @@ type StudyFormData = {
   // Optional (false) is the default. Optional like moduleSettings for the same reason.
   moduleRequired?: Record<string, boolean>;
   notificationsEnabled: boolean;
+  withdrawalMode?: WithdrawalMode;
+  loadedWithdrawalMode?: WithdrawalMode | undefined;
+  timeZone?: string;
+  loadedTimeZone?: string | undefined;
+  loadedTimeUseDiary?: Record<string, unknown> | undefined;
   participantPolicy?: ParticipantPolicyForm;
   participantLimit: string;
   samplingRateHz: string;
@@ -147,7 +159,7 @@ const MODULE_MODES: ReadonlyArray<{ hintKey: string; labelKey: string; selectedC
     value: 'required',
     labelKey: 'study_form.mode_required',
     hintKey: 'study_form.mode_required_hint',
-    selectedClass: 'bg-primary text-primary-foreground',
+    selectedClass: 'bg-primary/10 text-foreground',
   },
   {
     value: 'optional',
@@ -362,9 +374,7 @@ function initialInteractionPolicy(dataCollection?: DataCollectionSettingSummary)
 
 function initialHealthConnectRecordTypes(dataCollection?: DataCollectionSettingSummary): string[] {
   const recordTypes = dataCollection?.modules?.health_connect?.healthConnectRecordTypes;
-  return Array.isArray(recordTypes)
-    ? [...new Set(recordTypes.filter((recordType): recordType is string => typeof recordType === 'string'))]
-    : [];
+  return Array.isArray(recordTypes) ? [...new Set(recordTypes)] : [];
 }
 
 // The loaded `modules` map, untyped, so the write path can carry unknown module entries
@@ -372,6 +382,28 @@ function initialHealthConnectRecordTypes(dataCollection?: DataCollectionSettingS
 // the same reason they are: that function is already at its complexity ceiling.
 function initialLoadedModules(dataCollection?: DataCollectionSettingSummary): Record<string, unknown> | undefined {
   return dataCollection?.modules;
+}
+
+function loadedLimitsOf(limits: StudyLimits | undefined): NonNullable<StudyFormData['loadedLimits']> {
+  return {
+    participantLimit: limits?.participantLimit ? String(limits.participantLimit) : '',
+    studyDurationDays: limits?.studyDuration ? String(studyDurationToDays(limits.studyDuration)) : '',
+    dataRetentionDays: limits?.dataRetentionDuration ? String(studyDurationToDays(limits.dataRetentionDuration)) : '',
+    ...(limits?.studyDuration && { studyDuration: limits.studyDuration }),
+    ...(limits?.dataRetentionDuration && { dataRetentionDuration: limits.dataRetentionDuration }),
+  };
+}
+
+function initialWithdrawalAndDiarySettings(study?: StudySummary) {
+  const withdrawalMode = study?.settings?.Withdrawal?.mode ?? WITHDRAWAL_MODES.erase;
+  const timeZone = study?.settings?.TimeUseDiary?.timeZone ?? DEFAULT_STUDY_TIME_ZONE;
+  return {
+    withdrawalMode,
+    loadedWithdrawalMode: study?.id ? withdrawalMode : undefined,
+    timeZone,
+    loadedTimeZone: study?.id ? timeZone : undefined,
+    loadedTimeUseDiary: study?.settings?.TimeUseDiary,
+  };
 }
 
 function getInitialFormData(
@@ -391,22 +423,19 @@ function getInitialFormData(
     ? iosSensorSettings[1].filter((sensor): sensor is string => typeof sensor === 'string')
     : [];
 
-  const participantLimit = limits?.participantLimit ? String(limits.participantLimit) : '';
-  const studyDurationDays = limits?.studyDuration ? String(studyDurationToDays(limits.studyDuration)) : '';
-  const dataRetentionDays = limits?.dataRetentionDuration
-    ? String(studyDurationToDays(limits.dataRetentionDuration))
-    : '';
+  const loadedLimits = loadedLimitsOf(limits);
+  const { dataRetentionDays, participantLimit, studyDurationDays } = loadedLimits;
 
   return {
     contact: study?.contact || '',
     dataRetentionDays,
     description: study?.description || '',
-    dutyCycleActiveSeconds: sensorSettings?.dutyCycleActiveSeconds?.toString() || '30',
-    dutyCyclePeriodSeconds: sensorSettings?.dutyCyclePeriodSeconds?.toString() || '300',
+    dutyCycleActiveSeconds: String(sensorSettings?.dutyCycleActiveSeconds ?? DEFAULT_SENSOR_DUTY_ACTIVE),
+    dutyCyclePeriodSeconds: String(sensorSettings?.dutyCyclePeriodSeconds ?? DEFAULT_SENSOR_DUTY_PERIOD),
     features: modules,
     group: study?.group || '',
     healthConnectRecordTypes: initialHealthConnectRecordTypes(dataCollection),
-    loadedLimits: { dataRetentionDays, participantLimit, studyDurationDays },
+    loadedLimits,
     loadedIosSensorSetting: { enabled: modules.includes('IOS_SENSOR'), sensors: [...selectedIosSensors] },
     loadedModules: initialLoadedModules(dataCollection),
     loadedParticipantPolicy: participantPolicy,
@@ -415,9 +444,10 @@ function getInitialFormData(
     moduleRequired: initialModuleRequired(dataCollection),
     moduleSettings: initialModuleSettings(dataCollection),
     notificationsEnabled: study?.notificationsEnabled || false,
+    ...initialWithdrawalAndDiarySettings(study),
     participantPolicy: participantPolicyToForm(participantPolicy),
     participantLimit,
-    samplingRateHz: sensorSettings?.samplingRateHz?.toString() || '5',
+    samplingRateHz: String(sensorSettings?.samplingRateHz ?? DEFAULT_SENSOR_RATE_HZ),
     selectedIosSensors,
     selectedSensors: sensorSettings?.sensors || [],
     ...initialSensorPolicies(dataCollection),
@@ -431,31 +461,13 @@ function getInitialFormData(
 type StudyFormDialogProps = {
   mode: 'create' | 'edit';
   // `settingsRevision` is the settings ETag the form was loaded from (edit mode), so the
-  // save sends If-Match for exactly the snapshot on screen.
+  // save sends If-Match for exactly the snapshot on screen. The handler advances it in
+  // this context after each committed write, including when a subsequent write fails.
   onSubmit: (data: StudyFormData, context: { settingsRevision?: string | undefined }) => Promise<void>;
   study?: StudySummary;
 };
 
 export type { StudyFormData };
-
-function isFormComplete(form: StudyFormData): boolean {
-  const iosSensorSelectionComplete =
-    !form.features.includes('IOS_SENSOR') ||
-    iosSensorSettingUnchanged(form) ||
-    (form.selectedIosSensors?.length ?? 0) > 0;
-  const participantPolicyComplete =
-    Object.keys(validateParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM)).length === 0;
-  const healthConnectScopeComplete =
-    !(form.moduleSettings?.health_connect ?? false) || (form.healthConnectRecordTypes?.length ?? 0) > 0;
-  return (
-    form.title.trim().length > 0 &&
-    form.features.length > 0 &&
-    isValidEmail(form.contact) &&
-    iosSensorSelectionComplete &&
-    participantPolicyComplete &&
-    healthConnectScopeComplete
-  );
-}
 
 function toggleInArray(values: string[], item: string): string[] {
   return values.includes(item) ? values.filter((v) => v !== item) : [...values, item];
@@ -1009,14 +1021,14 @@ function DataCollectionModulesSection(ctx: DataCollectionRowContext) {
   );
 }
 
-type LimitField = 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays';
+type LimitField = 'dataRetentionDays' | 'participantLimit' | 'studyDurationDays' | 'withdrawalMode' | 'timeZone';
 
 function StudyLimitsFieldset({
   form,
   onChange,
 }: {
   form: StudyFormData;
-  onChange: (field: LimitField, value: string) => void;
+  onChange: <K extends LimitField>(field: K, value: StudyFormData[K]) => void;
 }) {
   const { t } = useTranslator();
   return (
@@ -1060,6 +1072,211 @@ function StudyLimitsFieldset({
           />
         </div>
       </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="withdrawal-mode">{t('study_form.withdrawal_mode')}</Label>
+        <select
+          id="withdrawal-mode"
+          aria-describedby="withdrawal-mode-help"
+          className="w-full rounded-md border border-input bg-background px-3 py-2"
+          value={form.withdrawalMode ?? WITHDRAWAL_MODES.erase}
+          onChange={(event) => onChange('withdrawalMode', event.target.value as WithdrawalMode)}
+        >
+          <option value={WITHDRAWAL_MODES.keepPriorData}>{t('study_form.withdrawal_keep')}</option>
+          <option value={WITHDRAWAL_MODES.erase}>{t('study_form.withdrawal_erase')}</option>
+        </select>
+        <div id="withdrawal-mode-help">
+          <FieldHint>{t('study_form.withdrawal_keep_help')}</FieldHint>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="study-time-zone">{t('study_form.time_zone')}</Label>
+        <Input
+          id="study-time-zone"
+          value={form.timeZone ?? DEFAULT_STUDY_TIME_ZONE}
+          onChange={(event) => onChange('timeZone', event.target.value)}
+        />
+      </div>
+    </fieldset>
+  );
+}
+
+function studyLimitsError(form: StudyFormData, t: Translator['t']) {
+  if (studyLimitsUnchanged(form)) return null;
+  if (!buildStudyLimits(form)) return t('study_form.limits_cannot_remove');
+  return studyLimitsPartial(form) ? t('study_form.limits_incomplete') : null;
+}
+
+function timeZoneValidationProblems(form: StudyFormData, t: Translator['t']) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: form.timeZone ?? DEFAULT_STUDY_TIME_ZONE });
+    return [];
+  } catch {
+    return [{ fieldId: 'study-time-zone', message: t('study_form.time_zone_invalid') }];
+  }
+}
+
+function validateStudyForm(form: StudyFormData, t: Translator['t']) {
+  const contactError = form.contact.trim()
+    ? isValidEmail(form.contact)
+      ? null
+      : t('study_form.contact_invalid')
+    : t('study_form.contact_required');
+  const policyErrors = validateParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM, t);
+  const validationProblems = [
+    ...timeZoneValidationProblems(form, t),
+    ...(!form.title.trim() ? [{ fieldId: 'study-title', message: t('study_form.title_required') }] : []),
+    ...(form.features.length === 0
+      ? [{ fieldId: `study-feature-${STUDY_FEATURES[0]?.value ?? ''}`, message: t('study_form.feature_required') }]
+      : []),
+    ...(!isValidEmail(form.contact) ? [{ fieldId: 'study-contact', message: contactError ?? '' }] : []),
+    ...Object.entries(policyErrors).map(([field, message]) => ({
+      fieldId: `participant-policy-${field}`,
+      message,
+    })),
+    ...(form.features.includes('IOS_SENSOR') &&
+    !iosSensorSettingUnchanged(form) &&
+    (form.selectedIosSensors?.length ?? 0) === 0
+      ? [{ fieldId: 'study-feature-IOS_SENSOR', message: t('study_form.ios_sensor_required') }]
+      : []),
+    ...(form.moduleSettings?.health_connect && (form.healthConnectRecordTypes?.length ?? 0) === 0
+      ? [{ fieldId: 'health-connect-steps', message: t('study_form.hc_select_one') }]
+      : []),
+  ];
+  return { contactError, policyErrors, validationProblems };
+}
+
+function StudyBasicsFields({
+  form,
+  update,
+  toggleFeature,
+  showValidationErrors,
+  contactError,
+}: {
+  form: StudyFormData;
+  update: <K extends keyof StudyFormData>(key: K, value: StudyFormData[K]) => void;
+  toggleFeature: (feature: string) => void;
+  showValidationErrors: boolean;
+  contactError: string | null;
+}) {
+  const { t } = useTranslator();
+  return (
+    <fieldset className="space-y-4">
+      <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        {t('study_form.info_legend')}
+      </legend>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="study-title" required>
+          {t('study_form.name')}
+        </Label>
+        <Input
+          aria-describedby={showValidationErrors && !form.title.trim() ? 'study-title-error' : undefined}
+          aria-invalid={showValidationErrors && !form.title.trim()}
+          id="study-title"
+          onChange={(e) => update('title', e.target.value)}
+          placeholder={t('study_form.name_placeholder')}
+          required
+          value={form.title}
+        />
+        {showValidationErrors && !form.title.trim() && (
+          <p className="text-xs text-destructive" id="study-title-error">
+            {t('study_form.title_required')}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="study-description">{t('study_form.description')}</Label>
+        <Textarea
+          id="study-description"
+          onChange={(e) => update('description', e.target.value)}
+          placeholder={t('study_form.description_placeholder')}
+          value={form.description}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="study-group">{t('study_form.group')}</Label>
+          <Input
+            id="study-group"
+            onChange={(e) => update('group', e.target.value)}
+            placeholder={t('study_form.group_placeholder')}
+            value={form.group}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="study-version">{t('study_form.version')}</Label>
+          <Input
+            id="study-version"
+            onChange={(e) => update('version', e.target.value)}
+            placeholder="1.0"
+            value={form.version}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="study-contact" required>
+          {t('study_form.contact_email')}
+        </Label>
+        <Input
+          aria-describedby={showValidationErrors && contactError ? 'study-contact-error' : undefined}
+          aria-invalid={showValidationErrors && Boolean(contactError)}
+          autoComplete="email"
+          name="contact-email"
+          spellCheck={false}
+          id="study-contact"
+          onChange={(e) => update('contact', e.target.value)}
+          placeholder="researcher@university.edu"
+          required
+          type="email"
+          value={form.contact}
+        />
+        {showValidationErrors && contactError && (
+          <p className="text-xs text-destructive" id="study-contact-error">
+            {contactError}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label required>{t('study_form.features')}</Label>
+        <div className="flex flex-wrap gap-2">
+          {STUDY_FEATURES.map(({ label, value }) => (
+            <Button
+              aria-pressed={form.features.includes(value)}
+              id={`study-feature-${value}`}
+              key={value}
+              onClick={() => toggleFeature(value)}
+              size="sm"
+              type="button"
+              variant={form.features.includes(value) ? 'selected' : 'outline'}
+            >
+              {translateCatalog(t, 'feature', value, label)}
+            </Button>
+          ))}
+        </div>
+        <FieldHint>{t('study_form.features_hint')}</FieldHint>
+        {showValidationErrors && form.features.length === 0 && (
+          <p className="text-xs text-destructive" id="study-features-error">
+            {t('study_form.feature_required')}
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+        <input
+          checked={form.notificationsEnabled}
+          className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+          id="study-notifications"
+          onChange={() => update('notificationsEnabled', !form.notificationsEnabled)}
+          type="checkbox"
+        />
+        <label className="cursor-pointer" htmlFor="study-notifications">
+          {t('study_form.daily_notifications')}
+        </label>
+      </div>
     </fieldset>
   );
 }
@@ -1070,6 +1287,7 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const { t } = useTranslator();
   const failedKey = submitFailureKey(mode);
+  const studyId = study?.id ?? '';
   // Edit-mode reads only fire once the dialog is open and we have a study id.
   // Every open refetches, so the form never starts from another page's cached settings.
   const readOptions = { refetchOnMountOrArgChange: true, skip: shouldSkipStudyReads(mode, study?.id, open) };
@@ -1078,19 +1296,19 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
     isError: isLimitsError,
     isFetching: isLimitsFetching,
     refetch: refetchLimits,
-  } = useGetStudyLimitsQuery(study?.id ?? '', readOptions);
+  } = useGetStudyLimitsQuery(studyId, readOptions);
   const {
     data: dataCollection,
     isError: isDataCollectionError,
     isFetching: isDataCollectionFetching,
     refetch: refetchDataCollection,
-  } = useGetStudyDataCollectionSettingQuery(study?.id ?? '', readOptions);
+  } = useGetStudyDataCollectionSettingQuery(studyId, readOptions);
   const {
     data: studySettings,
     isError: isStudySettingsError,
     isFetching: isStudySettingsFetching,
     refetch: refetchStudySettings,
-  } = useGetStudySettingsQuery(study?.id ?? '', readOptions);
+  } = useGetStudySettingsQuery(studyId, readOptions);
   const [form, setForm] = useState<StudyFormData>(() => getInitialFormData(study));
   const initialForm = useRef<StudyFormData>(getInitialFormData(study));
   const [formInitialized, setFormInitialized] = useState(false);
@@ -1107,14 +1325,19 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
 
   useEffect(() => {
     if (!open || studyReadState !== 'ready' || initializedForOpen.current) return;
-    const initial = getInitialFormData(study, limits, dataCollection, studySettings?.ParticipantPolicy);
+    const initial = getInitialFormData(
+      study ? { ...study, settings: { ...study.settings, ...studySettings } } : study,
+      limits,
+      dataCollection,
+      studySettings?.ParticipantPolicy,
+    );
     initialForm.current = initial;
     setForm(initial);
     // The reads above just settled, so the last settings ETag seen is the one this form shows.
-    settingsRevision.current = study?.id ? knownSettingsRevision(study.id) : undefined;
+    settingsRevision.current = knownSettingsRevision(studyId);
     initializedForOpen.current = true;
     setFormInitialized(true);
-  }, [open, studyReadState, study, limits, dataCollection, studySettings?.ParticipantPolicy]);
+  }, [open, studyReadState, study, studyId, limits, dataCollection, studySettings]);
 
   const isDirty = formInitialized && JSON.stringify(form) !== JSON.stringify(initialForm.current);
 
@@ -1202,58 +1425,32 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
 
   const hasDataCollection = form.features.includes('CHRONICLE_DATA_COLLECTION');
   const canAttemptSave = formInitialized && studyReadState === 'ready' && !isSubmitting;
-  const contactError = form.contact.trim()
-    ? isValidEmail(form.contact)
-      ? null
-      : t('study_form.contact_invalid')
-    : t('study_form.contact_required');
-  const policyErrors = validateParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM, t);
-  const validationProblems = [
-    ...(!form.title.trim() ? [{ fieldId: 'study-title', message: t('study_form.title_required') }] : []),
-    ...(form.features.length === 0
-      ? [{ fieldId: `study-feature-${STUDY_FEATURES[0]?.value ?? ''}`, message: t('study_form.feature_required') }]
-      : []),
-    ...(!isValidEmail(form.contact) ? [{ fieldId: 'study-contact', message: contactError ?? '' }] : []),
-    ...Object.entries(policyErrors).map(([field, message]) => ({
-      fieldId: `participant-policy-${field}`,
-      message: message ?? '',
-    })),
-    ...(form.features.includes('IOS_SENSOR') &&
-    !iosSensorSettingUnchanged(form) &&
-    (form.selectedIosSensors?.length ?? 0) === 0
-      ? [{ fieldId: 'study-feature-IOS_SENSOR', message: t('study_form.ios_sensor_required') }]
-      : []),
-    ...(form.moduleSettings?.health_connect && (form.healthConnectRecordTypes?.length ?? 0) === 0
-      ? [{ fieldId: 'health-connect-steps', message: t('study_form.hc_select_one') }]
-      : []),
-  ];
+  const { contactError, validationProblems } = validateStudyForm(form, t);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     // React state does not update until the current event turn yields. A same-turn
     // double click can therefore enter this handler twice while `isSubmitting` is
     // still false. Acquire the ref-backed fence synchronously before awaiting.
-    if (!formInitialized || studyReadState !== 'ready' || submissionInFlight.current) return;
-    if (!isFormComplete(form)) {
+    if (!canAttemptSave || submissionInFlight.current) return;
+    if (validationProblems.length > 0) {
       setShowValidationErrors(true);
       setError(null);
-      if (validationProblems[0]) document.getElementById(validationProblems[0].fieldId)?.focus();
+      document.getElementById(validationProblems[0]?.fieldId ?? '')?.focus();
       return;
     }
-    if (!studyLimitsUnchanged(form) && !buildStudyLimits(form)) {
-      setError(t('study_form.limits_cannot_remove'));
-      return;
-    }
-    if (!studyLimitsUnchanged(form) && studyLimitsPartial(form)) {
-      setError(t('study_form.limits_incomplete'));
+    const limitsError = studyLimitsError(form, t);
+    if (limitsError) {
+      setError(limitsError);
       return;
     }
     submissionInFlight.current = true;
 
     setError(null);
     setIsSubmitting(true);
+    const context = { settingsRevision: settingsRevision.current };
     try {
-      await onSubmit(form, { settingsRevision: settingsRevision.current });
+      await onSubmit(form, context);
       closeDialog();
     } catch (err) {
       setError(getErrorMessage(err, t(failedKey)));
@@ -1267,6 +1464,9 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
         void refetchStudySettings();
       }
     } finally {
+      // A later step can fail after earlier writes advanced the revision. Retry from the
+      // last committed write, preserving the draft instead of manufacturing a conflict.
+      settingsRevision.current = context.settingsRevision;
       submissionInFlight.current = false;
       setIsSubmitting(false);
     }
@@ -1302,126 +1502,16 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
               });
             }}
           >
-            <StudyConfigTransfer form={form} onImport={(next) => setForm(next)} />
-
-            {/* Section 1: Basic Study Information */}
-            <fieldset className="space-y-4">
-              <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                {t('study_form.info_legend')}
-              </legend>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="study-title" required>
-                  {t('study_form.name')}
-                </Label>
-                <Input
-                  aria-describedby={showValidationErrors && !form.title.trim() ? 'study-title-error' : undefined}
-                  aria-invalid={showValidationErrors && !form.title.trim()}
-                  id="study-title"
-                  onChange={(e) => update('title', e.target.value)}
-                  placeholder={t('study_form.name_placeholder')}
-                  required
-                  value={form.title}
-                />
-                {showValidationErrors && !form.title.trim() && (
-                  <p className="text-xs text-destructive" id="study-title-error">
-                    {t('study_form.title_required')}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="study-description">{t('study_form.description')}</Label>
-                <Textarea
-                  id="study-description"
-                  onChange={(e) => update('description', e.target.value)}
-                  placeholder={t('study_form.description_placeholder')}
-                  value={form.description}
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="study-group">{t('study_form.group')}</Label>
-                  <Input
-                    id="study-group"
-                    onChange={(e) => update('group', e.target.value)}
-                    placeholder={t('study_form.group_placeholder')}
-                    value={form.group}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="study-version">{t('study_form.version')}</Label>
-                  <Input
-                    id="study-version"
-                    onChange={(e) => update('version', e.target.value)}
-                    placeholder="1.0"
-                    value={form.version}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="study-contact" required>
-                  {t('study_form.contact_email')}
-                </Label>
-                <Input
-                  aria-describedby={showValidationErrors && contactError ? 'study-contact-error' : undefined}
-                  aria-invalid={showValidationErrors && Boolean(contactError)}
-                  id="study-contact"
-                  onChange={(e) => update('contact', e.target.value)}
-                  placeholder="researcher@university.edu"
-                  required
-                  type="email"
-                  value={form.contact}
-                />
-                {showValidationErrors && contactError && (
-                  <p className="text-xs text-destructive" id="study-contact-error">
-                    {contactError}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label required>{t('study_form.features')}</Label>
-                <div className="flex flex-wrap gap-2">
-                  {STUDY_FEATURES.map(({ label, value }) => (
-                    <Button
-                      aria-pressed={form.features.includes(value)}
-                      id={`study-feature-${value}`}
-                      key={value}
-                      onClick={() => toggleFeature(value)}
-                      size="sm"
-                      type="button"
-                      variant={form.features.includes(value) ? 'default' : 'outline'}
-                    >
-                      {translateCatalog(t, 'feature', value, label)}
-                    </Button>
-                  ))}
-                </div>
-                <FieldHint>{t('study_form.features_hint')}</FieldHint>
-                {showValidationErrors && form.features.length === 0 && (
-                  <p className="text-xs text-destructive" id="study-features-error">
-                    {t('study_form.feature_required')}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
-                <input
-                  checked={form.notificationsEnabled}
-                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-                  id="study-notifications"
-                  onChange={() => update('notificationsEnabled', !form.notificationsEnabled)}
-                  type="checkbox"
-                />
-                <label className="cursor-pointer" htmlFor="study-notifications">
-                  {t('study_form.daily_notifications')}
-                </label>
-              </div>
-            </fieldset>
+            <StudyBasicsFields
+              form={form}
+              update={update}
+              toggleFeature={toggleFeature}
+              showValidationErrors={showValidationErrors}
+              contactError={contactError}
+            />
 
             <StudyParticipantPolicyFields
+              mode={mode}
               onChange={setParticipantPolicyField}
               showErrors={showValidationErrors}
               value={form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM}
@@ -1473,12 +1563,17 @@ export function StudyFormDialog({ mode, onSubmit, study }: StudyFormDialogProps)
                 </ul>
               </div>
             )}
-            {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+            <StudyConfigTransfer form={form} onImport={(next) => setForm(next)} />
 
             {/* Sticky: with 31 module rows the form scrolls past 5000px, so Save sat below
               everything — retitling a study meant scrolling the whole module list to
               reach the button. -mx/px cancel the dialog padding so the bar spans it. */}
-            <div className="sticky bottom-0 z-10 -mx-6 flex justify-end gap-3 border-t border-border bg-card px-6 pb-6 pt-4">
+            <div className="sticky bottom-0 z-10 -mx-6 flex flex-wrap justify-end gap-3 border-t border-border bg-card px-6 pb-6 pt-4">
+              {error && (
+                <p className="w-full text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
               <Button onClick={() => handleOpenChange(false)} type="button" variant="ghost">
                 {t('common.cancel')}
               </Button>

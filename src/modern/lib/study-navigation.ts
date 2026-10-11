@@ -2,9 +2,11 @@ export const PARTIAL_STUDY_CONFIGURATION_ERROR =
   'The study was created, but some requested settings or limits failed to save. Review and save its configuration again.';
 
 /** The separately persisted parts of a study save, in the order the UI names them. */
-export const STUDY_SAVE_STEPS = [
+const STUDY_SAVE_STEPS = [
   'details',
   'ParticipantPolicy',
+  'Withdrawal',
+  'TimeUseDiary',
   'AndroidSensor',
   'Sensor',
   'DataCollection',
@@ -17,14 +19,16 @@ type StudyNavigationState = {
   failedSteps: StudySaveStep[];
 };
 
-type SettingType = 'ParticipantPolicy' | 'AndroidSensor' | 'Sensor' | 'DataCollection';
+type SettingType = 'ParticipantPolicy' | 'Withdrawal' | 'TimeUseDiary' | 'AndroidSensor' | 'Sensor' | 'DataCollection';
 type SettingBody = Record<string, unknown> | unknown[];
 
 /** The settings PATCHes to send, in write order, skipping any the form does not produce. */
 export function settingWrites(
   settings: Partial<Record<SettingType, SettingBody | null | undefined>>,
 ): Array<{ setting: SettingBody; settingType: SettingType }> {
-  return (['ParticipantPolicy', 'AndroidSensor', 'Sensor', 'DataCollection'] as const).flatMap((settingType) => {
+  return (
+    ['ParticipantPolicy', 'Withdrawal', 'TimeUseDiary', 'AndroidSensor', 'Sensor', 'DataCollection'] as const
+  ).flatMap((settingType) => {
     const setting = settings[settingType];
     return setting ? [{ setting, settingType }] : [];
   });

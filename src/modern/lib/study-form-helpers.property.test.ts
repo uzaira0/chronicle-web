@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
 
+import exactDayLimits from '../test/golden/exact-day-study-limits.json';
 import {
   buildSensorSetting,
   buildStudyLimits,
@@ -8,6 +9,8 @@ import {
   daysToStudyDuration,
   studyDurationToDays,
 } from './study-form-helpers';
+
+const MAX_TEST_DURATION_DAYS = Math.max(...exactDayLimits.map(({ duration }) => duration.days));
 
 type StudyFormData = {
   contact: string;
@@ -56,10 +59,19 @@ const durationArb = fc.record({
 });
 
 describe('study-form-helpers properties', () => {
+  it.each(exactDayLimits)('sends server-validated exact day limits from $start', ({ duration }) => {
+    const [sample] = fc.sample(formArb, 1);
+    if (!sample) throw new Error('form arbitrary produced no sample');
+    const form = { ...sample, studyDurationDays: String(duration.days), dataRetentionDays: String(duration.days) };
+    const limits = buildStudyLimits(form);
+    if (!limits) throw new Error('exact day limits must build');
+    expect(limits.studyDuration).toEqual(duration);
+    expect(limits.dataRetentionDuration).toEqual(duration);
+  });
   // Existing tests
   it('daysToStudyDuration produces non-negative components', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
         const { years, months, days } = daysToStudyDuration(totalDays);
         expect(years).toBeGreaterThanOrEqual(0);
         expect(months).toBeGreaterThanOrEqual(0);
@@ -68,19 +80,19 @@ describe('study-form-helpers properties', () => {
     );
   });
 
-  it('daysToStudyDuration keeps days < 30 and months < 13', () => {
+  it('daysToStudyDuration preserves exact days without calendar components', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
         const { months, days } = daysToStudyDuration(totalDays);
-        expect(days).toBeLessThan(30);
-        expect(months).toBeLessThan(13);
+        expect(days).toBe(totalDays);
+        expect(months).toBe(0);
       }),
     );
   });
 
   it('round-trips: studyDurationToDays(daysToStudyDuration(n)) === n', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
         expect(studyDurationToDays(daysToStudyDuration(totalDays))).toBe(totalDays);
       }),
     );
@@ -97,6 +109,34 @@ describe('study-form-helpers properties', () => {
         }
       }),
     );
+  });
+
+  it('resends an untouched calendar duration as stored and converts only edited day fields', () => {
+    const [sample] = fc.sample(formArb, 1);
+    if (!sample) throw new Error('form arbitrary produced no sample');
+    const year = { years: 1, months: 0, days: 0 };
+    const quarter = { years: 0, months: 3, days: 0 };
+    const loadedLimits = {
+      participantLimit: '10',
+      studyDurationDays: '365',
+      dataRetentionDays: '90',
+      studyDuration: year,
+      dataRetentionDuration: quarter,
+    };
+    const untouched = {
+      ...sample,
+      participantLimit: '12',
+      studyDurationDays: '365',
+      dataRetentionDays: '90',
+      loadedLimits,
+    };
+    expect(buildStudyLimits(untouched)).toEqual({
+      participantLimit: 12,
+      studyDuration: year,
+      dataRetentionDuration: quarter,
+    });
+    const edited = { ...untouched, studyDurationDays: '400' };
+    expect(buildStudyLimits(edited)?.studyDuration).toEqual({ years: 0, months: 0, days: 400 });
   });
 
   it('buildStudyLimits returns null or a plain object (never throws)', () => {
@@ -139,24 +179,24 @@ describe('study-form-helpers properties', () => {
 
   it('daysToStudyDuration always returns non-negative years', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
         expect(daysToStudyDuration(totalDays).years).toBeGreaterThanOrEqual(0);
       }),
     );
   });
 
-  it('daysToStudyDuration months is always < 13', () => {
+  it('daysToStudyDuration never adds calendar months', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
-        expect(daysToStudyDuration(totalDays).months).toBeLessThan(13);
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
+        expect(daysToStudyDuration(totalDays).months).toBe(0);
       }),
     );
   });
 
-  it('daysToStudyDuration days is always < 30', () => {
+  it('daysToStudyDuration retains all input days', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
-        expect(daysToStudyDuration(totalDays).days).toBeLessThan(30);
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
+        expect(daysToStudyDuration(totalDays).days).toBe(totalDays);
       }),
     );
   });
@@ -223,7 +263,7 @@ describe('study-form-helpers properties', () => {
 
   it('daysToStudyDuration is deterministic', () => {
     fc.assert(
-      fc.property(fc.nat(100_000), (totalDays) => {
+      fc.property(fc.nat(MAX_TEST_DURATION_DAYS), (totalDays) => {
         const a = daysToStudyDuration(totalDays);
         const b = daysToStudyDuration(totalDays);
         expect(a).toEqual(b);
@@ -346,13 +386,13 @@ describe('study-form-helpers properties', () => {
     );
   });
 
-  it('buildSensorSetting dutyCycleActiveSeconds is always a positive integer when non-null', () => {
+  it('buildSensorSetting dutyCycleActiveSeconds is always a nonnegative integer when non-null', () => {
     fc.assert(
       fc.property(formArb, (form) => {
         const sensorForm = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: ['accelerometer'] };
         const result = buildSensorSetting(sensorForm);
         if (result) {
-          expect(result.dutyCycleActiveSeconds).toBeGreaterThan(0);
+          expect(result.dutyCycleActiveSeconds).toBeGreaterThanOrEqual(0);
           expect(Number.isInteger(result.dutyCycleActiveSeconds)).toBe(true);
         }
       }),

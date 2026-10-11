@@ -56,27 +56,8 @@ describe('studyDurationToDays()', () => {
 });
 
 describe('daysToStudyDuration()', () => {
-  it('converts total days to years, months, days', () => {
-    expect(daysToStudyDuration(440)).toEqual({ years: 1, months: 2, days: 15 });
-  });
-
-  it('returns all zeros for 0 days', () => {
-    expect(daysToStudyDuration(0)).toEqual({ years: 0, months: 0, days: 0 });
-  });
-
-  it('handles exact year boundary', () => {
-    expect(daysToStudyDuration(365)).toEqual({ years: 1, months: 0, days: 0 });
-  });
-
-  it('handles days < 30 (no months)', () => {
-    expect(daysToStudyDuration(29)).toEqual({ years: 0, months: 0, days: 29 });
-  });
-
-  it('round-trips with studyDurationToDays for canonical forms', () => {
-    // Canonical: days < 30, months < ~12
-    const original = { years: 2, months: 5, days: 20 };
-    const totalDays = studyDurationToDays(original);
-    expect(daysToStudyDuration(totalDays)).toEqual(original);
+  it.each([0, 1, 29, 30, 360, 364, 365, 366, 440, 3650])('preserves %d exact days', (days) => {
+    expect(daysToStudyDuration(days)).toEqual({ years: 0, months: 0, days });
   });
 });
 
@@ -107,6 +88,20 @@ describe('buildStudyPayload()', () => {
 });
 
 describe('buildSensorSetting()', () => {
+  it('preserves a loaded zero-second active duty cycle in both sensor settings', () => {
+    const form = makeForm({
+      features: ['ANDROID_SENSOR', 'CHRONICLE_DATA_COLLECTION'],
+      selectedSensors: ['light'],
+      dutyCycleActiveSeconds: '0',
+      moduleSettings: { sensor_light: true },
+      sensorDutyActive: { sensor_light: '0' },
+    });
+    expect(buildSensorSetting(form)?.dutyCycleActiveSeconds).toBe(0);
+    expect(buildDataCollectionSetting(form).modules.sensor_light?.sensorPolicy).toMatchObject({
+      dutyCycleActiveSeconds: 0,
+    });
+  });
+
   it('returns null when ANDROID_SENSOR not in features', () => {
     expect(buildSensorSetting(makeForm({ features: ['TIME_USE_DIARY'] }))).toBeNull();
   });
@@ -255,7 +250,9 @@ describe('buildDataCollectionSetting()', () => {
   ];
 
   it('disables optional modules when CHRONICLE_DATA_COLLECTION is not a feature', () => {
-    expect(buildDataCollectionSetting(makeForm({ features: ['ANDROID_SENSOR'] })).modules.usage_events?.enabled).toBe(false);
+    expect(buildDataCollectionSetting(makeForm({ features: ['ANDROID_SENSOR'] })).modules.usage_events?.enabled).toBe(
+      false,
+    );
   });
 
   it('emits the @class marker and version 2 (carries the per-module required flag)', () => {
@@ -610,12 +607,12 @@ describe('buildStudyLimits()', () => {
 
   it('includes studyDuration as a duration object', () => {
     const result = buildStudyLimits(makeForm({ studyDurationDays: '400' }));
-    expect(result).toEqual({ studyDuration: { years: 1, months: 1, days: 5 } });
+    expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 400 } });
   });
 
   it('includes dataRetentionDuration as a duration object', () => {
     const result = buildStudyLimits(makeForm({ dataRetentionDays: '90' }));
-    expect(result).toEqual({ dataRetentionDuration: { years: 0, months: 3, days: 0 } });
+    expect(result).toEqual({ dataRetentionDuration: { years: 0, months: 0, days: 90 } });
   });
 
   it('includes all limits when all are set', () => {
@@ -628,8 +625,8 @@ describe('buildStudyLimits()', () => {
     );
     expect(result).toEqual({
       participantLimit: 100,
-      studyDuration: { years: 1, months: 0, days: 0 },
-      dataRetentionDuration: { years: 0, months: 1, days: 0 },
+      studyDuration: { years: 0, months: 0, days: 365 },
+      dataRetentionDuration: { years: 0, months: 0, days: 30 },
     });
   });
 });
@@ -662,35 +659,6 @@ describe('studyDurationToDays() — exhaustive parameterized', () => {
 
   it.each(cases)('%s => %d days', (_label, input, expected) => {
     expect(studyDurationToDays(input)).toBe(expected);
-  });
-});
-
-describe('daysToStudyDuration() — exhaustive parameterized', () => {
-  const cases: [number, { days: number; months: number; years: number }][] = [
-    [0, { years: 0, months: 0, days: 0 }],
-    [1, { years: 0, months: 0, days: 1 }],
-    [29, { years: 0, months: 0, days: 29 }],
-    [30, { years: 0, months: 1, days: 0 }],
-    [31, { years: 0, months: 1, days: 1 }],
-    [59, { years: 0, months: 1, days: 29 }],
-    [60, { years: 0, months: 2, days: 0 }],
-    [90, { years: 0, months: 3, days: 0 }],
-    [180, { years: 0, months: 6, days: 0 }],
-    [364, { years: 0, months: 12, days: 4 }],
-    [365, { years: 1, months: 0, days: 0 }],
-    [366, { years: 1, months: 0, days: 1 }],
-    [395, { years: 1, months: 1, days: 0 }],
-    [730, { years: 2, months: 0, days: 0 }],
-    [1095, { years: 3, months: 0, days: 0 }],
-    [3650, { years: 10, months: 0, days: 0 }],
-    [400, { years: 1, months: 1, days: 5 }],
-    [15, { years: 0, months: 0, days: 15 }],
-    [150, { years: 0, months: 5, days: 0 }],
-    [500, { years: 1, months: 4, days: 15 }],
-  ];
-
-  it.each(cases)('%d days => %o', (input, expected) => {
-    expect(daysToStudyDuration(input)).toEqual(expected);
   });
 });
 
@@ -932,7 +900,7 @@ describe('buildStudyLimits() — additional variations', () => {
 
   it('handles studyDurationDays: "3650" (10 years)', () => {
     const result = buildStudyLimits(makeForm({ studyDurationDays: '3650' }));
-    expect(result).toEqual({ studyDuration: { years: 10, months: 0, days: 0 } });
+    expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 3650 } });
   });
 
   it('handles negative studyDurationDays (returns null)', () => {
@@ -964,7 +932,7 @@ describe('buildStudyLimits() — additional variations', () => {
         dataRetentionDays: 'abc',
       }),
     );
-    expect(result).toEqual({ studyDuration: { years: 0, months: 2, days: 0 } });
+    expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 60 } });
   });
 
   it('handles mixed: only dataRetentionDays valid', () => {
@@ -975,17 +943,17 @@ describe('buildStudyLimits() — additional variations', () => {
         dataRetentionDays: '365',
       }),
     );
-    expect(result).toEqual({ dataRetentionDuration: { years: 1, months: 0, days: 0 } });
+    expect(result).toEqual({ dataRetentionDuration: { years: 0, months: 0, days: 365 } });
   });
 
   it('handles studyDurationDays: "366" (1 year + 1 day)', () => {
     const result = buildStudyLimits(makeForm({ studyDurationDays: '366' }));
-    expect(result).toEqual({ studyDuration: { years: 1, months: 0, days: 1 } });
+    expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 366 } });
   });
 
   it('handles studyDurationDays: "730" (2 years)', () => {
     const result = buildStudyLimits(makeForm({ studyDurationDays: '730' }));
-    expect(result).toEqual({ studyDuration: { years: 2, months: 0, days: 0 } });
+    expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 730 } });
   });
 });
 
@@ -1024,13 +992,20 @@ describe('buildDataCollectionSetting() — unknown modules', () => {
 
 describe('W27 disabled data collection', () => {
   it('writes explicit disabled optional modules on create and update, preserving always-on telemetry', () => {
-    for (const overrides of [{}, { moduleSettings: { usage_events: true, sensor_light: true }, loadedModules: { future_optional: { enabled: true, required: true } } }]) {
+    for (const overrides of [
+      {},
+      {
+        moduleSettings: { usage_events: true, sensor_light: true },
+        loadedModules: { future_optional: { enabled: true, required: true } },
+      },
+    ]) {
       const result = buildDataCollectionSetting(makeForm({ features: [], ...overrides }));
       expect(result).not.toBeNull();
       expect(result?.modules.usage_events).toMatchObject({ enabled: false, required: false });
       expect(result?.modules.sensor_light).toMatchObject({ enabled: false, required: false });
       expect(result?.modules.upload_telemetry?.enabled).toBe(true);
-      if ('loadedModules' in overrides) expect(result?.modules.future_optional).toMatchObject({ enabled: false, required: false });
+      if ('loadedModules' in overrides)
+        expect(result?.modules.future_optional).toMatchObject({ enabled: false, required: false });
     }
   });
 });

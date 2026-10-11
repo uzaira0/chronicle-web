@@ -3,8 +3,11 @@ import { configureStore, type Middleware } from '@reduxjs/toolkit';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router';
-
+import { SessionBootstrap } from '@/app/session-bootstrap';
+import { AUTH_DASHBOARD_LOGIN_ENDPOINT } from '@/lib/auth-endpoints';
+import { bootstrapSession, logoutSession, SESSION_STATUS } from '@/state/session-slice';
 import { forgetSettingsRevision, knownSettingsRevision } from '@/state/settings-revision';
+import { store as dashboardStore } from '@/state/store';
 import { studyOperationsApi } from '@/state/study-operations-api';
 
 // Other route tests replace hooks of this module with fixtures, and bun keeps module mocks
@@ -49,6 +52,8 @@ function json(body: unknown, init: { etag?: string; status?: number } = {}): Res
 
 afterEach(() => {
   cleanup();
+  dashboardStore.dispatch(studyOperationsApi.util.resetApiState());
+  dashboardStore.dispatch(logoutSession.fulfilled(undefined, 'test-reset', undefined));
   forgetSettingsRevision(STUDY_ID);
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
 });
@@ -79,8 +84,17 @@ function serveRead(url: string, revision: number, failLimits = false, iosSensors
   return new Response('not found', { status: 404 });
 }
 
-function renderStudyWithServer(iosSensors?: string[]) {
+function renderStudyWithServer(iosSensors?: string[], withSessionGate = false) {
+  const sessionPayload = {
+    ...dashboardStore.getState().session,
+    csrfToken: 'test-csrf',
+    expiresAt: null,
+    status: SESSION_STATUS.authenticated,
+    tokenSource: 'dashboard-login' as const,
+    user: { id: 'researcher', name: 'Researcher', email: null, roles: [] },
+  };
   const server = {
+    sessionExpired: false,
     revision: 1,
     readRevision: undefined as number | undefined,
     afterWrite: null as (() => Promise<void>) | null,
@@ -91,6 +105,49 @@ function renderStudyWithServer(iosSensors?: string[]) {
     patches: [] as { ifMatch: string | null; settingType: string; body: Record<string, unknown> }[],
     detailsPatches: [] as { ifMatch: string | null; revision: number }[],
   };
+  const patchSettings = async (request: Request, settingType: string) => {
+    const etag = `"${server.revision}"`;
+
+    const ifMatch = request.headers.get('If-Match');
+    server.patches.push({
+      body: (await request.json()) as Record<string, unknown>,
+      ifMatch,
+      settingType: settingType,
+    });
+    if (server.sensorAdminOnly && settingType === 'Sensor') {
+      return new Response('admin only', { status: 403 });
+    }
+    if (ifMatch !== etag) return json({ title: 'settings_conflict' }, { status: 412 });
+    server.revision += 1;
+    return json({}, { etag: `"${server.revision}"` });
+  };
+  const putLimits = async (request: Request) => {
+    const etag = `"${server.revision}"`;
+
+    server.limitsPuts.push((await request.clone().json()) as Record<string, unknown>);
+    server.limitsIfMatch.push(request.headers.get('If-Match'));
+    if (server.limitsFails) return new Response('limits store down', { status: 500 });
+    if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
+    server.revision += 1;
+    return json(LIMITS, { etag: `"${server.revision}"` });
+  };
+  const patchDetails = (request: Request) => {
+    const etag = `"${server.revision}"`;
+
+    server.detailsPatches.push({ ifMatch: request.headers.get('If-Match'), revision: server.revision });
+    if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
+    server.revision += 1;
+    return json({ id: STUDY_ID, title: 'Conflict Study' }, { etag: `"${server.revision}"` });
+  };
+  const serveWrite = (request: Request) => {
+    const url = request.url;
+    if (request.method === 'PUT' && url.endsWith(`/limits/study/${STUDY_ID}`)) return putLimits(request);
+    if (request.method !== 'PATCH') return undefined;
+    const settingsPatch = url.match(/\/settings\/type\/(\w+)$/);
+    if (settingsPatch?.[1]) return patchSettings(request, settingsPatch[1]);
+    if (url.includes(`/study/${STUDY_ID}?retrieve=true`)) return patchDetails(request);
+    return json({ id: STUDY_ID, title: 'Conflict Study' });
+  };
   window.location.href = 'http://localhost/';
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
@@ -98,46 +155,28 @@ function renderStudyWithServer(iosSensors?: string[]) {
       const request = input instanceof Request ? input : new Request(String(input), init);
       const url = request.url;
       const method = request.method;
-      const etag = `"${server.revision}"`;
-      const settingsPatch = url.match(/\/settings\/type\/(\w+)$/);
-      if (method === 'PATCH' && settingsPatch?.[1]) {
-        const ifMatch = request.headers.get('If-Match');
-        server.patches.push({
-          body: (await request.json()) as Record<string, unknown>,
-          ifMatch,
-          settingType: settingsPatch[1],
-        });
-        if (server.sensorAdminOnly && settingsPatch[1] === 'Sensor') {
-          return new Response('admin only', { status: 403 });
-        }
-        if (ifMatch !== etag) return json({ title: 'settings_conflict' }, { status: 412 });
-        server.revision += 1;
-        return json({}, { etag: `"${server.revision}"` });
+      if (url.endsWith(AUTH_DASHBOARD_LOGIN_ENDPOINT) && method === 'POST') {
+        server.sessionExpired = false;
+        return json({ ...sessionPayload, authenticated: true });
       }
-      if (method === 'PUT' && url.endsWith(`/limits/study/${STUDY_ID}`)) {
-        server.limitsPuts.push((await request.clone().json()) as Record<string, unknown>);
-        server.limitsIfMatch.push(request.headers.get('If-Match'));
-        if (server.limitsFails) return new Response('limits store down', { status: 500 });
-        if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
-        server.revision += 1;
-        return json(LIMITS, { etag: `"${server.revision}"` });
-      }
-      if (method === 'PATCH' && url.includes(`/study/${STUDY_ID}?retrieve=true`)) {
-        server.detailsPatches.push({ ifMatch: request.headers.get('If-Match'), revision: server.revision });
-        if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
-        server.revision += 1;
-        return json({ id: STUDY_ID, title: 'Conflict Study' }, { etag: `"${server.revision}"` });
-      }
-      return method === 'PATCH'
-        ? json({ id: STUDY_ID, title: 'Conflict Study' })
-        : serveRead(url, server.readRevision ?? server.revision, method === 'PUT' && server.limitsFails, iosSensors);
+      if (server.sessionExpired) return json({ message: 'Session expired' }, { status: 401 });
+      return (
+        serveWrite(request) ??
+        serveRead(url, server.readRevision ?? server.revision, method === 'PUT' && server.limitsFails, iosSensors)
+      );
     },
     writable: true,
   });
   // Hold the save continuation while a real settings GET settles after the mutation.
   const pauseWrites: Middleware = () => (next) => (action) => {
-    const result = next(action) as { arg?: { endpointName?: string }; reset?: () => void; unwrap?: () => Promise<unknown> } | undefined;
-    if (result?.reset && result.unwrap && ['updateStudySettings', 'updateStudy', 'setStudyLimits'].includes(result.arg?.endpointName ?? '')) {
+    const result = next(action) as
+      | { arg?: { endpointName?: string }; reset?: () => void; unwrap?: () => Promise<unknown> }
+      | undefined;
+    if (
+      result?.reset &&
+      result.unwrap &&
+      ['updateStudySettings', 'updateStudy', 'setStudyLimits'].includes(result.arg?.endpointName ?? '')
+    ) {
       const unwrap = result.unwrap;
       result.unwrap = async () => {
         const data = await unwrap();
@@ -147,17 +186,24 @@ function renderStudyWithServer(iosSensors?: string[]) {
     }
     return result;
   };
-  const store = configureStore({
-    middleware: (getDefault) => getDefault().prepend(pauseWrites).concat(studyOperationsApi.middleware),
-    reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-  });
+  const store = withSessionGate
+    ? dashboardStore
+    : configureStore({
+        middleware: (getDefault) => getDefault().prepend(pauseWrites).concat(studyOperationsApi.middleware),
+        reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
+      });
+
+  if (withSessionGate) store.dispatch(bootstrapSession.fulfilled(sessionPayload, 'session-test', undefined));
+  const routes = (
+    <Routes>
+      <Route element={<StudyLayout />} path="/studies/:studyId" />
+    </Routes>
+  );
 
   render(
     <Provider store={store}>
       <MemoryRouter initialEntries={[`/studies/${STUDY_ID}`]}>
-        <Routes>
-          <Route element={<StudyLayout />} path="/studies/:studyId" />
-        </Routes>
+        {withSessionGate ? <SessionBootstrap>{routes}</SessionBootstrap> : routes}
       </MemoryRouter>
     </Provider>,
   );
@@ -170,9 +216,30 @@ async function openEditDialog() {
   const dialog = await screen.findByRole('dialog');
   const policyVersion = () => within(dialog).getByLabelText<HTMLInputElement>(/^Policy Version/);
   await waitFor(() => expect(policyVersion().value).toBe('policy-v1'));
-  const save = () => fireEvent.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+  const save = () => fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
   return { dialog, policyVersion, save };
 }
+
+test('a dirty study form survives a save 401 and password reauthentication', async () => {
+  const { server } = renderStudyWithServer(undefined, true);
+  const { dialog, policyVersion, save } = await openEditDialog();
+  fireEvent.change(policyVersion(), { target: { value: 'unsaved-policy' } });
+  fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
+  server.sessionExpired = true;
+  save();
+  const password = await screen.findByLabelText(/dashboard password/i);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(within(dialog).getByLabelText<HTMLInputElement>(/^Policy Version/).value).toBe('unsaved-policy');
+  expect(within(dialog).getByLabelText<HTMLInputElement>('Participant Limit').value).toBe('12');
+  fireEvent.change(password, { target: { value: 'test-password' } });
+  fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+  await waitFor(() => expect(server.limitsPuts).toHaveLength(1));
+  expect(server.patches.find((patch) => patch.settingType === 'ParticipantPolicy')?.body.version).toBe(
+    'unsaved-policy',
+  );
+  expect(server.limitsPuts[0]?.participantLimit).toBe(12);
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
 
 describe('study edit dialog after a settings 412', () => {
   test('a settings conflict prevents stale details and limits writes', async () => {
@@ -203,7 +270,9 @@ describe('study edit dialog after a settings 412', () => {
     server.readRevision = 50;
     server.afterWrite = async () => {
       await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
-      const read = store.dispatch(studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }));
+      const read = store.dispatch(
+        studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
+      );
       await read.unwrap();
       read.unsubscribe();
       expect(knownSettingsRevision(STUDY_ID)).toBe('"50"');
@@ -225,7 +294,9 @@ describe('study edit dialog after a settings 412', () => {
       server.afterWrite = null;
       server.revision += 1;
       await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
-      const read = store.dispatch(studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }));
+      const read = store.dispatch(
+        studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
+      );
       await read.unwrap();
       read.unsubscribe();
       expect(knownSettingsRevision(STUDY_ID)).toBe('"3"');
@@ -300,6 +371,23 @@ describe('study edit dialog after a partial save failure', () => {
     expect(server.patches.length).toBeGreaterThan(0);
     expect(server.patches.every((p) => p.ifMatch !== null)).toBe(true);
   });
+
+  test('retries a partial save from the committed revision without losing unsaved limits', async () => {
+    const { server } = renderStudyWithServer();
+    const { dialog, save } = await openEditDialog();
+    server.limitsFails = true;
+    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
+    save();
+    await within(dialog).findByText(/These changes did not save: study limits\./);
+    const committedRevision = server.revision;
+    const patchCount = server.patches.length;
+    expect(within(dialog).getByLabelText<HTMLInputElement>('Participant Limit').value).toBe('12');
+    server.limitsFails = false;
+    save();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(server.patches[patchCount]?.ifMatch).toBe(`"${committedRevision}"`);
+    expect(server.limitsPuts.at(-1)?.participantLimit).toBe(12);
+  });
 });
 
 // ai-built-code W1: the limits PUT is admin-only server-side and re-derives the study end
@@ -334,7 +422,7 @@ describe('study edit dialog limits', () => {
     const { dialog, save } = await openEditDialog();
     fireEvent.change(within(dialog).getByLabelText('Study Duration (days)'), { target: { value: '' } });
     save();
-    expect(await within(dialog).findByText(/Fill in all three study limits, or leave all three empty/)).toBeTruthy();
+    expect(await within(dialog).findByText(/Fill in all 3 study limits, or leave all 3 empty/)).toBeTruthy();
     expect(server.limitsPuts).toEqual([]);
     expect(server.patches).toEqual([]);
   });
@@ -397,7 +485,7 @@ describe('study edit dialog iOS sensor setting', () => {
     server.sensorAdminOnly = true;
     const { dialog, save } = await openEditDialog();
     fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
-    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Save Changes' }).disabled).toBe(false);
+    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Save changes' }).disabled).toBe(false);
     save();
     await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
     expect(server.detailsPatches).toHaveLength(1);

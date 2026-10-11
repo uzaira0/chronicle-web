@@ -12,6 +12,7 @@ import {
 type PolicyField = keyof ParticipantPolicyForm;
 
 type StudyParticipantPolicyFieldsProps = {
+  mode?: 'create' | 'edit';
   onChange: (field: PolicyField, value: string) => void;
   showErrors?: boolean;
   value: ParticipantPolicyForm;
@@ -49,169 +50,160 @@ function FieldError({
   ) : null;
 }
 
-export function StudyParticipantPolicyFields({ onChange, showErrors = false, value }: StudyParticipantPolicyFieldsProps) {
+export function StudyParticipantPolicyFields({
+  mode = 'create',
+  onChange,
+  showErrors = false,
+  value,
+}: StudyParticipantPolicyFieldsProps) {
   const { t } = useTranslator();
   const errors = validateParticipantPolicy(value, t);
   const describedBy = (field: PolicyField) =>
     errors[field] && (value[field].trim() || showErrors) ? `participant-policy-${field}-error` : undefined;
 
+  const renderInput = (field: PolicyField, label: string, placeholder: string, isUrl = false) => (
+    <div className="space-y-1.5" key={field}>
+      <Label htmlFor={`participant-policy-${field}`} required>
+        {label}
+      </Label>
+      <Input
+        aria-describedby={describedBy(field)}
+        aria-invalid={Boolean(errors[field]) && (value[field].trim() !== '' || showErrors)}
+        id={`participant-policy-${field}`}
+        maxLength={isUrl ? 2_048 : 8_000}
+        onChange={(event) => onChange(field, event.target.value)}
+        placeholder={placeholder}
+        required
+        type={isUrl ? 'url' : 'text'}
+        value={value[field]}
+      />
+      <FieldError errors={errors} field={field} showErrors={showErrors} value={value[field]} />
+    </div>
+  );
+
   return (
-    <fieldset className="space-y-5 rounded-lg border border-border p-5">
-      <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-        {t('policy_fields.legend')}
-      </legend>
-      <FieldHint>{t('policy_fields.hint')}</FieldHint>
+    <details open={mode === 'create' || (showErrors && Object.keys(errors).length > 0)}>
+      <summary className="cursor-pointer text-sm font-semibold">{t('policy_fields.legend')}</summary>
+      <fieldset className="space-y-5 rounded-lg border border-border p-5">
+        <legend className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('policy_fields.legend')}
+        </legend>
+        <FieldHint>{t('policy_fields.hint')}</FieldHint>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {[
-          [
-            'responsibleInstitution',
-            t('policy_fields.responsible_institution'),
-            t('policy_fields.responsible_institution_placeholder'),
-          ],
-          ['serverOperator', t('policy_fields.server_operator'), t('policy_fields.server_operator_placeholder')],
-        ].map(([field, label, placeholder]) => (
-          <div className="space-y-1.5" key={field}>
-            <Label htmlFor={`participant-policy-${field}`} required>
-              {label}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(
+            [
+              [
+                'responsibleInstitution',
+                t('policy_fields.responsible_institution'),
+                t('policy_fields.responsible_institution_placeholder'),
+              ],
+              ['serverOperator', t('policy_fields.server_operator'), t('policy_fields.server_operator_placeholder')],
+            ] as const
+          ).map(([field, label, placeholder]) => renderInput(field, label, placeholder))}
+        </div>
+
+        {renderInput(
+          'researchContact',
+          t('policy_fields.research_contact'),
+          t('policy_fields.research_contact_placeholder'),
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {DISCLOSURE_FIELDS.map(({ field, key }) => (
+            <div className="space-y-1.5" key={field}>
+              <Label htmlFor={`participant-policy-${field}`} required>
+                {t(`policy_fields.${key}`)}
+              </Label>
+              <Textarea
+                aria-describedby={
+                  [field === 'dataUseAndSharing' && ALWAYS_RECORDED_HINT_ID, describedBy(field)]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+                aria-invalid={Boolean(errors[field]) && (value[field].trim() !== '' || showErrors)}
+                id={`participant-policy-${field}`}
+                maxLength={8_000}
+                onChange={(event) => onChange(field, event.target.value)}
+                placeholder={t(`policy_fields.${key}_placeholder`)}
+                required
+                value={value[field]}
+              />
+              {field === 'dataUseAndSharing' && (
+                <p className="text-xs leading-5 text-muted-foreground" id={ALWAYS_RECORDED_HINT_ID}>
+                  {t('policy_fields.data_use_always_recorded_hint')}
+                </p>
+              )}
+              <FieldError errors={errors} field={field} showErrors={showErrors} value={value[field]} />
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(
+            [
+              ['privacyPolicyUrl', t('policy_fields.privacy_url'), 'https://research.example.org/privacy/study'],
+              ['withdrawalUrl', t('policy_fields.withdrawal_url'), 'https://research.example.org/withdraw/study'],
+            ] as const
+          ).map(([field, label, placeholder]) => renderInput(field, label, placeholder, true))}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="participant-policy-consentDocumentUrl">{t('policy_fields.consent_url')}</Label>
+          <Input
+            aria-describedby={describedBy('consentDocumentUrl')}
+            aria-invalid={Boolean(errors.consentDocumentUrl) && (value.consentDocumentUrl.trim() !== '' || showErrors)}
+            id="participant-policy-consentDocumentUrl"
+            maxLength={2_048}
+            onChange={(event) => onChange('consentDocumentUrl', event.target.value)}
+            placeholder="https://research.example.org/consent/study.pdf"
+            type="url"
+            value={value.consentDocumentUrl}
+          />
+          <FieldHint>{t('policy_fields.consent_hint')}</FieldHint>
+          <FieldError
+            errors={errors}
+            field="consentDocumentUrl"
+            showErrors={showErrors}
+            value={value.consentDocumentUrl}
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="participant-policy-version" required>
+              {t('policy_fields.version')}
             </Label>
             <Input
-              aria-describedby={describedBy(field as PolicyField)}
-              aria-invalid={Boolean(errors[field as PolicyField]) && (value[field as PolicyField].trim() !== '' || showErrors)}
-              id={`participant-policy-${field}`}
-              maxLength={8_000}
-              onChange={(event) => onChange(field as PolicyField, event.target.value)}
-              placeholder={placeholder}
+              aria-describedby={describedBy('version')}
+              aria-invalid={Boolean(errors.version) && (value.version.trim() !== '' || showErrors)}
+              id="participant-policy-version"
+              maxLength={128}
+              onChange={(event) => onChange('version', event.target.value)}
+              placeholder="consent-2026-08-17"
               required
-              value={value[field as PolicyField]}
+              value={value.version}
             />
-            <FieldError errors={errors} field={field as PolicyField} showErrors={showErrors} value={value[field as PolicyField]} />
+            <FieldError errors={errors} field="version" showErrors={showErrors} value={value.version} />
           </div>
-        ))}
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="participant-policy-researchContact" required>
-          {t('policy_fields.research_contact')}
-        </Label>
-        <Input
-          aria-describedby={describedBy('researchContact')}
-          aria-invalid={Boolean(errors.researchContact) && (value.researchContact.trim() !== '' || showErrors)}
-          id="participant-policy-researchContact"
-          maxLength={8_000}
-          onChange={(event) => onChange('researchContact', event.target.value)}
-          placeholder={t('policy_fields.research_contact_placeholder')}
-          required
-          value={value.researchContact}
-        />
-        <FieldError errors={errors} field="researchContact" showErrors={showErrors} value={value.researchContact} />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        {DISCLOSURE_FIELDS.map(({ field, key }) => (
-          <div className="space-y-1.5" key={field}>
-            <Label htmlFor={`participant-policy-${field}`} required>
-              {t(`policy_fields.${key}`)}
-            </Label>
-            <Textarea
-              aria-describedby={
-                [field === 'dataUseAndSharing' && ALWAYS_RECORDED_HINT_ID, describedBy(field)]
-                  .filter(Boolean)
-                  .join(' ') || undefined
-              }
-              aria-invalid={Boolean(errors[field]) && (value[field].trim() !== '' || showErrors)}
-              id={`participant-policy-${field}`}
-              maxLength={8_000}
-              onChange={(event) => onChange(field, event.target.value)}
-              placeholder={t(`policy_fields.${key}_placeholder`)}
-              required
-              value={value[field]}
-            />
-            {field === 'dataUseAndSharing' && (
-              <p className="text-xs leading-5 text-muted-foreground" id={ALWAYS_RECORDED_HINT_ID}>
-                {t('policy_fields.data_use_always_recorded_hint')}
-              </p>
-            )}
-            <FieldError errors={errors} field={field} showErrors={showErrors} value={value[field]} />
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        {[
-          ['privacyPolicyUrl', t('policy_fields.privacy_url'), 'https://research.example.org/privacy/study'],
-          ['withdrawalUrl', t('policy_fields.withdrawal_url'), 'https://research.example.org/withdraw/study'],
-        ].map(([field, label, placeholder]) => (
-          <div className="space-y-1.5" key={field}>
-            <Label htmlFor={`participant-policy-${field}`} required>
-              {label}
+          <div className="space-y-1.5">
+            <Label htmlFor="participant-policy-effectiveAt" required>
+              {t('policy_fields.effective_at')}
             </Label>
             <Input
-              aria-describedby={describedBy(field as PolicyField)}
-              aria-invalid={Boolean(errors[field as PolicyField]) && (value[field as PolicyField].trim() !== '' || showErrors)}
-              id={`participant-policy-${field}`}
-              maxLength={2_048}
-              onChange={(event) => onChange(field as PolicyField, event.target.value)}
-              placeholder={placeholder}
+              aria-describedby={describedBy('effectiveAt')}
+              aria-invalid={Boolean(errors.effectiveAt) && (value.effectiveAt.trim() !== '' || showErrors)}
+              id="participant-policy-effectiveAt"
+              onChange={(event) => onChange('effectiveAt', event.target.value)}
+              placeholder="2026-08-17T09:30:00-05:00"
               required
-              type="url"
-              value={value[field as PolicyField]}
+              value={value.effectiveAt}
             />
-            <FieldError errors={errors} field={field as PolicyField} showErrors={showErrors} value={value[field as PolicyField]} />
+            <FieldHint>{t('policy_fields.effective_hint')}</FieldHint>
+            <FieldError errors={errors} field="effectiveAt" showErrors={showErrors} value={value.effectiveAt} />
           </div>
-        ))}
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="participant-policy-consentDocumentUrl">{t('policy_fields.consent_url')}</Label>
-        <Input
-          aria-describedby={describedBy('consentDocumentUrl')}
-          aria-invalid={Boolean(errors.consentDocumentUrl) && (value.consentDocumentUrl.trim() !== '' || showErrors)}
-          id="participant-policy-consentDocumentUrl"
-          maxLength={2_048}
-          onChange={(event) => onChange('consentDocumentUrl', event.target.value)}
-          placeholder="https://research.example.org/consent/study.pdf"
-          type="url"
-          value={value.consentDocumentUrl}
-        />
-        <FieldHint>{t('policy_fields.consent_hint')}</FieldHint>
-        <FieldError errors={errors} field="consentDocumentUrl" showErrors={showErrors} value={value.consentDocumentUrl} />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="participant-policy-version" required>
-            {t('policy_fields.version')}
-          </Label>
-          <Input
-            aria-describedby={describedBy('version')}
-            aria-invalid={Boolean(errors.version) && (value.version.trim() !== '' || showErrors)}
-            id="participant-policy-version"
-            maxLength={128}
-            onChange={(event) => onChange('version', event.target.value)}
-            placeholder="consent-2026-08-17"
-            required
-            value={value.version}
-          />
-          <FieldError errors={errors} field="version" showErrors={showErrors} value={value.version} />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="participant-policy-effectiveAt" required>
-            {t('policy_fields.effective_at')}
-          </Label>
-          <Input
-            aria-describedby={describedBy('effectiveAt')}
-            aria-invalid={Boolean(errors.effectiveAt) && (value.effectiveAt.trim() !== '' || showErrors)}
-            id="participant-policy-effectiveAt"
-            onChange={(event) => onChange('effectiveAt', event.target.value)}
-            placeholder="2026-08-17T09:30:00-05:00"
-            required
-            value={value.effectiveAt}
-          />
-          <FieldHint>{t('policy_fields.effective_hint')}</FieldHint>
-          <FieldError errors={errors} field="effectiveAt" showErrors={showErrors} value={value.effectiveAt} />
-        </div>
-      </div>
-    </fieldset>
+      </fieldset>
+    </details>
   );
 }

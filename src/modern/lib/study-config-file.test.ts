@@ -36,6 +36,9 @@ function fullForm(): Required<StudyFormData> {
     loadedLimits: { dataRetentionDays: '90', participantLimit: '25', studyDurationDays: '365' },
     loadedModules: { some_future_module: { enabled: true } },
     loadedParticipantPolicy: { version: 'server-copy' },
+    loadedWithdrawalMode: 'ERASE',
+    loadedTimeZone: 'UTC',
+    loadedTimeUseDiary: { timeZone: 'UTC', maxEntries: 12 },
     moduleDispositions: perModule((_, i) => (i % 2 ? 'hold_pending' : 'discard_and_stop')),
     moduleIntervalSeconds: perModule((_, i) => String(1000 + i)),
     moduleRequired: perModule((_, i) => i % 3 === 0),
@@ -44,6 +47,8 @@ function fullForm(): Required<StudyFormData> {
       COLLECTION_MODULES.map((module, index) => [module.value, module.alwaysOn ? true : index % 2 === 0]),
     ),
     notificationsEnabled: true,
+    withdrawalMode: 'KEEP_PRIOR_DATA',
+    timeZone: 'America/Santiago',
     participantPolicy: {
       ...EMPTY_PARTICIPANT_POLICY_FORM,
       responsibleInstitution: 'Example Institute',
@@ -107,6 +112,9 @@ describe('study configuration file', () => {
     expect(parsed.study).not.toHaveProperty('loadedIosSensorSetting');
     expect(parsed.study).not.toHaveProperty('loadedModules');
     expect(parsed.study).not.toHaveProperty('loadedParticipantPolicy');
+    expect(parsed.study).not.toHaveProperty('loadedWithdrawalMode');
+    expect(parsed.study).not.toHaveProperty('loadedTimeZone');
+    expect(parsed.study).not.toHaveProperty('loadedTimeUseDiary');
 
     expect(parseStudyConfig(text)).toEqual(toPortableStudyConfig(form));
   });
@@ -133,6 +141,9 @@ describe('study configuration file', () => {
     expect(applied.title).toBe('Portable study');
     expect(applied.loadedModules).toEqual({ current_module: {} });
     expect(applied.loadedParticipantPolicy).toBeUndefined();
+    expect(applied.loadedWithdrawalMode).toBe(current.loadedWithdrawalMode);
+    expect(applied.loadedTimeZone).toBe(current.loadedTimeZone);
+    expect(applied.loadedTimeUseDiary).toEqual(current.loadedTimeUseDiary);
     expect(toPortableStudyConfig(applied)).toEqual(toPortableStudyConfig(fullForm()));
   });
 
@@ -253,32 +264,32 @@ describe('study configuration file', () => {
     ['not JSON', '{nope', /not valid JSON/],
     ['wrong format', JSON.stringify({ ...ENVELOPE, format: 'something-else', study: {} }), /not a Chronicle study/],
     ['newer version', JSON.stringify({ ...ENVELOPE, version: 99, study: {} }), /version 99 is not supported/],
-    ['missing version', JSON.stringify({ format: STUDY_CONFIG_FORMAT, study: {} }), /"version" has the wrong type/],
+    ['missing version', JSON.stringify({ format: STUDY_CONFIG_FORMAT, study: {} }), /“version” has the wrong type/],
     [
       'non-scalar version',
       JSON.stringify({ ...ENVELOPE, version: { major: 1 }, study: {} }),
-      /"version" has the wrong type/,
+      /“version” has the wrong type/,
     ],
-    ['missing study', JSON.stringify({ ...ENVELOPE }), /"study" has the wrong type/],
+    ['missing study', JSON.stringify({ ...ENVELOPE }), /“study” has the wrong type/],
     [
       'wrong field type',
       JSON.stringify({ ...ENVELOPE, study: { ...fullForm(), title: 7 } }),
-      /"title" has the wrong type/,
+      /“title” has the wrong type/,
     ],
     [
       'wrong map value type',
       JSON.stringify({ ...ENVELOPE, study: { ...fullForm(), moduleSettings: { usage_events: 'yes' } } }),
-      /"moduleSettings" has the wrong type/,
+      /“moduleSettings” has the wrong type/,
     ],
     [
       'array element type',
       JSON.stringify({ ...ENVELOPE, study: { ...fullForm(), features: ['A', 1] } }),
-      /"features" has the wrong type/,
+      /“features” has the wrong type/,
     ],
     [
       'policy not an object',
       JSON.stringify({ ...ENVELOPE, study: { ...fullForm(), participantPolicy: 'x' } }),
-      /"participantPolicy" has the wrong type/,
+      /“participantPolicy” has the wrong type/,
     ],
   ])('rejects %s', (_label, text, message) => {
     expect(() => parseStudyConfig(text)).toThrow(message);

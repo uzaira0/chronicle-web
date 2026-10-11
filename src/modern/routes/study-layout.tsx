@@ -1,19 +1,4 @@
-import {
-  AlertTriangle,
-  Archive,
-  ArchiveRestore,
-  CircleAlert,
-  ClipboardList,
-  Clock3,
-  FileArchive,
-  History,
-  MoreVertical,
-  ScrollText,
-  Shield,
-  SlidersHorizontal,
-  Trash2,
-  Users,
-} from 'lucide-react';
+import { AlertTriangle, Archive, ArchiveRestore, CircleAlert, MoreVertical, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 
@@ -39,18 +24,21 @@ import {
   EMPTY_PARTICIPANT_POLICY_FORM,
   participantPolicyUnchanged,
 } from '@/lib/participant-policy';
-import { STUDY_FEATURES, type StudyModule } from '@/lib/study-constants';
+import { STUDY_FEATURES } from '@/lib/study-constants';
 import {
   buildDataCollectionSetting,
   buildIosSensorSetting,
   buildSensorSetting,
   buildStudyLimits,
   buildStudyPayload,
+  buildTimeUseDiarySetting,
+  buildWithdrawalSetting,
   iosSensorSettingUnchanged,
   studyLimitsUnchanged,
 } from '@/lib/study-form-helpers';
 import {
   PARTIAL_STUDY_CONFIGURATION_ERROR,
+  type StudySaveFailure,
   type StudySaveStep,
   saveStep,
   settingWrites,
@@ -58,6 +46,7 @@ import {
   studyNavigationFailedSteps,
   writeSettingsInOrder,
 } from '@/lib/study-navigation';
+import { allStudyTabs } from '@/lib/study-tabs';
 import { cn } from '@/lib/utils';
 import { isSettingsConflict, StudySettingsConflictError } from '@/state/settings-revision';
 import {
@@ -65,6 +54,7 @@ import {
   useArchiveStudyMutation,
   useCancelScheduledDeletionMutation,
   useGetStudyLifecycleStatusQuery,
+  useGetStudyLimitsQuery,
   useGetStudySummaryQuery,
   useScheduleStudyDeletionMutation,
   useSetStudyLimitsMutation,
@@ -72,27 +62,6 @@ import {
   useUpdateStudyMutation,
   useUpdateStudySettingsMutation,
 } from '@/state/study-operations-api';
-
-const allStudyTabs: ReadonlyArray<{
-  icon: typeof ClipboardList;
-  labelKey: string;
-  module: StudyModule | null;
-  to: string;
-}> = [
-  { icon: ClipboardList, labelKey: 'study_layout.tab_overview', module: null, to: '' },
-  { icon: Users, labelKey: 'study_layout.tab_participants', module: null, to: 'participants' },
-  {
-    icon: SlidersHorizontal,
-    labelKey: 'study_layout.tab_preprocessing',
-    module: 'CHRONICLE_DATA_COLLECTION',
-    to: 'preprocessing',
-  },
-  { icon: FileArchive, labelKey: 'study_layout.tab_downloads', module: null, to: 'downloads' },
-  { icon: ScrollText, labelKey: 'study_layout.tab_questionnaires', module: 'CHRONICLE_SURVEYS', to: 'questionnaires' },
-  { icon: Shield, labelKey: 'study_layout.tab_compliance', module: null, to: 'compliance' },
-  { icon: Clock3, labelKey: 'study_layout.tab_tud', module: 'TIME_USE_DIARY', to: 'time-use-diary' },
-  { icon: History, labelKey: 'study_layout.tab_audit', module: null, to: 'audit' },
-];
 
 const FEATURE_LABELS = new Map<string, string>(STUDY_FEATURES.map(({ label, value }) => [value, label]));
 
@@ -192,6 +161,11 @@ export function StudyLayout() {
     isSuccess: isLifecycleSuccess,
   } = useGetStudyLifecycleStatusQuery(studyId, { skip: !studyId });
   const [updateStudy] = useUpdateStudyMutation();
+  const { data: limits } = useGetStudyLimitsQuery(studyId, {
+    skip: !studyId,
+    refetchOnFocus: true,
+    refetchOnMountOrArgChange: true,
+  });
   const [updateStudySettings] = useUpdateStudySettingsMutation();
   const [setStudyLimits] = useSetStudyLimitsMutation();
   const [archiveStudy, { isLoading: isArchiving }] = useArchiveStudyMutation();
@@ -214,6 +188,8 @@ export function StudyLayout() {
           ({
             details: t('study_layout.save_step_details'),
             ParticipantPolicy: t('study_layout.save_step_participant_policy'),
+            Withdrawal: t('study_form.withdrawal_mode'),
+            TimeUseDiary: t('study_form.time_zone'),
             AndroidSensor: t('study_layout.save_step_android_sensors'),
             Sensor: t('study_layout.save_step_ios_sensors'),
             DataCollection: t('study_layout.save_step_data_collection'),
@@ -280,10 +256,7 @@ export function StudyLayout() {
     );
   }
 
-  const handleEditStudy = async (
-    form: StudyFormData,
-    { settingsRevision }: { settingsRevision?: string | undefined },
-  ) => {
+  const handleEditStudy = async (form: StudyFormData, context: { settingsRevision?: string | undefined }) => {
     if (!lifecycleActionsRef.current.showEdit) {
       throw new Error(t('study_layout.status_unavailable_reload'));
     }
@@ -302,48 +275,51 @@ export function StudyLayout() {
     // The settings PATCHes run in order (see writeSettingsInOrder); every failed step is
     // named in the error so the user knows exactly what did not persist.
     const writes = settingWrites({
+      Withdrawal: buildWithdrawalSetting(form),
+      TimeUseDiary: buildTimeUseDiarySetting(form),
       AndroidSensor: buildSensorSetting(form),
       DataCollection: buildDataCollectionSetting(form),
       ParticipantPolicy: participantPolicy,
       Sensor: iosSensorSettingUnchanged(form) ? null : buildIosSensorSetting(form, true),
     });
 
-    // If-Match starts at the revision the form was loaded from, not whatever this tab saw last.
-    let ifMatch = settingsRevision;
-    if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-    // Every write is ordered behind the form's revision precondition. A failed setting
-    // cannot let stale details or limits reach the server.
+    // Each write follows the revision loaded by the form, then the preceding successful write.
+    const requireRevision = () => {
+      if (!context.settingsRevision) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+      return context.settingsRevision;
+    };
+    const assertSaved = (failures: StudySaveFailure[]) => {
+      if (!failures.length) return;
+      const first = failures[0]?.error;
+      if (isSettingsConflict(first) || first instanceof StudySettingsConflictError)
+        throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
+      throw new Error(
+        `${t('study_layout.changes_not_saved', { steps: stepList(failures.map((failure) => failure.step)) })} ${getErrorMessage(first, '')}`.trim(),
+      );
+    };
+    requireRevision();
     const settings = await writeSettingsInOrder(
       writes,
       async (write) => {
-        if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-        const result = await updateStudySettings({ studyId, ifMatch, ...write }).unwrap();
-        ifMatch = result.settingsRevision;
+        const result = await updateStudySettings({ studyId, ifMatch: requireRevision(), ...write }).unwrap();
+        context.settingsRevision = result.settingsRevision;
         return result;
       },
       (error) => isSettingsConflict(error) || error instanceof StudySettingsConflictError,
     );
-    if (settings.stopped) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-    if (settings.failures.length) {
-      const steps = stepList(settings.failures.map((failure) => failure.step));
-      throw new Error(`${t('study_layout.changes_not_saved', { steps })} ${getErrorMessage(settings.failures[0]?.error, '')}`.trim());
-    }
-    if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-    const details = await saveStep('details', updateStudy({ studyId, study: buildStudyPayload(form), ifMatch }).unwrap().then((result) => {
-      ifMatch = result.settingsRevision;
-    }));
-    if (details.length) {
-      if (isSettingsConflict(details[0]?.error)) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-      throw new Error(`${t('study_layout.changes_not_saved', { steps: stepList(['details']) })} ${getErrorMessage(details[0]?.error, '')}`.trim());
-    }
-    if (limits) {
-      if (!ifMatch) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-      const limitsFailure = await saveStep('limits', setStudyLimits({ studyId, limits, ifMatch }).unwrap());
-      if (limitsFailure.length) {
-        if (isSettingsConflict(limitsFailure[0]?.error)) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-        throw new Error(`${t('study_layout.changes_not_saved', { steps: stepList(['limits']) })} ${getErrorMessage(limitsFailure[0]?.error, '')}`.trim());
-      }
-    }
+    assertSaved(settings.failures);
+    assertSaved(
+      await saveStep(
+        'details',
+        updateStudy({ studyId, study: buildStudyPayload(form), ifMatch: requireRevision() })
+          .unwrap()
+          .then((result) => {
+            context.settingsRevision = result.settingsRevision;
+          }),
+      ),
+    );
+    if (limits)
+      assertSaved(await saveStep('limits', setStudyLimits({ studyId, limits, ifMatch: requireRevision() }).unwrap()));
   };
 
   const handleArchive = async () => {
@@ -466,6 +442,11 @@ export function StudyLayout() {
 
       {/* Lifecycle banner */}
       <LifecycleBanner isPending={isLifecycleFetching} status={status} />
+      {limits?.studyDataExpires && Date.parse(limits.studyDataExpires) <= Date.now() && (
+        <div role="alert" className="rounded-lg border border-warning/50 bg-warning-bg px-4 py-3 text-sm text-warning">
+          {t('study_layout.banner_retention_ended')}
+        </div>
+      )}
 
       {actionError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -612,6 +593,9 @@ export function StudyLayout() {
               {t('study_layout.type_to_confirm_after')}
             </p>
             <Input
+              aria-label={t('study_layout.delete_confirmation')}
+              name="delete-study-confirmation"
+              spellCheck={false}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               placeholder={study?.title}
               value={deleteConfirmText}

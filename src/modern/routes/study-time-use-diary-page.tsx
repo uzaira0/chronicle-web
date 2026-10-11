@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDate, localDay } from '@/lib/format';
+import { DEFAULT_STUDY_TIME_ZONE } from '@/lib/study-constants';
 import {
   type TimeUseDiaryDataType,
   toExportDateTime,
@@ -40,6 +41,7 @@ export function StudyTimeUseDiaryPage() {
   const { studyId = '' } = useParams<{ studyId: string }>();
   const { t } = useTranslator();
   const { data: study } = useGetStudySummaryQuery(studyId, { skip: !studyId });
+  const timeZone = study?.settings?.TimeUseDiary?.timeZone ?? DEFAULT_STUDY_TIME_ZONE;
   const [selectedStartDate, setSelectedStartDate] = useState(getTwoWeeksAgo);
   const [selectedEndDate, setSelectedEndDate] = useState(getToday);
   const [fetchSubmissions, submissionsState] = useLazyGetStudyTudSubmissionGroupsQuery();
@@ -74,9 +76,10 @@ export function StudyTimeUseDiaryPage() {
     }
 
     fetchSubmissions({
-      endDate: toExportDateTime(selectedEndDate, true),
-      startDate: toExportDateTime(selectedStartDate),
+      endDate: toExportDateTime(selectedEndDate, true, timeZone),
+      startDate: toExportDateTime(selectedStartDate, false, timeZone),
       studyId,
+      timeZone,
     }).catch((err: unknown) => {
       setDownloadError(getErrorMessage(err, t('tud_exports.search_failed')));
     });
@@ -89,8 +92,8 @@ export function StudyTimeUseDiaryPage() {
     try {
       await downloadTud({
         dataType,
-        endDate: toExportDateTime(date ?? selectedEndDate, true),
-        startDate: toExportDateTime(date ?? selectedStartDate),
+        endDate: toExportDateTime(date ?? selectedEndDate, true, timeZone),
+        startDate: toExportDateTime(date ?? selectedStartDate, false, timeZone),
         studyId,
       }).unwrap();
     } catch (error) {
