@@ -4,14 +4,20 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { LanguageProvider } from '@/i18n';
 
-const complianceMap = Object.fromEntries(
-  Array.from({ length: 300 }, (_, index) => [
-    `participant-${index}`,
-    [{ description: 'Missing data', reason: 'NO_DATA_UPLOADED' }],
-  ]),
-);
+const complianceMap = {
+  s1: Object.fromEntries(
+    Array.from({ length: 300 }, (_, index) => [
+      `participant-${index}`,
+      [{ description: 'Missing data', reason: 'NO_DATA_UPLOADED' }],
+    ]),
+  ),
+};
+
+// Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
+const realStudyOperationsApi = await import('@/state/study-operations-api');
 
 await mock.module('@/state/study-operations-api', () => ({
+  ...realStudyOperationsApi,
   useGetComplianceViolationsQuery: () => ({
     data: complianceMap,
     error: undefined,

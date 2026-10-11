@@ -11,7 +11,11 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { useGetComplianceViolationsQuery, useGetStudySummaryQuery } from '@/state/study-operations-api';
+import {
+  type ComplianceViolationsMap,
+  useGetComplianceViolationsQuery,
+  useGetStudySummaryQuery,
+} from '@/state/study-operations-api';
 
 function getViolationVariant(reason: string) {
   switch (reason) {
@@ -36,16 +40,16 @@ type FlatViolation = { description?: string; participantId: string; reason: stri
 
 const COMPLIANCE_PAGE_SIZE = 50;
 
-function flattenComplianceViolations(studyId: string, complianceMap: unknown): FlatViolation[] {
-  if (!studyId || !complianceMap || typeof complianceMap !== 'object') return [];
+function flattenComplianceViolations(studyId: string, complianceMap: ComplianceViolationsMap): FlatViolation[] {
+  if (!studyId) return [];
+  const participantViolations = complianceMap[studyId];
+  if (!participantViolations) return [];
 
   const result: FlatViolation[] = [];
-  for (const [participantId, pViolations] of Object.entries(complianceMap)) {
+  for (const [participantId, pViolations] of Object.entries(participantViolations)) {
     if (!Array.isArray(pViolations)) continue;
     for (const violation of pViolations) {
-      if (violation && typeof violation === 'object' && 'reason' in violation) {
-        result.push({ ...violation, participantId } as FlatViolation);
-      }
+      result.push({ ...violation, participantId });
     }
   }
   return result;
@@ -148,10 +152,7 @@ export function StudyCompliancePage() {
           </Table>
           {violations.length > visibleCount && (
             <div className="flex justify-center border-t border-border p-3">
-              <Button
-                onClick={() => setVisibleCount((count) => count + COMPLIANCE_PAGE_SIZE)}
-                variant="outline"
-              >
+              <Button onClick={() => setVisibleCount((count) => count + COMPLIANCE_PAGE_SIZE)} variant="outline">
                 {t('compliance.show_more', {
                   hidden: String(violations.length - visibleCount),
                   step: String(Math.min(COMPLIANCE_PAGE_SIZE, violations.length - visibleCount)),
