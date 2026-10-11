@@ -28,7 +28,7 @@ const PSEUDO_FROM = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PSEUDO_TO = 'áƀçðéƒĝĥíĵķļɱñóþǫŕšţúṽŵẋýžÁƁÇÐÉƑĜĤÍĴĶĻḾÑÓÞǪŔŠŢÚṼŴẊÝŽ';
 
 /** Accent every letter of a template, leaving `{{vars}}` and `$t(refs)` intact for interpolation. */
-export function pseudolocalize(template: string): string {
+function pseudolocalize(template: string): string {
   return template.replace(/\{\{[^}]*\}\}|\$t\([^)]*\)|[A-Za-z]/g, (m) =>
     m.length === 1 ? (PSEUDO_TO[PSEUDO_FROM.indexOf(m)] ?? m) : m,
   );

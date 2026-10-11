@@ -28,7 +28,7 @@ export function catalogSlug(value: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-export function catalogKey(kind: CatalogKind, value: string): string {
+function catalogKey(kind: CatalogKind, value: string): string {
   return `catalog.${kind}.${catalogSlug(value)}`;
 }
 

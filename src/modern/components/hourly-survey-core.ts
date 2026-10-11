@@ -89,7 +89,7 @@ export function remainingRanges(app: HourlyApp, selected: ReadonlySet<string>): 
 
 export type HourlyStep = 'intro' | 'selectChildApps' | 'selectSharedApps' | 'resolveSharedApps' | 'resolveOtherApps';
 
-export const HOURLY_STEP_ORDER: readonly HourlyStep[] = [
+const HOURLY_STEP_ORDER: readonly HourlyStep[] = [
   'intro',
   'selectChildApps',
   'selectSharedApps',

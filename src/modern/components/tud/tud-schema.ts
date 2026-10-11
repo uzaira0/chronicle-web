@@ -14,7 +14,7 @@ import {
   type TudOption,
 } from './tud-options';
 
-export type Widget = 'radio' | 'checkbox' | 'text' | 'time';
+type Widget = 'radio' | 'checkbox' | 'text' | 'time';
 
 export interface FieldDef {
   code: string;

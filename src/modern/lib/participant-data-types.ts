@@ -6,7 +6,7 @@ import {
   type ParticipantDataType,
 } from '@/generated/chronicle-contracts';
 
-export const PARTICIPANT_DATA_TYPE_LABELS: Readonly<Record<ParticipantDataType, string>> = {
+const PARTICIPANT_DATA_TYPE_LABELS: Readonly<Record<ParticipantDataType, string>> = {
   UsageEvents: 'Usage Events',
   Preprocessed: 'Preprocessed',
   AppUsageSurvey: 'App Usage Survey',

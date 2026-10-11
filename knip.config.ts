@@ -25,19 +25,16 @@ const config: KnipConfig = {
     // Generated from chronicle-api/chronicle.yaml via `bun run generate:api-types`;
     // contract surface, not hand-maintained, so unused members are expected.
     'src/modern/types/chronicle-api.generated.ts',
+    'src/modern/generated/**',
     // Zustand store covered by selected-org-store.test.ts, which imports it via a
     // cache-busting dynamic specifier (`./selected-org-store.ts?v=${id}`) that
     // knip cannot resolve statically. Legitimate, test-exercised module.
     'src/modern/stores/selected-org-store.ts',
   ],
-  // This is a state-layer + design-system codebase: study-operations-api.ts is an
-  // RTK-Query `createApi` slice whose hooks are auto-generated and exported
-  // wholesale, plus a backend API contract type surface; the component library
-  // re-exports full component families (DialogClose, TableCaption, etc.). These
-  // exports are deliberate public API, not dead code, so the per-export
-  // `exports`/`types` (and namespace variants) checks are disabled. Unused
-  // FILES, DEPENDENCIES, UNLISTED imports and BINARIES remain strictly enforced.
-  exclude: ['exports', 'types', 'nsExports', 'nsTypes', 'enumMembers'],
+  // UI primitives are intentional component-family exports; application exports stay checked.
+  ignoreIssues: { 'src/modern/components/ui/**': ['exports', 'types'] },
+  tags: ['-@public'],
+  exclude: ['enumMembers'],
   // POSIX diff, used by the check:api-types freshness gate; not an npm binary.
   ignoreBinaries: ['diff'],
   ignoreDependencies: [
@@ -54,8 +51,6 @@ const config: KnipConfig = {
     '@babel/runtime',
     // Consumed via CSS (@import) or the HTML/font bootstrap, not TS imports —
     // knip cannot trace these: see src/modern/styles/index.css and src/index.ts.
-    '@eqds/css',
-    '@eqds/tokens',
     '@eqds/react',
     // PostCSS/Tailwind pipeline used by the Bun build plugin + CSS, not imported.
     '@tailwindcss/postcss',
