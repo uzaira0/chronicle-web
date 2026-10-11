@@ -151,7 +151,7 @@ describe('AndroidDiagnosticsPanel', () => {
     });
     fireEvent.change(screen.getByLabelText('Module family'), { target: { value: 'LOCAL_STORE' } });
     fireEvent.change(screen.getByLabelText('Issue code'), { target: { value: 'LOCAL_WRITE_FAILED' } });
-    act(() => jest.advanceTimersByTime(300));
+    await act(() => jest.advanceTimersByTime(300));
     expect(queryCalls.at(-1)).toMatchObject({
       participantId: 'participant-1',
       studyId: 'study-1',
@@ -176,7 +176,7 @@ describe('AndroidDiagnosticsPanel', () => {
     expect((downloadCalls.at(-1) as { endDate?: string }).endDate).toBe('2026-09-25');
   });
 
-  test('debounces device text filtering while inputs stay immediate and clearing remains responsive', () => {
+  test('debounces device text filtering while inputs stay immediate and clearing remains responsive', async () => {
     jest.useFakeTimers();
     render(<AndroidDiagnosticsPanel participantId="participant-1" studyId="study-1" />);
 
@@ -191,15 +191,15 @@ describe('AndroidDiagnosticsPanel', () => {
     expect(issueInput.value).toBe('APP_CRASH');
     expect(queryCalls).toHaveLength(initialQueryCount);
 
-    act(() => jest.advanceTimersByTime(299));
+    await act(() => jest.advanceTimersByTime(299));
     expect(queryCalls).toHaveLength(initialQueryCount);
-    act(() => jest.advanceTimersByTime(1));
+    await act(() => jest.advanceTimersByTime(1));
     expect(queryCalls).toHaveLength(initialQueryCount + 1);
     expect(queryCalls.at(-1)).toMatchObject({ deviceId: 'device-42', issueCode: 'APP_CRASH' });
 
     fireEvent.change(issueInput, { target: { value: '' } });
     expect(issueInput.value).toBe('');
-    act(() => jest.advanceTimersByTime(300));
+    await act(() => jest.advanceTimersByTime(300));
     expect(queryCalls).toHaveLength(initialQueryCount + 2);
     expect(queryCalls.at(-1)).toMatchObject({ deviceId: 'device-42' });
     expect(queryCalls.at(-1)).not.toHaveProperty('issueCode');

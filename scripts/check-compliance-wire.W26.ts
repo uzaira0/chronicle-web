@@ -5,7 +5,7 @@ import ts from 'typescript';
 // The final full typecheck separately reports diagnostics in unrelated files.
 const root = resolve(import.meta.dir, '..');
 const configPath = resolve(root, 'tsconfig.app.json');
-const config = ts.readConfigFile(configPath, ts.sys.readFile);
+const config = ts.readConfigFile(configPath, (path) => ts.sys.readFile(path));
 if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
 const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
 const program = ts.createProgram(parsed.fileNames, parsed.options);

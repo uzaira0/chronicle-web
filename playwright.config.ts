@@ -88,8 +88,9 @@ export default defineConfig({
           // (persona-adversary-api, the study/questionnaire UI specs, everything under
           // e2e/scenarios) fail on a dead backend rather than on anything they were written
           // to catch.
-          env: { CHRONICLE_BACKEND_URL: backendUrl },
-          reuseExistingServer: !process.env.CI,
+          env: { CHRONICLE_BACKEND_URL: backendUrl, PORT: new URL(proxyBaseUrl).port || '80' },
+          // Opt in with CHRONICLE_E2E_REUSE_SERVER=1; otherwise fail if the URL is already served.
+          reuseExistingServer: process.env.CHRONICLE_E2E_REUSE_SERVER === '1',
           timeout: 180_000,
           url: proxyBaseUrl,
         },

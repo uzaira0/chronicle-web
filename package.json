@@ -128,7 +128,7 @@
     "biome:check": "bunx biome check src/modern/ src/core/",
     "biome:fix": "bunx biome check --write src/modern/ src/core/",
     "biome:format": "bunx biome format --write src/",
-    "test": "bun test src/modern/lib src/modern/state src/modern/stores src/bun-legacy && bun run test:ui",
+    "test": "bun test --preload ./src/modern/test/setup-dom.ts src/modern src/core src/bun-legacy",
     "test:components": "bun test --preload ./src/modern/test/setup-dom.ts src/modern/components",
     "test:routes": "bun test --preload ./src/modern/test/setup-dom.ts src/modern/routes/*.test.tsx",
     "test:ui": "bun run test:components && bun run test:routes",

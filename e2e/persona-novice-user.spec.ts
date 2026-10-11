@@ -17,7 +17,7 @@ test.describe('persona: novice user', () => {
           await persona.openStudiesList();
           const fallback = persona.page.getByText(/something went wrong|stack trace|application crashed/i).first();
           expect(await fallback.isVisible({ timeout: 2_000 }).catch(() => false)).toBe(false);
-          await expect(persona.page.getByRole('button', { name: /create new study/i })).toBeVisible({ timeout: 10_000 });
+          await expect(persona.page.getByRole('heading', { name: 'Studies', exact: true }).locator('../../..').getByRole('button', { name: /create new study/i })).toBeVisible({ timeout: 10_000 });
           expect(errs.errors[0], `Studies page crashed with: ${errs.errors[0]?.message ?? ''}`).toBeUndefined();
         });
       });
@@ -42,7 +42,7 @@ test.describe('persona: novice user', () => {
         await auth.asPersona('novice-user', async (persona) => {
           await persona.openStudiesList();
           const { page } = persona;
-          await page.getByRole('button', { name: /create new study/i }).click();
+          await page.getByRole('heading', { name: 'Studies', exact: true }).locator('../../..').getByRole('button', { name: /create new study/i }).click();
           const dialog = page.getByRole('dialog');
           await expect(dialog).toBeVisible();
           const submit = dialog.getByRole('button', { name: /^create study$/i });

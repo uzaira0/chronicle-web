@@ -2,6 +2,7 @@ import {
   SESSION_PATH,
   STABLE_AUTHENTICATED_SESSION,
 } from './dsl/constants';
+import { seedStudyRoutes } from './fixtures/study-api';
 import { expectAppRendered } from './fixtures/app-ready';
 import { expect, test } from './fixtures/browser-test';
 
@@ -51,6 +52,7 @@ const THEME_STORAGE_KEY = 'chronicle-theme';
 type ScreenshotTheme = 'dark' | 'light';
 
 test.beforeEach(async ({ page }) => {
+  await seedStudyRoutes(page);
   await page.route(`**${SESSION_PATH}`, async (route) => {
     await route.fulfill({
       // Authenticated: the app-shell pages below are behind the dashboard login gate,
@@ -60,14 +62,7 @@ test.beforeEach(async ({ page }) => {
       status: 200,
     });
   });
-  // The studies list is read page by page (?limit=&offset=), so match with or without a query.
-  await page.route(/\/chronicle\/api\/web\/study(\?.*)?$/, async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ body: '[]', contentType: 'application/json', status: 200 });
-    } else {
-      await route.continue();
-    }
-  });
+
 });
 
 // ---------------------------------------------------------------------------
