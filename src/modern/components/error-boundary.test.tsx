@@ -3,20 +3,9 @@ import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
+import { contrast } from '@/test/contrast';
+
 import { RouteOutlet } from './error-boundary';
-
-function luminance(hex: string): number {
-  const channels = hex.match(/[\da-f]{2}/gi)?.map((part) => Number.parseInt(part, 16) / 255) ?? [];
-  const [r, g, b] = channels.map((channel) =>
-    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-  );
-  return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
-}
-
-function contrast(foreground: string, background: string): number {
-  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
-  return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
-}
 
 function token(css: string, selector: RegExp, name: string): string {
   const block = css.match(selector)?.[1] ?? '';
@@ -91,14 +80,22 @@ describe('RouteOutlet', () => {
     const { container } = renderLayoutWithFailingPage('render bug');
     const description = container.querySelector('p');
     const retry = screen.getByRole('button', { name: 'Try again' });
-    expect(description?.style.color).toBe('var(--muted-foreground)');
-    expect(retry.style.background).toBe('var(--foreground)');
-    expect(retry.style.color).toBe('var(--background)');
+    expect(description?.classList.contains('text-muted-foreground')).toBe(true);
+    expect(retry.classList.contains('bg-foreground')).toBe(true);
+    expect(retry.classList.contains('text-background')).toBe(true);
 
     const css = readFileSync(new URL('../../../node_modules/@eqds/tokens/src/tokens.css', import.meta.url), 'utf-8');
     const themes = [
-      { background: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-bg'), foreground: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-ink'), muted: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-muted') },
-      { background: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-bg'), foreground: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-ink'), muted: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-muted') },
+      {
+        background: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-bg'),
+        foreground: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-ink'),
+        muted: token(css, /:root,[\s\S]*?\{([\s\S]*?)\}/, '--eq-muted'),
+      },
+      {
+        background: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-bg'),
+        foreground: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-ink'),
+        muted: token(css, /\[data-eq-theme="dark"\],[\s\S]*?\{([\s\S]*?)\}/, '--eq-muted'),
+      },
     ];
     for (const theme of themes) {
       expect(contrast(theme.muted, theme.background)).toBeGreaterThanOrEqual(4.5);

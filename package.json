@@ -113,7 +113,7 @@
     "check": "bun run typecheck && bun run lint:types && bun run lint:design && bun run biome:check && bun run lint:ast && bun run test:e2e-dsl && bun run i18n:lint && bun run i18n:lint:selftest && bun run check:api-types && bun run check:domain-contracts",
     "lint:ast": "ast-grep scan -c sgconfig.yml e2e/",
     "lint:types": "eslint src/modern e2e scripts",
-    "lint:design": "eslint --config eslint.shadcn.mjs src/modern --max-warnings 119",
+    "lint:design": "eslint --config eslint.shadcn.mjs src/modern --max-warnings 116",
     "test:e2e-dsl": "bun test e2e/dsl/",
     "clean": "bunx rimraf dist/*",
     "dev": "bun --port 5173 index.html",

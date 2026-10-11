@@ -1,7 +1,6 @@
-import { Activity, ArrowRight, CircleAlert, Library, ShieldCheck } from 'lucide-react';
+import { Activity, ArrowRight, CircleAlert, Library } from 'lucide-react';
 import { Link } from 'react-router';
 import { SectionHeader } from '@/components/section-header';
-import { StatCard } from '@/components/stat-card';
 import { StatePanel } from '@/components/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -115,31 +114,24 @@ export function OverviewPage() {
           </Button>
         }
         description={t('overview.description')}
-        eyebrow={t('overview.eyebrow')}
-        icon={<ShieldCheck className="h-3 w-3" />}
         title={t('overview.title')}
       />
 
-      {/* items-start: otherwise the grid stretches the stat cards to the height of the
-          taller Runtime Status card, leaving a large empty area inside each. */}
-      <section className="grid items-start gap-6 lg:grid-cols-[1.6fr_1fr]">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {/* Three integers previously occupied three full-height cards with headings,
-              descriptions and 4xl numerals. Same StatCard the study pages use. */}
-          <StatCard
-            label={t('overview.stat_studies')}
-            tone="default"
-            value={isStudiesLoading ? '…' : isStudiesError ? '—' : studies.length}
-          />
-          <StatCard
-            label={t('overview.stat_collecting')}
-            value={isStudiesLoading ? '…' : isStudiesError ? '—' : dataCollectionStudyCount}
-          />
-          <StatCard
-            label={t('overview.stat_notifications')}
-            value={isStudiesLoading ? '…' : isStudiesError ? '—' : notificationEnabledCount}
-          />
-        </div>
+      <section className="grid items-start gap-6 lg:grid-cols-3">
+        <dl className="flex flex-wrap gap-x-6 gap-y-3 tabular-nums lg:col-span-2">
+          {(
+            [
+              ['overview.stat_studies', studies.length],
+              ['overview.stat_collecting', dataCollectionStudyCount],
+              ['overview.stat_notifications', notificationEnabledCount],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-sm text-muted-foreground">{t(label)}</dt>
+              <dd className="text-xl font-semibold">{isStudiesLoading ? '…' : isStudiesError ? '—' : value}</dd>
+            </div>
+          ))}
+        </dl>
 
         <Card>
           <CardHeader>

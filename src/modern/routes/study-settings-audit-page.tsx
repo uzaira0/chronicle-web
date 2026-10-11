@@ -33,14 +33,24 @@ function SettingsAuditEntryRows({
   const { t } = useTranslator();
   return (
     <Fragment>
-      <TableRow className="cursor-pointer hover:bg-muted/50" onClick={() => toggleRow(entry.id)}>
+      <TableRow className="hover:bg-muted/50">
         <TableCell className="whitespace-nowrap font-medium text-xs">
           {formatDisplayDateTime(entry.changedAt)}
         </TableCell>
         <TableCell className="text-sm">{entry.changedBy}</TableCell>
         <TableCell className="text-sm font-semibold">{entry.settingKey}</TableCell>
         <TableCell className="text-sm">{entry.changeSummary}</TableCell>
-        <TableCell>{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</TableCell>
+        <TableCell>
+          <Button
+            aria-expanded={isExpanded}
+            aria-label={t('settings_audit.toggle_details', { setting: entry.settingKey })}
+            onClick={() => toggleRow(entry.id)}
+            size="icon"
+            variant="ghost"
+          >
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </TableCell>
       </TableRow>
       {isExpanded && (
         <TableRow className="bg-muted/30">
@@ -140,7 +150,7 @@ export function StudySettingsAuditPage() {
     isLoading,
     refetch,
   } = useGetStudySettingsAuditQuery({ studyId }, { skip: !studyId });
-  const { data: acknowledgments = [] } = useGetStudyCollectionAcknowledgmentsQuery({ studyId }, { skip: !studyId });
+  const acknowledgmentsQuery = useGetStudyCollectionAcknowledgmentsQuery({ studyId }, { skip: !studyId });
 
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(AUDIT_PAGE_SIZE);
@@ -172,7 +182,11 @@ export function StudySettingsAuditPage() {
           eyebrow={t('common.error')}
           icon={<CircleAlert className="h-5 w-5" />}
           isRetrying={isFetching}
-          onRetry={() => refetch().unwrap().catch(() => undefined)}
+          onRetry={() =>
+            refetch()
+              .unwrap()
+              .catch(() => undefined)
+          }
           title={t('settings_audit.load_error_title')}
           tone="destructive"
         />
@@ -219,7 +233,19 @@ export function StudySettingsAuditPage() {
         </Card>
       )}
 
-      {!isLoading && !isError && <AcknowledgmentsCard entries={acknowledgments} />}
+      {acknowledgmentsQuery.isError ? (
+        <StatePanel
+          description={getErrorMessage(acknowledgmentsQuery.error, t('settings_audit.consent_failed'))}
+          title={t('common.request_failed')}
+          icon={<CircleAlert className="h-5 w-5" />}
+          onRetry={() => void acknowledgmentsQuery.refetch()}
+          tone="destructive"
+        />
+      ) : acknowledgmentsQuery.isLoading ? (
+        <TableSkeleton label={t('common.loading')} />
+      ) : (
+        <AcknowledgmentsCard entries={acknowledgmentsQuery.data ?? []} />
+      )}
 
       <ApiKeysPanel studyId={studyId} />
     </div>

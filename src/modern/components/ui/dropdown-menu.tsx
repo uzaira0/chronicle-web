@@ -1,5 +1,6 @@
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import * as React from 'react';
+import { PortalContainerContext } from '@/components/ui/dialog';
 
 import { cn } from '@/lib/utils';
 
@@ -10,7 +11,7 @@ const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
 >(({ className, sideOffset = 8, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal>
+  <DropdownMenuPrimitive.Portal container={React.useContext(PortalContainerContext)}>
     <DropdownMenuPrimitive.Content
       className={cn(
         'z-50 min-w-44 rounded-2xl border border-border/70 bg-popover p-1.5 text-popover-foreground shadow-lg',

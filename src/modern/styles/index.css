@@ -152,6 +152,16 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
+  :is(a, button, input, select, textarea, summary, [role="button"]) {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: var(--primary);
+  }
+
+  .eq-icon,
+  .lucide {
+    stroke-width: 2;
+  }
+
   #app {
     min-height: 100vh;
   }

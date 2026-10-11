@@ -2,8 +2,21 @@ import type * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-export function Card({ className, variant = 'default', ...props }: React.HTMLAttributes<HTMLDivElement> & { variant?: 'default' | 'destructive' }) {
-  return <div className={cn('eq-card rounded-lg border border-border bg-card shadow-sm', variant === 'destructive' && 'border-destructive/40', className)} {...props} />;
+export function Card({
+  className,
+  variant = 'default',
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { variant?: 'default' | 'destructive' }) {
+  return (
+    <div
+      className={cn(
+        'eq-card rounded-lg border border-border bg-card shadow-sm',
+        variant === 'destructive' && 'border-destructive/40',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -15,7 +28,12 @@ type CardTitleProps = React.HTMLAttributes<HTMLHeadingElement> & {
 };
 
 export function CardTitle({ as: Heading = 'h3', className, ...props }: CardTitleProps) {
-  return <Heading className={cn('text-lg font-semibold tracking-tight text-foreground', className)} {...props} />;
+  return (
+    <Heading
+      className={cn('text-lg text-balance font-semibold tracking-tight text-foreground', className)}
+      {...props}
+    />
+  );
 }
 
 export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {

@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { render } from '@testing-library/react';
-
 import { LanguageSwitcher } from '@/i18n/language-switcher';
+import { contrast } from '@/test/contrast';
 
 import { Input } from './input';
 import { Textarea } from './textarea';
@@ -20,19 +20,6 @@ function hexVar(body: string, name: string): string {
   const match = body.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`));
   expect(match).not.toBeNull();
   return match?.[1] ?? '';
-}
-
-function luminance(hex: string): number {
-  const channel = (i: number) => {
-    const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-}
-
-function contrast(a: string, b: string): number {
-  const [la, lb] = [luminance(a), luminance(b)];
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 // WCAG 2.2 SC 1.4.11: field boundaries and focus indicators need 3:1 against what they sit on.

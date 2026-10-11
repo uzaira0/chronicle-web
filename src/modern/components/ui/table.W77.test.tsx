@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 
 test('W77 keyboard reaches a named overflowing table, scrolls columns and passes WCAG 2.2', async () => {
-  const scratch = resolve('../build/operator-test-runs/W77-browser');
+  const scratch = resolve('build/operator-test-runs/W77-browser');
   mkdirSync(scratch, { recursive: true });
   process.env.TMPDIR = scratch;
   const browser = await chromium.launch({ headless: true });
@@ -21,8 +21,20 @@ test('W77 keyboard reaches a named overflowing table, scrolls columns and passes
         <h1>Export jobs</h1>
         <button type="button">Before table</button>
         <Table aria-label="Recent export jobs" style={{ minWidth: 900 }}>
-          <TableHeader><TableRow><TableHead>Created</TableHead><TableHead>Status</TableHead><TableHead>Download</TableHead></TableRow></TableHeader>
-          <TableBody><TableRow><TableCell>October 3</TableCell><TableCell>Ready</TableCell><TableCell>CSV</TableCell></TableRow></TableBody>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Created</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Download</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell>October 3</TableCell>
+              <TableCell>Ready</TableCell>
+              <TableCell>CSV</TableCell>
+            </TableRow>
+          </TableBody>
         </Table>
         <button type="button">After table</button>
       </main>,
@@ -45,7 +57,9 @@ test('W77 keyboard reaches a named overflowing table, scrolls columns and passes
     await page.waitForFunction(() => (document.querySelector('.eq-table-wrap')?.scrollLeft ?? 0) > 0);
     expect(await region.evaluate((node) => getComputedStyle(node).outlineStyle)).not.toBe('none');
     expect(await region.evaluate((node) => getComputedStyle(node).outlineOffset)).toBe('2px');
-    const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+    const audit = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
     expect(audit.violations.map((v) => v.id)).toEqual([]);
     const gate = readFileSync(resolve('e2e/accessibility.spec.ts'), 'utf8');
     expect(gate).toContain('wcag22aa');

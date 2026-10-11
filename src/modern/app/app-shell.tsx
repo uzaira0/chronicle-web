@@ -60,7 +60,9 @@ export function AppShell() {
         >
           <div className="mb-6 flex items-center justify-between gap-2 px-2">
             <div className={cn('overflow-hidden', isSidebarCollapsed && 'sr-only')}>
-              <p className="text-2xs font-bold uppercase tracking-eyebrow text-primary">Chronicle</p>
+              <p className="text-2xs font-bold uppercase tracking-eyebrow text-primary" translate="no">
+                Chronicle
+              </p>
               <p className="mt-0.5 text-xs text-muted-foreground">{t('shell.research_operations')}</p>
             </div>
             <Button aria-label={t('shell.toggle_sidebar')} onClick={toggleSidebar} size="icon" variant="ghost">
@@ -70,7 +72,12 @@ export function AppShell() {
 
           <nav aria-label={t('shell.primary_nav')} className="flex-1 space-y-1">
             {navigation.map(({ icon, labelKey, to }) => (
-              <NavLink aria-label={isSidebarCollapsed ? t(labelKey) : undefined} className={navLinkClassName} key={to} to={to}>
+              <NavLink
+                aria-label={isSidebarCollapsed ? t(labelKey) : undefined}
+                className={navLinkClassName}
+                key={to}
+                to={to}
+              >
                 <EqualIcon className="h-4 w-4 shrink-0" name={icon} />
                 {!isSidebarCollapsed && <span>{t(labelKey)}</span>}
               </NavLink>
@@ -101,17 +108,19 @@ export function AppShell() {
                     <DialogDescription className="sr-only">{t('shell.mobile_nav_description')}</DialogDescription>
                     <div className="mb-6 flex items-center gap-2">
                       <div>
-                        <p className="text-sm font-bold tracking-tight text-foreground">Chronicle</p>
+                        <p className="text-sm font-bold tracking-tight text-foreground" translate="no">
+                          Chronicle
+                        </p>
                         <p className="text-xs text-muted-foreground">{t('shell.research_operations')}</p>
                       </div>
                     </div>
                     <nav aria-label={t('shell.primary_nav')} className="space-y-1">
-                    {navigation.map(({ icon, labelKey, to }) => (
-                      <NavLink className={mobileNavLinkClassName} key={to} onClick={closeMobileNav} to={to}>
-                        <EqualIcon className="h-4 w-4 shrink-0" name={icon} />
-                        <span>{t(labelKey)}</span>
-                      </NavLink>
-                    ))}
+                      {navigation.map(({ icon, labelKey, to }) => (
+                        <NavLink className={mobileNavLinkClassName} key={to} onClick={closeMobileNav} to={to}>
+                          <EqualIcon className="h-4 w-4 shrink-0" name={icon} />
+                          <span>{t(labelKey)}</span>
+                        </NavLink>
+                      ))}
                     </nav>
                     <div className="mt-6 border-t border-border pt-4">
                       <LanguageSwitcher />
@@ -119,7 +128,9 @@ export function AppShell() {
                   </DialogContent>
                 </Dialog>
                 <div>
-                  <h1 className="text-base font-semibold tracking-tight text-foreground">Chronicle</h1>
+                  <h1 className="text-base font-semibold tracking-tight text-foreground" translate="no">
+                    Chronicle
+                  </h1>
                   <p className="hidden text-xs text-muted-foreground sm:block">{t('shell.console_subtitle')}</p>
                 </div>
               </div>

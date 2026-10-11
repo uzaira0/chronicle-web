@@ -4,18 +4,17 @@ import { useTranslator } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => {
+  ({ className, tabIndex = 0, ...props }, ref) => {
     const { t } = useTranslator();
     return (
-      <div
+      <section
         aria-label={props['aria-labelledby'] ? undefined : props['aria-label'] || t('common.scrollable_table')}
         aria-labelledby={props['aria-labelledby']}
         className="eq-table-wrap relative w-full max-w-full overflow-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        role="region"
-        tabIndex={0}
+        tabIndex={tabIndex}
       >
         <table className={cn('eq-table w-full caption-bottom text-sm', className)} ref={ref} {...props} />
-      </div>
+      </section>
     );
   },
 );

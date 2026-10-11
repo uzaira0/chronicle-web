@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './fixtures/browser-test';
 import { expectAppRendered } from './fixtures/app-ready';
+import { PARTICIPANT_CONTEXT_STORAGE_KEY, PARTICIPANT_CSRF_STORAGE_KEY } from '../src/modern/lib/participant-access';
 import { SESSION_PATH, STABLE_AUTHENTICATED_SESSION } from './dsl/constants';
 
 /**
@@ -67,6 +68,55 @@ test.describe('accessibility — unauthenticated pages', () => {
       await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
       await expectAppRendered(page);
 
+      const results = await scanPage(page);
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    });
+  }
+});
+
+test.describe('accessibility — participant instruments', () => {
+  const studyId = 'a11y-study';
+  const participantId = 'a11y-participant';
+  const questionnaireId = 'a11y-questionnaire';
+  const date = '2026-10-03';
+  for (const instrument of ['questionnaire', 'survey', 'time-use-diary', 'participant'] as const) {
+    test(`${instrument} renders its controls before the WCAG scan`, async ({ page }) => {
+      await page.addInitScript(({ contextKey, csrfKey, studyId, participantId, questionnaireId }) => {
+        const context = { csrfToken: 'fixture-csrf', expiresAt: '2099-01-01T00:00:00Z', formKind: 'PORTAL',
+          studyId, participantId, resourceId: questionnaireId };
+        sessionStorage.setItem(contextKey, JSON.stringify(context));
+        sessionStorage.setItem(csrfKey, context.csrfToken);
+      }, { contextKey: PARTICIPANT_CONTEXT_STORAGE_KEY, csrfKey: PARTICIPANT_CSRF_STORAGE_KEY, studyId, participantId, questionnaireId });
+      const responses: Record<string, unknown> = {
+        [`/survey/${studyId}/questionnaire/${questionnaireId}`]: { id: questionnaireId, title: 'Fixture questionnaire',
+          questions: [{ title: 'How do you feel?', choices: [] }, { title: 'How often?', choices: ['Daily', 'Weekly'] }] },
+        [`/survey/${studyId}/app-usage-frequency`]: { appUsageFrequency: 'DAILY' },
+        [`/survey/${studyId}/participant/${participantId}/app-usage`]: [{ appPackageName: 'org.chronicle.fixture', appLabel: 'Fixture app',
+          eventType: 1, timestamp: `${date}T12:00:00Z`, timezone: 'UTC', users: [] }],
+        [`/time-use-diary/${studyId}/settings`]: { language: 'en', clockFormat: 24, clockFormatLocked: true,
+          enableChangesForOhioStateUniversity: true, enableChangesForSherbrookeUniversity: true },
+        [`/time-use-diary/${studyId}/participant/${participantId}`]: { [date]: ['fixture-submission'] },
+      };
+      await page.route('**/chronicle/v3/**', (route) => {
+        const path = new URL(route.request().url()).pathname.replace('/chronicle/v3', '');
+        return route.fulfill({ status: Object.hasOwn(responses, path) ? 200 : 404,
+          json: responses[path] ?? { error: 'Unseeded participant route' } });
+      });
+      await page.goto(`/${instrument}?studyId=${studyId}&participantId=${participantId}&questionnaireId=${questionnaireId}&date=${date}`);
+      if (instrument === 'questionnaire') {
+        await expect(page.getByRole('textbox', { name: /Answer to question 1/i })).toBeVisible();
+        await expect(page.getByRole('checkbox', { name: 'Daily', exact: true })).toBeVisible();
+      } else if (instrument === 'survey') {
+        await expect(page.getByRole('checkbox', { name: 'Parent alone', exact: true })).toBeVisible();
+      } else if (instrument === 'time-use-diary') {
+        await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+        await page.getByRole('button', { name: 'Next', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeEnabled();
+        await expect(page.locator('input, [role="radio"], [role="combobox"]').first()).toBeVisible();
+      } else {
+        await expect(page.getByRole('link', { name: /Submit.*diary/i })).toBeVisible();
+        await expect(page.getByText('submission id: fixture-submission', { exact: true })).toBeVisible();
+      }
       const results = await scanPage(page);
       expect(results.violations, formatViolations(results.violations)).toEqual([]);
     });

@@ -15,9 +15,9 @@ describe('RouteDocumentTitle', () => {
           <RouteDocumentTitle />
           <nav>
             <Link to="/studies/private-study/compliance?participantId=private-participant">Compliance</Link>
-            <Link to="/questionnaire?studyId=private-study&participantId=private-participant">
-              Questionnaire
-            </Link>
+            <Link to="/studies/private-study/audit">Audit</Link>
+            <Link to="/studies/private-study/settings-audit">Legacy audit</Link>
+            <Link to="/questionnaire?studyId=private-study&participantId=private-participant">Questionnaire</Link>
             <Link to="/time-use-diary?studyId=private-study&participantId=private-participant">Diary</Link>
             <Link to="/participant?studyId=private-study&participantId=private-participant">Participant</Link>
           </nav>
@@ -28,6 +28,10 @@ describe('RouteDocumentTitle', () => {
     expect(document.title).toBe('Sign in to the dashboard | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Compliance' }));
     expect(document.title).toBe('Compliance | Chronicle');
+    fireEvent.click(screen.getByRole('link', { name: 'Audit' }));
+    expect(document.title).toBe('Audit | Chronicle');
+    fireEvent.click(screen.getByRole('link', { name: 'Legacy audit' }));
+    expect(document.title).toBe('Audit | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Questionnaire' }));
     expect(document.title).toBe('Study Questionnaire | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Diary' }));

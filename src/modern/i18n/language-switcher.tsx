@@ -34,7 +34,7 @@ export function LanguageSwitcher({ effectiveCode, onSelect }: LanguageSwitcherPr
   return (
     <select
       aria-label={language.t('common.language')}
-      className="rounded-lg border border-input bg-background px-2 py-1 text-xs text-foreground"
+      className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded-lg border border-input bg-background px-2 py-1 text-xs text-foreground"
       onChange={(event) => select(event.currentTarget.value)}
       value={getBaseLanguageCode(current)}
     >

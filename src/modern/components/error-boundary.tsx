@@ -67,42 +67,19 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
       // Class components cannot use the language hook; read the persisted choice directly.
       const { t } = createTranslator(getCurrentLanguage());
 
-      // Inline styles on purpose: this fallback must render even when the stylesheet or theme failed to load.
-      /* eslint-disable shadcn/no-inline-styles -- stylesheet-independent crash fallback */
       return (
-        <div
-          style={{
-            color: 'var(--foreground)',
-            padding: '40px 20px',
-            textAlign: 'center',
-            fontFamily: "'Inter Variable', Inter, system-ui, sans-serif",
-            maxWidth: '480px',
-            margin: '80px auto',
-          }}
-        >
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '12px' }}>{t('error_boundary.title')}</h2>
-          <p style={{ color: 'var(--muted-foreground)', marginBottom: '20px', lineHeight: 1.5 }}>
-            {t('error_boundary.description')}
-          </p>
+        <div className="mx-auto my-20 max-w-lg px-5 py-10 text-center font-sans text-foreground">
+          <h2 className="mb-3 text-xl font-semibold">{t('error_boundary.title')}</h2>
+          <p className="mb-5 leading-6 text-muted-foreground">{t('error_boundary.description')}</p>
           <button
             type="button"
             onClick={this.handleRetry}
-            style={{
-              background: 'var(--foreground)',
-              color: 'var(--background)',
-              padding: '8px 20px',
-              borderRadius: '6px',
-              border: '1px solid var(--foreground)',
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-            }}
+            className="rounded-md border border-foreground bg-foreground px-5 py-2 text-sm font-medium text-background pointer-coarse:min-h-11 pointer-coarse:min-w-11 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             {t('common.try_again')}
           </button>
         </div>
       );
-      /* eslint-enable shadcn/no-inline-styles */
     }
 
     return this.props.children;

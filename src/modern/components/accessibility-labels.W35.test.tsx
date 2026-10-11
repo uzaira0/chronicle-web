@@ -3,15 +3,24 @@ import { cleanup, render, screen } from '@testing-library/react';
 
 import { LanguageProvider } from '@/i18n';
 
+// Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
+const realStudyOperationsApi = await import('@/state/study-operations-api');
+
 await mock.module('@/state/study-operations-api', () => ({
-  useLoadParticipantAnnotationsMutation: () => [() => ({ unwrap: () => Promise.resolve({ data: { participantNotes: '', participantTags: [] }, revision: '"fixture"' }) }), { isLoading: false }],
+  ...realStudyOperationsApi,
+  useLoadParticipantAnnotationsMutation: () => [
+    () => ({
+      unwrap: () => Promise.resolve({ data: { participantNotes: '', participantTags: [] }, revision: '"fixture"' }),
+    }),
+    { isLoading: false },
+  ],
   useUpdateParticipantAnnotationsMutation: () => [() => ({ unwrap: () => Promise.resolve() }), { isLoading: false }],
 }));
 
 import { ParticipantNotesEditor } from './participant-notes-editor';
 import { ChoicesEditor } from './questionnaires/ChoicesEditor';
-import { ClockFormatSelect, FieldControl } from './tud/tud-widgets';
 import type { FieldDef } from './tud/tud-schema';
+import { ClockFormatSelect, FieldControl } from './tud/tud-widgets';
 
 afterEach(() => cleanup());
 
