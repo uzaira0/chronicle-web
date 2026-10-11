@@ -1,19 +1,14 @@
-import { CheckCircle2, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { type Dispatch, useMemo, useReducer } from 'react';
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
 import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
-import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
-import { useSubmissionKey } from '@/lib/use-submission-key';
-import {
-  type AppUsageEntry,
-  toExportDateTime,
-  useGetAppUsageSurveyDataQuery,
-  useSubmitAppUsageSurveyMutation,
-} from '@/state/study-operations-api';
+import { REQUEST_STATES } from '@/lib/request-state';
+import type { AppUsageEntry } from '@/state/study-operations-api';
+import { AppUsageSurveyFeedback, type AppUsageSurveyProps, useAppUsageSurvey } from './app-usage-survey';
 import {
   buildHourlySubmission,
   groupByHourly,
@@ -27,13 +22,6 @@ import {
   remainingRanges,
   sortedBucketRanges,
 } from './hourly-survey-core';
-
-type ParticipantHourlySurveyFormProps = {
-  date: string;
-  /** Resolved translation-table code (see tud/i18n); defaults to English. */
-  participantId: string;
-  studyId: string;
-};
 
 // Step instructions are upstream's verbatim wording, keyed into the shared translation tables.
 const INSTRUCTION_KEYS: Record<HourlyStep, string> = {
@@ -121,25 +109,10 @@ function buildPayload(state: State, grouped: HourlyGrouped): AppUsageEntry[] {
   return buildHourlySubmission(grouped, state.childOnlyApps, sharedSelections);
 }
 
-export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormProps) {
-  const { date, participantId, studyId } = props;
+export function ParticipantHourlySurveyForm(props: AppUsageSurveyProps) {
   const t = useTranslator();
   const dir = isRtlLanguage(t.effectiveCode) ? 'rtl' : 'ltr';
-  const {
-    data: apps,
-    isLoading,
-    isError,
-  } = useGetAppUsageSurveyDataQuery({
-    // The participant's own calendar day, not the UTC one.
-    endDate: toExportDateTime(date, true),
-    participantId,
-    startDate: toExportDateTime(date),
-    studyId,
-  });
-
-  const [submit, submitResult] = useSubmitAppUsageSurveyMutation();
-  const { currentKey, rotateKey } = useSubmissionKey();
-  const submitState = getMutationRequestState(submitResult);
+  const { data: apps, isLoading, isError, submit, submitState } = useAppUsageSurvey(props);
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   // Bucket answers exist only for shared apps, so these two sets cover every answer.
   const keepAlive = useUnsavedParticipantAnswers(
@@ -165,43 +138,18 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
   const isPending = submitState === REQUEST_STATES.PENDING;
   const handleSubmit = () => {
     const data = buildPayload(state, grouped);
-    submit({ data, idempotencyKey: currentKey(data), participantId, studyId })
-      .unwrap()
-      .then(rotateKey)
-      .catch(() => {
-        // RTK Query owns the failure state rendered below.
-      });
+    submit(data);
   };
 
-  if (isLoading) {
+  if (isLoading || isError || submitState === REQUEST_STATES.SUCCESS) {
     return (
-      <StatusCard
-        description={t.t('app_usage_survey.loading_description')}
+      <AppUsageSurveyFeedback
         dir={dir}
-        title={t.t('app_usage_survey.loading_title')}
+        icon={Clock}
+        isError={isError}
+        isLoading={isLoading}
+        submitState={submitState}
       />
-    );
-  }
-  if (isError) {
-    return (
-      <StatusCard
-        description={t.t('app_usage_survey.unavailable_description')}
-        dir={dir}
-        title={t.t('app_usage_survey.unavailable_title')}
-      />
-    );
-  }
-  if (submitState === REQUEST_STATES.SUCCESS) {
-    return (
-      <Card className="max-w-2xl" dir={dir}>
-        <CardHeader>
-          <CardTitle as="h2" className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-primary" />
-            {t.t('app_usage_survey.thank_you_title')}
-          </CardTitle>
-          <CardDescription>{t.t('app_usage_survey.thank_you_for_participating')}</CardDescription>
-        </CardHeader>
-      </Card>
     );
   }
 
@@ -234,7 +182,9 @@ export function ParticipantHourlySurveyForm(props: ParticipantHourlySurveyFormPr
         )}
 
         {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive">{t.t('app_usage_survey.error_submit')}</p>
+          <p className="text-sm text-destructive" role="alert">
+            {t.t('app_usage_survey.error_submit')}
+          </p>
         )}
 
         <div className="flex justify-between">
@@ -398,19 +348,5 @@ function BucketChecklists({ entries, onToggle, rangesFor, selections, translator
         );
       })}
     </div>
-  );
-}
-
-function StatusCard({ description, dir, title }: { description: string; dir: 'ltr' | 'rtl'; title: string }) {
-  return (
-    <Card className="max-w-2xl" dir={dir}>
-      <CardHeader>
-        <CardTitle as="h2" className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-primary" />
-          {title}
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-    </Card>
   );
 }

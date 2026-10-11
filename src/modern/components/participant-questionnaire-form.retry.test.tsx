@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 
 import { PARTICIPANT_CSRF_STORAGE_KEY } from '@/lib/participant-access';
-import { studyOperationsApi } from '@/state/study-operations-api';
+import { createApiStore } from '@/test/study-operations-store';
 
 import { ParticipantQuestionnaireForm } from './participant-questionnaire-form';
 
@@ -16,12 +15,12 @@ function jsonResponse(body: unknown): Response {
 
 afterEach(() => {
   cleanup();
-  window.sessionStorage.removeItem(PARTICIPANT_CSRF_STORAGE_KEY);
+  window.sessionStorage.clear();
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
 });
 
 describe('ParticipantQuestionnaireForm retry after a failed submit', () => {
-  async function keysForRetry(changeAnswer: boolean) {
+  async function keysForRetry(changeAnswer: boolean, remount = false) {
     window.location.href = 'http://localhost/';
     window.sessionStorage.setItem(PARTICIPANT_CSRF_STORAGE_KEY, 'form-csrf');
     const postKeys: (string | null)[] = [];
@@ -47,15 +46,13 @@ describe('ParticipantQuestionnaireForm retry after a failed submit', () => {
       writable: true,
     });
 
-    const store = configureStore({
-      middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
-      reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-    });
-    render(
+    const store = createApiStore();
+    const form = (
       <Provider store={store}>
         <ParticipantQuestionnaireForm participantId="p1" questionnaireId="q1" studyId="s1" />
-      </Provider>,
+      </Provider>
     );
+    render(form);
 
     fireEvent.click(await screen.findByLabelText('Daily'));
     const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Submit responses' }));
@@ -64,7 +61,11 @@ describe('ParticipantQuestionnaireForm retry after a failed submit', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Submit responses' })).toHaveProperty('disabled', false),
     );
-    if (changeAnswer) fireEvent.click(screen.getByLabelText('Never'));
+    if (remount) {
+      cleanup();
+      render(form);
+      fireEvent.click(await screen.findByLabelText(changeAnswer ? 'Never' : 'Daily'));
+    } else if (changeAnswer) fireEvent.click(screen.getByLabelText('Never'));
     submit();
     await waitFor(() => expect(postKeys).toHaveLength(2));
     expect(postKeys[0]).toBeTruthy();
@@ -76,9 +77,14 @@ describe('ParticipantQuestionnaireForm retry after a failed submit', () => {
     expect(retry).toBe(first);
   });
 
-  test('uses a fresh Idempotency-Key once the answers change, so the server does not reject the retry', async () => {
+  test('keeps the Idempotency-Key after answers change following an unacknowledged commit', async () => {
     const [first, retry] = await keysForRetry(true);
     expect(retry).toBeTruthy();
-    expect(retry).not.toBe(first);
+    expect(retry).toBe(first);
+  });
+
+  test('keeps the Idempotency-Key after remounting and changing answers following an unacknowledged commit', async () => {
+    const [first, retry] = await keysForRetry(true, true);
+    expect(retry).toBe(first);
   });
 });

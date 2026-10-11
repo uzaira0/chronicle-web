@@ -1,9 +1,8 @@
 import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { isRtlLanguage, resolveLanguageCode } from '@/i18n/language-codes';
 import { LanguageSwitcher } from '@/i18n/language-switcher';
 import { createTranslator } from '@/i18n/translator';
@@ -83,7 +82,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
   const [errors, setErrors] = useState<Set<string>>(new Set());
 
   const [submit, submitResult] = useSubmitTimeUseDiaryMutation();
-  const { currentKey, rotateKey } = useSubmissionKey();
+  const { currentKey, rotateKey } = useSubmissionKey([studyId, participantId, 'TIME_USE_DIARY', activityDate]);
   const submitState = getMutationRequestState(submitResult);
 
   // Answers live only in memory (no PHI in browser storage): once the diary has started, confirm
@@ -167,7 +166,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
       settings,
       waveId: props.waveId ?? null,
     });
-    submit({ data, idempotencyKey: currentKey(data), participantId, studyId })
+    submit({ data, idempotencyKey: currentKey(), participantId, studyId })
       .unwrap()
       .then(rotateKey)
       .catch(() => {
@@ -247,7 +246,9 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
         )}
 
         {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive" role="alert">{ctx.translator.t('error_submit')}</p>
+          <p className="text-sm text-destructive" role="alert">
+            {ctx.translator.t('error_submit')}
+          </p>
         )}
 
         <div className="flex justify-between">

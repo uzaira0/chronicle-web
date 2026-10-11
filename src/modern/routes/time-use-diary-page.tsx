@@ -1,18 +1,13 @@
-import { Layers, LoaderCircle } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Layers } from 'lucide-react';
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router';
-
-import { StatePanel } from '@/components/state-panel';
+import { ParticipantInstrumentState } from '@/components/participant-instrument-state';
 import { ParticipantLandingCard } from '@/components/participant-landing-card';
 import type { ActivityDay } from '@/components/tud/tud-flow';
 import { TimeUseDiaryForm } from '@/components/tud/tud-form';
-import { resolveBaseLang, resolveTudSettings } from '@/components/tud/tud-page-settings';
+import { resolveBaseLang, resolveTudSettings, supportsTodayDiary } from '@/components/tud/tud-page-settings';
 import { resolveLanguageCode, useTranslator } from '@/i18n';
 import { useGetTimeUseDiarySettingsQuery } from '@/state/study-operations-api';
-
-// Languages that support the "today" diary variant; others fall back to "yesterday"
-// (matches upstream TimeUseDiaryContainer).
-const TODAY_CAPABLE_LANGS = new Set(['en', 'de', 'he']);
 
 export function TimeUseDiaryPage() {
   const [searchParams] = useSearchParams();
@@ -21,16 +16,17 @@ export function TimeUseDiaryPage() {
   const activityDate = searchParams.get('date') || '';
 
   // The study's configured TUD instrument (OSU/Sherbrooke question set, clock format, locale)
-  // is authoritative; see resolveTudSettings for the URL-override precedence. On error we fall
-  // preserve a verified instrument during refresh failures and block first-load failures.
-  const { data: fetchedSettings, isSuccess, isError, refetch } = useGetTimeUseDiarySettingsQuery(studyId, {
+  // is authoritative; see resolveTudSettings for the URL-override precedence. RTK retains
+  // verified settings during refresh failures and blocks first-load failures.
+  const {
+    currentData: studySettings,
+    isError,
+    refetch,
+  } = useGetTimeUseDiarySettingsQuery(studyId, {
     skip: !studyId,
   });
 
-  const verified = useRef<{ studyId: string; data: typeof fetchedSettings } | null>(null);
-  if (isSuccess) verified.current = { studyId, data: fetchedSettings };
-  const resolved = isSuccess || verified.current?.studyId === studyId;
-  const studySettings = verified.current?.studyId === studyId ? verified.current.data : fetchedSettings;
+  const resolved = studySettings !== undefined;
 
   const ready = Boolean(studyId && participantId && activityDate);
   const language = useTranslator();
@@ -45,33 +41,15 @@ export function TimeUseDiaryPage() {
   }, [baseLang, effectiveCode, language, searchParams]);
 
   // Hard-gate the wizard on settings resolving so it never mounts with the wrong variant and
-  // then flips when the fetch lands. (An error is NOT a gate — the query falls through to
-  // undefined settings and resolveTudSettings degrades to URL/defaults.)
-  if (ready && !resolved && isError) {
-    return (
-      <StatePanel
-        description={t('common.request_failed')}
-        icon={<LoaderCircle className="h-5 w-5" />}
-        onRetry={() => refetch()}
-        title={t('common.error')}
-        titleAs="h2"
-        tone="destructive"
-      />
-    );
-  }
-
+  // then flips when the fetch lands.
   if (ready && !resolved) {
     return (
-      <div className="mx-auto flex max-w-2xl items-center gap-2 p-6 text-sm text-muted-foreground">
-        <LoaderCircle className="h-4 w-4 animate-spin" />
-        {t('tud_route.loading')}
-      </div>
+      <ParticipantInstrumentState isError={isError} loadingLabel={t('tud_route.loading')} onRetry={() => refetch()} />
     );
   }
 
   const requestedDay = searchParams.get('day');
-  const activityDay: ActivityDay =
-    requestedDay === 'today' && TODAY_CAPABLE_LANGS.has(baseLang) ? 'today' : 'yesterday';
+  const activityDay: ActivityDay = requestedDay === 'today' && supportsTodayDiary(baseLang) ? 'today' : 'yesterday';
 
   const settings = resolveTudSettings(searchParams, studySettings);
 

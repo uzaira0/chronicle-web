@@ -3,7 +3,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { LanguageProvider } from '@/i18n';
 
+// Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
+const realStudyOperationsApi = await import('@/state/study-operations-api');
+
 await mock.module('@/state/study-operations-api', () => ({
+  ...realStudyOperationsApi,
   useSubmitTimeUseDiaryMutation: () => [() => {}, {}],
 }));
 

@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { configureStore } from '@reduxjs/toolkit';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
-
 import {
   PARTICIPANT_CONTEXT_STORAGE_KEY,
   PARTICIPANT_CSRF_STORAGE_KEY,
   storeParticipantSessionContext,
 } from '@/lib/participant-access';
-import { studyOperationsApi } from '@/state/study-operations-api';
+import { createApiStore } from '@/test/study-operations-store';
 
 import { ParticipantQuestionnaireForm } from './participant-questionnaire-form';
 
@@ -37,7 +35,8 @@ describe('participant session keepalive (W22)', () => {
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
       value: (input: RequestInfo | URL, init?: RequestInit) => {
-        const request = input instanceof Request ? input : new Request(String(input), init);
+        const request = input instanceof Request ? input : new Request(input, init);
+        expect(request.headers.get('X-Chronicle-Form-CSRF')).toBe('test-csrf');
         if (!questionnaireLoaded) {
           questionnaireLoaded = true;
           return Promise.resolve(
@@ -51,21 +50,15 @@ describe('participant session keepalive (W22)', () => {
             ),
           );
         }
-        if (request.headers.has('X-Chronicle-Form-CSRF')) {
-          keepaliveCalls += 1;
-          if (keepaliveCalls === 1) return Promise.resolve(new Response('', { status: 401 }));
-          if (keepaliveCalls === 2) return Promise.reject(new TypeError('offline'));
-          return Promise.resolve(new Response('', { status: 204 }));
-        }
+        keepaliveCalls += 1;
+        if (keepaliveCalls === 1) return Promise.resolve(new Response('', { status: 401 }));
+        if (keepaliveCalls === 2) return Promise.reject(new TypeError('offline'));
         return Promise.resolve(new Response('', { status: 204 }));
       },
       writable: true,
     });
 
-    const store = configureStore({
-      middleware: (getDefault) => getDefault().concat(studyOperationsApi.middleware),
-      reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
-    });
+    const store = createApiStore();
     render(
       <Provider store={store}>
         <ParticipantQuestionnaireForm participantId="p1" questionnaireId="q1" studyId="s1" />

@@ -7,7 +7,11 @@ import { PARTICIPANT_KEEP_ALIVE_MS } from '@/lib/participant-access-guard';
 
 let submitFailed = false;
 
+// Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
+const realStudyOperationsApi = await import('@/state/study-operations-api');
+
 await mock.module('@/state/study-operations-api', () => ({
+  ...realStudyOperationsApi,
   useSubmitTimeUseDiaryMutation: () => [() => {}, { isError: submitFailed, isLoading: false, isSuccess: false }],
 }));
 
@@ -61,7 +65,7 @@ describe('TimeUseDiaryForm session keep-alive', () => {
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
       value: (input: RequestInfo | URL, init?: RequestInit) => {
-        requests.push(new Request(new URL(String(input), 'http://localhost/'), init));
+        requests.push(input instanceof Request ? input : new Request(new URL(input, 'http://localhost/'), init));
         return Promise.resolve(new Response('{}'));
       },
       writable: true,

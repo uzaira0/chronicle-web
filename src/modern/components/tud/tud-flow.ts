@@ -23,7 +23,7 @@ export type TudAnswers = Record<number, PageAnswers>;
 export type PageKind = 'intro' | 'presurvey' | 'dayspan' | 'primary' | 'contextual' | 'night' | 'wakeup' | 'summary';
 
 export const INTRO_PAGE = 0;
-export const PRE_SURVEY_PAGE = 1;
+const PRE_SURVEY_PAGE = 1;
 export const DAY_SPAN_PAGE = 2;
 
 export const FIELD = Object.freeze({
@@ -59,7 +59,7 @@ export function getFirstActivityPage(activityDay: ActivityDay): number {
 }
 
 /** A contextual page carries followUpCompleted; a bare primary page does not. */
-export function pageHasFollowUp(answers: TudAnswers, page: number): boolean {
+function pageHasFollowUp(answers: TudAnswers, page: number): boolean {
   return Boolean(pageData(answers, page)[FIELD.FOLLOWUP_COMPLETED]);
 }
 
@@ -82,27 +82,17 @@ export function isDayComplete(answers: TudAnswers, page: number): boolean {
   return end !== null && dayEnd !== null && end === dayEnd && pageHasFollowUp(answers, page);
 }
 
-export function isNightPage(answers: TudAnswers, page: number, activityDay: ActivityDay): boolean {
+function isNightPage(answers: TudAnswers, page: number, activityDay: ActivityDay): boolean {
   if (activityDay === 'today') return page === 3;
   return isDayComplete(answers, page - 1);
 }
 
-export function isWakeUpPage(
-  answers: TudAnswers,
-  page: number,
-  activityDay: ActivityDay,
-  settings: TudSettings,
-): boolean {
+function isWakeUpPage(answers: TudAnswers, page: number, activityDay: ActivityDay, settings: TudSettings): boolean {
   if (activityDay === 'today' || !settings.enableOsu) return false;
   return isNightPage(answers, page - 1, activityDay);
 }
 
-export function isSummaryPage(
-  answers: TudAnswers,
-  page: number,
-  activityDay: ActivityDay,
-  settings: TudSettings,
-): boolean {
+function isSummaryPage(answers: TudAnswers, page: number, activityDay: ActivityDay, settings: TudSettings): boolean {
   if (activityDay === 'yesterday') {
     return settings.enableOsu
       ? isWakeUpPage(answers, page - 1, activityDay, settings)
@@ -112,7 +102,7 @@ export function isSummaryPage(
 }
 
 /** Within the activity region, true => render the contextual followup page. */
-export function shouldDisplayFollowup(answers: TudAnswers, page: number, activityDay: ActivityDay): boolean {
+function shouldDisplayFollowup(answers: TudAnswers, page: number, activityDay: ActivityDay): boolean {
   const first = getFirstActivityPage(activityDay);
   if (page <= first) return false;
   const prevActivity = pageData(answers, page - 1)[FIELD.PRIMARY_ACTIVITY];

@@ -1,9 +1,21 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { Provider } from 'react-redux';
 import { createTranslator } from '@/i18n/translator';
 import type { AppUsageEntry } from '@/state/study-operations-api';
-import { APP_USAGE_NONE_OPTION, APP_USAGE_USER_OPTIONS, AppUsageRow, groupByApp } from './participant-survey-form';
+import { studyOperationsApi } from '@/state/study-operations-api';
+import { installRelativeRequest } from '@/test/http-fixtures';
+import { createApiStore } from '@/test/study-operations-store';
+import { HOURLY_SURVEY_USER } from './hourly-survey-core';
+import { ParticipantHourlySurveyForm } from './participant-hourly-survey-form';
+import {
+  APP_USAGE_NONE_OPTION,
+  APP_USAGE_USER_OPTIONS,
+  AppUsageRow,
+  groupByApp,
+  ParticipantSurveyForm,
+} from './participant-survey-form';
 
 const entry: AppUsageEntry = {
   appLabel: 'YouTube',
@@ -71,4 +83,52 @@ describe('ParticipantSurveyForm - groupByApp', () => {
     ]);
     expect(groups[0]).toEqual([entry, later]);
   });
+});
+
+test.each([
+  false,
+  true,
+])('app-usage form (hourly=%s) loads, submits a stable payload, and renders success', async (hourly) => {
+  const savedFetch = globalThis.fetch;
+  const restoreRequest = installRelativeRequest();
+  const store = createApiStore();
+  const writes: { body: AppUsageEntry[]; key: string | null; path: string }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const request = input as Request;
+    if (request.method === 'POST') {
+      writes.push({
+        body: (await request.json()) as AppUsageEntry[],
+        key: request.headers.get('Idempotency-Key'),
+        path: new URL(request.url).pathname,
+      });
+      return new Response('{}', { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify([entry]), { headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  const Form = hourly ? ParticipantHourlySurveyForm : ParticipantSurveyForm;
+  try {
+    render(
+      <Provider store={store}>
+        <Form date="2026-06-01" participantId="participant/1" studyId="study/1" />
+      </Provider>,
+    );
+    if (hourly) {
+      fireEvent.click(await screen.findByRole('button', { name: 'Begin Survey' }));
+      fireEvent.click(screen.getByLabelText('YouTube'));
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    } else {
+      fireEvent.click(await screen.findByLabelText('Child alone'));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Submit survey' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Thank you' })).toBeTruthy());
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/chronicle/v3/survey/study%2F1/participant/participant%2F1/app-usage');
+    expect(writes[0]?.key).toBeTruthy();
+    expect(writes[0]?.body).toEqual([{ ...entry, users: [hourly ? HOURLY_SURVEY_USER : 'Child alone'] }]);
+  } finally {
+    cleanup();
+    store.dispatch(studyOperationsApi.util.resetApiState());
+    globalThis.fetch = savedFetch;
+    restoreRequest();
+  }
 });

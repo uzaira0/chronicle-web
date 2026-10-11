@@ -61,9 +61,7 @@ describe('ParticipantShell policy footer', () => {
   });
 
   test('provides a level-one brand heading followed by the participant page heading', () => {
-    renderShell(
-      <ParticipantLandingCard description="Choose a form." icon={null} title="Take the survey" />,
-    );
+    renderShell(<ParticipantLandingCard description="Choose a form." icon={null} title="Take the survey" />);
 
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('heading', { level: 1, name: 'Chronicle' })).toBeTruthy();

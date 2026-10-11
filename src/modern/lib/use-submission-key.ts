@@ -1,20 +1,19 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 
 /**
- * One Idempotency-Key per logical form submission. A retry with the same payload after a failed
- * or timed-out submit reuses the key, so the server's receipt dedupe drops the duplicate. A
- * changed payload gets a fresh key: the server rejects a reused key whose payload differs, which
- * would otherwise leave the form stuck. `rotateKey` after a success.
+ * Keep one Idempotency-Key per form resource until success is acknowledged, including reloads.
+ * A changed retry conflicts with the committed receipt instead of storing a second submission.
+ * Store only the key, never the answers. `rotateKey` after a successful response.
  */
-export function useSubmissionKey() {
-  const ref = useRef<{ key: string; payload: string } | null>(null);
-  const currentKey = useCallback((payload: unknown) => {
-    const serialized = JSON.stringify(payload);
-    if (ref.current?.payload !== serialized) ref.current = { key: crypto.randomUUID(), payload: serialized };
-    return ref.current.key;
-  }, []);
+export function useSubmissionKey(resource: readonly string[]) {
+  const storageKey = `chronicle.participant.submission.${JSON.stringify(resource)}`;
+  const currentKey = useCallback(() => {
+    const key = window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+    window.sessionStorage.setItem(storageKey, key);
+    return key;
+  }, [storageKey]);
   const rotateKey = useCallback(() => {
-    ref.current = null;
-  }, []);
+    window.sessionStorage.removeItem(storageKey);
+  }, [storageKey]);
   return { currentKey, rotateKey };
 }

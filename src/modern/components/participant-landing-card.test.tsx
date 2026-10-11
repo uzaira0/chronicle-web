@@ -3,9 +3,20 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import { LanguageProvider } from '@/i18n';
-import { storeParticipantSessionContext, type ParticipantFormKind } from '@/lib/participant-access';
-afterEach(() => { window.sessionStorage.clear(); });
-function session(formKind: ParticipantFormKind) { storeParticipantSessionContext({ csrfToken: 'fixture-csrf', expiresAt: new Date(Date.now() + 60_000).toISOString(), formKind, studyId: 's1', participantId: 'p1' }); }
+import { type ParticipantFormKind, storeParticipantSessionContext } from '@/lib/participant-access';
+
+afterEach(() => {
+  window.sessionStorage.clear();
+});
+function session(formKind: ParticipantFormKind) {
+  storeParticipantSessionContext({
+    csrfToken: 'fixture-csrf',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    formKind,
+    studyId: 's1',
+    participantId: 'p1',
+  });
+}
 
 import { ParticipantLandingCard } from './participant-landing-card';
 
@@ -27,7 +38,13 @@ describe('ParticipantLandingCard', () => {
 test('W10 form sessions cannot navigate into PORTAL authority; PORTAL can', () => {
   for (const kind of ['TIME_USE_DIARY', 'APP_USAGE', 'PORTAL'] as const) {
     session(kind);
-    render(<LanguageProvider initialSearch=""><MemoryRouter initialEntries={['/survey?studyId=s1&participantId=p1']}><ParticipantLandingCard description="d" icon={null} title="t" /></MemoryRouter></LanguageProvider>);
+    render(
+      <LanguageProvider initialSearch="">
+        <MemoryRouter initialEntries={['/survey?studyId=s1&participantId=p1']}>
+          <ParticipantLandingCard description="d" icon={null} title="t" />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
     expect(screen.queryByRole('link') !== null).toBe(kind === 'PORTAL');
     cleanup();
   }

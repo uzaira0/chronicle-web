@@ -1,10 +1,9 @@
 import { CheckCircle2, FileQuestion } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
-
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
 import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
@@ -40,7 +39,7 @@ export function ParticipantQuestionnaireForm({
   const { t } = useTranslator();
 
   const [submit, submitResult] = useSubmitQuestionnaireResponsesMutation();
-  const { currentKey, rotateKey } = useSubmissionKey();
+  const { currentKey, rotateKey } = useSubmissionKey([studyId, participantId, 'QUESTIONNAIRE', questionnaireId]);
   const submitState = getMutationRequestState(submitResult);
 
   const [answers, setAnswers] = useState<AnswerMap>({});
@@ -73,7 +72,7 @@ export function ParticipantQuestionnaireForm({
       questionTitle: question.title,
       value: answers[index] ?? [],
     }));
-    submit({ idempotencyKey: currentKey(responses), participantId, questionnaireId, responses, studyId })
+    submit({ idempotencyKey: currentKey(), participantId, questionnaireId, responses, studyId })
       .unwrap()
       .then(rotateKey)
       .catch(() => {
@@ -131,7 +130,9 @@ export function ParticipantQuestionnaireForm({
         ))}
 
         {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive">{t('common.submission_failed')}</p>
+          <p className="text-sm text-destructive" role="alert">
+            {t('common.submission_failed')}
+          </p>
         )}
 
         <div className="flex justify-end">

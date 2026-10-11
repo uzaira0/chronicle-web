@@ -1,4 +1,5 @@
 export const PARTICIPANT_CSRF_STORAGE_KEY = 'chronicle.participant.csrf';
+export const PARTICIPANT_CSRF_HEADER = 'X-Chronicle-Form-CSRF';
 export const PARTICIPANT_CONTEXT_STORAGE_KEY = 'chronicle.participant.context';
 /** Public participant-form API. Self-host serves only this prefix on the participant listener. */
 export const PARTICIPANT_PUBLIC_API_BASE = '/chronicle/v3';

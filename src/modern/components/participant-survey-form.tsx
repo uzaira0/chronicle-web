@@ -1,26 +1,19 @@
-import { CheckCircle2, MessageSquareCode } from 'lucide-react';
+import { MessageSquareCode } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
+import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ParticipantSessionBanner } from '@/components/participant-session-banner';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
 import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
-import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
-import { useSubmissionKey } from '@/lib/use-submission-key';
+import { REQUEST_STATES } from '@/lib/request-state';
+import type { AppUsageEntry } from '@/state/study-operations-api';
 import {
-  type AppUsageEntry,
-  toExportDateTime,
-  useGetAppUsageSurveyDataQuery,
-  useSubmitAppUsageSurveyMutation,
-} from '@/state/study-operations-api';
-
-type ParticipantSurveyFormProps = {
-  date: string;
-  /** Resolved translation-table code (see tud/i18n); defaults to English. */
-  participantId: string;
-  studyId: string;
-};
+  AppUsageStatusCard,
+  AppUsageSurveyFeedback,
+  type AppUsageSurveyProps,
+  useAppUsageSurvey,
+} from './app-usage-survey';
 
 /** Who used each app — verbatim from upstream methodic-labs daily app-usage survey. */
 export const APP_USAGE_USER_OPTIONS = [
@@ -64,25 +57,10 @@ export function groupByApp(entries: AppUsageEntry[]): AppGroup[] {
  * drops that app from the submission; every other app is echoed back unchanged with
  * its chosen `users`. Faithful to upstream `methodic-labs/chronicle-web`.
  */
-export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
-  const { date, participantId, studyId } = props;
+export function ParticipantSurveyForm(props: AppUsageSurveyProps) {
   const t = useTranslator();
   const dir = isRtlLanguage(t.effectiveCode) ? 'rtl' : 'ltr';
-  const {
-    data: apps,
-    isLoading,
-    isError,
-  } = useGetAppUsageSurveyDataQuery({
-    // The participant's own calendar day, not the UTC one.
-    endDate: toExportDateTime(date, true),
-    participantId,
-    startDate: toExportDateTime(date),
-    studyId,
-  });
-
-  const [submit, submitResult] = useSubmitAppUsageSurveyMutation();
-  const { currentKey, rotateKey } = useSubmissionKey();
-  const submitState = getMutationRequestState(submitResult);
+  const { data: apps, isLoading, isError, submit, submitState } = useAppUsageSurvey(props);
   const [selections, setSelections] = useState<SelectionMap>({});
   const keepAlive = useUnsavedParticipantAnswers(
     submitState !== REQUEST_STATES.SUCCESS && Object.values(selections).some((selected) => selected.length > 0),
@@ -113,48 +91,25 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
       if (selected.includes(APP_USAGE_NONE_OPTION)) return [];
       return group.map((entry) => ({ ...entry, users: selected }));
     });
-    submit({ data: payload, idempotencyKey: currentKey(payload), participantId, studyId })
-      .unwrap()
-      .then(rotateKey)
-      .catch(() => {
-        // RTK Query owns the failure state rendered by this form.
-      });
-  }, [allAnswered, groups, selections, participantId, studyId, submit, currentKey, rotateKey]);
+    submit(payload);
+  }, [allAnswered, groups, selections, submit]);
 
-  if (isLoading) {
+  if (isLoading || isError || submitState === REQUEST_STATES.SUCCESS) {
     return (
-      <StatusCard
-        description={t.t('app_usage_survey.loading_description')}
+      <AppUsageSurveyFeedback
         dir={dir}
-        title={t.t('app_usage_survey.loading_title')}
+        icon={MessageSquareCode}
+        isError={isError}
+        isLoading={isLoading}
+        submitState={submitState}
       />
     );
   }
-  if (isError) {
-    return (
-      <StatusCard
-        description={t.t('app_usage_survey.unavailable_description')}
-        dir={dir}
-        title={t.t('app_usage_survey.unavailable_title')}
-      />
-    );
-  }
-  if (submitState === REQUEST_STATES.SUCCESS) {
-    return (
-      <Card className="max-w-2xl" dir={dir}>
-        <CardHeader>
-          <CardTitle as="h2" className="flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-primary" />
-            {t.t('app_usage_survey.thank_you_title')}
-          </CardTitle>
-          <CardDescription>{t.t('app_usage_survey.thank_you_for_participating')}</CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
+
   if (groups.length === 0) {
     return (
-      <StatusCard
+      <AppUsageStatusCard
+        icon={MessageSquareCode}
         description={t.t('app_usage_survey.nothing_to_review')}
         dir={dir}
         title={t.t('app_usage_survey.nothing_to_review_title')}
@@ -188,7 +143,9 @@ export function ParticipantSurveyForm(props: ParticipantSurveyFormProps) {
         ))}
 
         {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive">{t.t('app_usage_survey.error_submit')}</p>
+          <p className="text-sm text-destructive" role="alert">
+            {t.t('app_usage_survey.error_submit')}
+          </p>
         )}
 
         <div className="flex justify-end">
@@ -236,7 +193,7 @@ export function AppUsageRow({ entry, index, onToggle, selection, translator }: A
           >
             <input
               checked={selection.includes(option)}
-              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              className="h-4 w-4 rounded border-border text-primary focus-visible:ring-primary"
               onChange={(event) => onToggle(index, option, event.currentTarget.checked)}
               type="checkbox"
             />
@@ -245,19 +202,5 @@ export function AppUsageRow({ entry, index, onToggle, selection, translator }: A
         ))}
       </div>
     </fieldset>
-  );
-}
-
-function StatusCard({ description, dir, title }: { description: string; dir: 'ltr' | 'rtl'; title: string }) {
-  return (
-    <Card className="max-w-2xl" dir={dir}>
-      <CardHeader>
-        <CardTitle as="h2" className="flex items-center gap-2">
-          <MessageSquareCode className="h-5 w-5 text-primary" />
-          {title}
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-    </Card>
   );
 }

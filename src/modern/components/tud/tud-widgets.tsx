@@ -9,7 +9,7 @@ import type { FieldDef } from './tud-schema';
 // exactly what the submit builder consumes. The "Other" branch folds free text into
 // the stored value so no companion answer key leaks into the payload.
 
-export const OTHER_VALUE = 'Other';
+const OTHER_VALUE = 'Other';
 
 export type FieldValue = string | string[] | undefined;
 
@@ -102,7 +102,7 @@ export function CheckboxControl({ field, invalid, labelledBy, onChange, value }:
   );
 }
 
-export function TextControl({ controlId, field, invalid, labelledBy, onChange, value }: ControlProps) {
+function TextControl({ controlId, field, invalid, labelledBy, onChange, value }: ControlProps) {
   return (
     <input
       aria-invalid={invalid}

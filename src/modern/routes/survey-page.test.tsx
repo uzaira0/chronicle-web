@@ -3,16 +3,20 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 type FrequencyHookState = {
-  data: { appUsageFrequency: 'DAILY' | 'HOURLY' } | undefined;
+  currentData: { appUsageFrequency: 'DAILY' | 'HOURLY' } | undefined;
   isLoading: boolean;
   isError: boolean;
 };
 
 let retryCalls = 0;
-const retryFrequency = () => { retryCalls++; frequencyHookState.data = { appUsageFrequency: 'HOURLY' }; frequencyHookState.isError = false; };
+const retryFrequency = () => {
+  retryCalls++;
+  frequencyHookState.currentData = { appUsageFrequency: 'HOURLY' };
+  frequencyHookState.isError = false;
+};
 
 const frequencyHookState: FrequencyHookState = {
-  data: undefined,
+  currentData: undefined,
   isLoading: false,
   isError: false,
 };
@@ -56,8 +60,16 @@ await mock.module('@/components/participant-survey-form', () => ({
   }) => <div data-testid="daily-survey-form">{`${studyId}|${participantId}|${date}`}</div>,
 }));
 
+// Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
+const realStudyOperationsApi = await import('@/state/study-operations-api');
+
 await mock.module('@/state/study-operations-api', () => ({
-  useGetAppUsageFrequencyQuery: () => ({ ...frequencyHookState, isSuccess: !frequencyHookState.isLoading && !frequencyHookState.isError, refetch: retryFrequency }),
+  ...realStudyOperationsApi,
+  useGetAppUsageFrequencyQuery: () => ({
+    ...frequencyHookState,
+    isSuccess: !frequencyHookState.isLoading && !frequencyHookState.isError,
+    refetch: retryFrequency,
+  }),
 }));
 
 import { LanguageProvider } from '@/i18n';
@@ -77,7 +89,7 @@ function renderRoute(search = '') {
 
 describe('SurveyRoutePage', () => {
   beforeEach(() => {
-    frequencyHookState.data = undefined;
+    frequencyHookState.currentData = { appUsageFrequency: 'DAILY' };
     frequencyHookState.isLoading = false;
     frequencyHookState.isError = false;
     retryCalls = 0;
@@ -102,7 +114,7 @@ describe('SurveyRoutePage', () => {
     try {
       const view = renderRoute('?studyId=study-1&participantId=participant-1');
       setSystemTime(new Date(2026, 9, 3, 0, 1));
-      frequencyHookState.data = { appUsageFrequency: 'DAILY' };
+      frequencyHookState.currentData = { appUsageFrequency: 'DAILY' };
       view.rerender(
         <LanguageProvider initialSearch="?studyId=study-1&participantId=participant-1">
           <MemoryRouter initialEntries={['/survey?studyId=study-1&participantId=participant-1']}>
@@ -118,6 +130,7 @@ describe('SurveyRoutePage', () => {
   });
 
   test('shows a loading state while the survey frequency is resolving for a complete link', () => {
+    frequencyHookState.currentData = undefined;
     frequencyHookState.isLoading = true;
 
     renderRoute('?studyId=study-1&participantId=participant-1&date=2026-06-24');
@@ -133,7 +146,7 @@ describe('SurveyRoutePage', () => {
   });
 
   test('renders the hourly survey form when the study is configured for hourly app usage', () => {
-    frequencyHookState.data = { appUsageFrequency: 'HOURLY' };
+    frequencyHookState.currentData = { appUsageFrequency: 'HOURLY' };
 
     renderRoute('?studyId=study-1&participantId=participant-1&date=2026-06-24');
 
@@ -142,7 +155,7 @@ describe('SurveyRoutePage', () => {
   });
 
   test('renders the daily survey form when the study is explicitly configured for daily app usage', () => {
-    frequencyHookState.data = { appUsageFrequency: 'DAILY' };
+    frequencyHookState.currentData = { appUsageFrequency: 'DAILY' };
 
     renderRoute('?studyId=study-1&participantId=participant-1&date=2026-06-24');
 
@@ -150,15 +163,18 @@ describe('SurveyRoutePage', () => {
     expect(screen.queryByTestId('hourly-survey-form')).toBeNull();
   });
 
-  test('falls back to the daily survey form when the frequency lookup is unavailable', () => {
+  test('waits for the instrument when the query has no verified data', () => {
+    frequencyHookState.currentData = undefined;
     renderRoute('?studyId=study-1&participantId=participant-1&date=2026-06-24');
 
-    expect(screen.getByTestId('daily-survey-form').textContent).toBe('study-1|participant-1|2026-06-24');
+    expect(screen.getByText('Loading the survey…')).toBeTruthy();
+    expect(screen.queryByTestId('daily-survey-form')).toBeNull();
     expect(screen.queryByTestId('hourly-survey-form')).toBeNull();
   });
 });
 
- test('W07 first frequency failure blocks submission, retry resolves HOURLY, refresh failure preserves it', () => {
+test('W07 first frequency failure blocks submission, retry resolves HOURLY, refresh failure preserves it', () => {
+  frequencyHookState.currentData = undefined;
   frequencyHookState.isError = true;
   const search = '?studyId=study-1&participantId=p1&date=2026-10-02';
   const view = renderRoute(search);
@@ -167,11 +183,23 @@ describe('SurveyRoutePage', () => {
   expect(screen.getByRole('alert')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   expect(retryCalls).toBe(1);
-  const route = <LanguageProvider initialSearch={search}><MemoryRouter initialEntries={[`/survey${search}`]}><SurveyRoutePage /></MemoryRouter></LanguageProvider>;
+  const route = (
+    <LanguageProvider initialSearch={search}>
+      <MemoryRouter initialEntries={[`/survey${search}`]}>
+        <SurveyRoutePage />
+      </MemoryRouter>
+    </LanguageProvider>
+  );
   view.rerender(route);
   expect(screen.getByTestId('hourly-survey-form')).toBeTruthy();
   frequencyHookState.isError = true;
-  frequencyHookState.data = undefined;
-  view.rerender(<LanguageProvider initialSearch={search}><MemoryRouter initialEntries={[`/survey${search}`]}><SurveyRoutePage /></MemoryRouter></LanguageProvider>);
+  // A failed refetch keeps the successful result for these arguments.
+  view.rerender(
+    <LanguageProvider initialSearch={search}>
+      <MemoryRouter initialEntries={[`/survey${search}`]}>
+        <SurveyRoutePage />
+      </MemoryRouter>
+    </LanguageProvider>,
+  );
   expect(screen.getByTestId('hourly-survey-form')).toBeTruthy();
 });

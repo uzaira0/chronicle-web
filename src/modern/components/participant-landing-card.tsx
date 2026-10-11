@@ -26,7 +26,8 @@ export function ParticipantLandingCard({ description, extraParams = [], icon, ti
   const studyId = searchParams.get('studyId') || '';
   const participantId = searchParams.get('participantId') || '';
   const session = readParticipantSessionContext();
-  const canOpenPortal = session?.formKind === 'PORTAL' && session.studyId === studyId && session.participantId === participantId;
+  const canOpenPortal =
+    session?.formKind === 'PORTAL' && session.studyId === studyId && session.participantId === participantId;
 
   return (
     <Card className="max-w-2xl">
@@ -65,13 +66,15 @@ export function ParticipantLandingCard({ description, extraParams = [], icon, ti
           </p>
         )}
 
-        {canOpenPortal && <Button asChild variant="outline">
-          {/* Router-relative: the router's basename already supplies /chronicle. */}
-          <Link to={{ pathname: '/participant', search: new URLSearchParams({ participantId, studyId }).toString() }}>
-            {t('participant_landing.dashboard_link')}
-            <ArrowRight className="ml-1.5 h-4 w-4" />
-          </Link>
-        </Button>}
+        {canOpenPortal && (
+          <Button asChild variant="outline">
+            {/* Router-relative: the router's basename already supplies /chronicle. */}
+            <Link to={{ pathname: '/participant', search: new URLSearchParams({ participantId, studyId }).toString() }}>
+              {t('participant_landing.dashboard_link')}
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Link>
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

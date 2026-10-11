@@ -204,7 +204,11 @@ export function ParticipantDashboardPage() {
           {isSubmissionLoading && (
             <p className="text-sm text-muted-foreground">{t('participant_dashboard.history_loading')}</p>
           )}
-          {submissionError && <p className="text-sm font-medium text-destructive">{submissionError}</p>}
+          {submissionError && (
+            <p className="text-sm font-medium text-destructive" role="alert">
+              {submissionError}
+            </p>
+          )}
           {!isSubmissionLoading && !submissionError && submissions.length === 0 && (
             <div className="rounded-xl border border-dashed border-border/70 bg-muted/40 p-6 text-sm text-muted-foreground">
               {t('participant_dashboard.history_empty', { days })}

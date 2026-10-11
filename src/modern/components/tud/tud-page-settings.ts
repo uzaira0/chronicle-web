@@ -56,3 +56,11 @@ export function resolveBaseLang(params: URLSearchParams, settings: TudStudySetti
   const candidate = params.get('lang') ?? settings?.language ?? 'en';
   return SUPPORTED_BASE_CODES.has(candidate) ? candidate : 'en';
 }
+
+// Languages that support the "today" diary variant; others fall back to "yesterday"
+// (matches upstream TimeUseDiaryContainer).
+const TODAY_CAPABLE_LANGS: ReadonlySet<string> = new Set(['en', 'de', 'he']);
+
+export function supportsTodayDiary(baseLang: string): boolean {
+  return TODAY_CAPABLE_LANGS.has(baseLang);
+}

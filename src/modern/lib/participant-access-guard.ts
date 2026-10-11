@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import {
   getParticipantCsrfToken,
+  PARTICIPANT_CSRF_HEADER,
   PARTICIPANT_PUBLIC_API_BASE,
   type ParticipantSessionContext,
   readParticipantSessionContext,
@@ -12,7 +13,7 @@ import { timeoutSignal } from '@/lib/request-timeout';
 export const PARTICIPANT_KEEP_ALIVE_MS = 5 * 60_000;
 
 /** A cheap read the session's own scope permits; any authenticated request refreshes idle expiry. */
-export function participantKeepAliveUrl(context: ParticipantSessionContext): string {
+function participantKeepAliveUrl(context: ParticipantSessionContext): string {
   const studyId = encodeURIComponent(context.studyId);
   if (context.formKind === 'QUESTIONNAIRE' && context.resourceId) {
     return `${PARTICIPANT_PUBLIC_API_BASE}/survey/${studyId}/questionnaire/${encodeURIComponent(context.resourceId)}`;
@@ -31,7 +32,7 @@ async function keepParticipantSessionAlive(): Promise<Exclude<ParticipantKeepAli
     const response = await fetch(participantKeepAliveUrl(context), {
       credentials: 'include',
       // The CSRF header picks this tab's session when another tab has since replaced the cookie.
-      headers: { 'X-Chronicle-Form-CSRF': csrfToken },
+      headers: { [PARTICIPANT_CSRF_HEADER]: csrfToken },
       signal: timeoutSignal(),
     });
     if (response.ok) return 'active';
@@ -65,7 +66,7 @@ export function useUnsavedParticipantAnswers(unsaved: boolean): {
     const checkSession = async () => {
       if (checking) return;
       checking = true;
-      setStatus((previous) => (previous === 'idle' ? 'checking' : previous));
+      setStatus((previous) => (previous === 'idle' || retryCount > 0 ? 'checking' : previous));
       const next = await keepParticipantSessionAlive();
       checking = false;
       if (!cancelled) setStatus(next);
