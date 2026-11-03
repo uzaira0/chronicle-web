@@ -1,13 +1,11 @@
 # Chronicle Web
 
-Chronicle Web is the current Bun, TypeScript, and React application. The legacy
-Webpack shell has been retired; do not add new legacy entrypoints or compatibility
-commands.
+Chronicle Web uses Bun, TypeScript, and React.
 
 ## Commands
 
 - `bun run dev` starts the local development shell.
-- `bun run dev:local` binds to `127.0.0.1`, with synthetic auth and read-only queries against the local production database by default. Set `CHRONICLE_BACKEND_URL` to proxy the API to a backend.
+- `bun run dev:local` is the same loopback development launcher. Set `CHRONICLE_BACKEND_URL` to proxy the API to a backend.
 - `bun run build` builds the production application into `dist/`.
 - `bun run preview` serves the current production build.
 - `bun run check` runs type, formatting, structural, and E2E-DSL checks.
@@ -21,20 +19,35 @@ commands.
 - `bun run test:e2e:smoke` verifies that the production bundle mounts and its core shell works in Chromium.
 - `bun run check:api-types` regenerates OpenAPI TypeScript types and fails on drift.
 
+## Configuration
+
+The launchers read these optional environment variables. `.env.example` lists safe
+local examples; Bun loads a local `.env` when present.
+
+| Variable | Default | Use |
+| --- | --- | --- |
+| `HOST` | `127.0.0.1` | Development listener; the launcher requires loopback. |
+| `PORT` | `5173` for development, `4173` for preview | Local HTTP listener port. |
+| `CHRONICLE_BACKEND_URL` | Unset | Backend origin used by the API proxy. Without it, development and preview answer with synthetic auth and empty data. Real data is opt-in through this backend, which applies its app role and row-level security. |
+| `CHRONICLE_INTERNAL_WEB_SECRET` | Unset | Internal proxy credential, when required by the selected backend. The launcher keeps it on the server. |
+| `CHRONICLE_PROXY_BASE_URL` | `http://127.0.0.1:4173` | Playwright browser origin and preview listener port. Required for selfhost tests. |
+| `CHRONICLE_E2E_REUSE_SERVER` | Unset | Set to `1` to let Playwright use an already served preview. |
+| `CHRONICLE_E2E_SELFHOST` | Unset | Set to `1` to select the deployed selfhost journey. |
+| `CHRONICLE_E2E_PUBLIC_BASE_URL` | Unset | Required for the selfhost journey: the deployment's public participant origin. |
+| `CHRONICLE_E2E_DASHBOARD_PASSWORD` | Unset | Required for the selfhost journey: the deployment's dashboard password. |
+| `CHRONICLE_DIRECT_BACKEND_URL` | `http://localhost:40320` | Backend origin for raw API probes that bypass the proxy. |
+
+Browser error counters use the same-origin API. No telemetry endpoint setting is required.
+
 ## Boundaries
 
 The operations, participant, and policy surfaces are being separated into independent
 entrypoints. Shared code is limited to pure design primitives and generated wire
 types. API behavior is defined by OpenAPI and canonical fixtures so a future Dioxus
 or Tauri client can implement the same contract without copying React state or API
-logic. See `docs/architecture/RUST-MIGRATION-SEAMS.md` in the repository root.
+logic.
 
-## Preprocessing and icons
-
-The preprocessing fallback opens GitHub Pages at
-https://uzaira0.github.io/chronicle-android-raw-data-preprocessing-app/. GitHub receives
-request metadata such as the network IP address and User-Agent when the page loads.
-Selected export files are processed locally in the browser; they are not uploaded.
+## Icons
 
 Lucide is the default interface icon family. Equal icons use the same 2px stroke weight
 through the shared stylesheet.

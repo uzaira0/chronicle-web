@@ -9,14 +9,18 @@ key, so a partial translation never blanks the page.
 1. Copy `en/translation.json` to `<code>/translation.json` if the directory does not exist and
    register the code in `language-codes.ts` (`SUPPORTED_BASE_CODES`) and `translations.ts`.
 2. Translate values only. Keep `{{placeholders}}` verbatim and keep arrays the same length.
+   A call with `count` prefers `<key>_one` when the count is 1 (CLDR one/other, i18next
+   naming); add a `_one` row to English and the language when the singular reads differently.
 3. `bun run i18n:report es` prints the keys `es` still lacks with the English text.
-4. Do not machine-translate; only a qualified translator should fill a table. Untranslated keys
-   simply fall back to English at runtime.
+4. Do not machine-translate; a qualified translator fills a table. Untranslated keys simply fall
+   back to English at runtime. A gap may be drafted only in that translator's established
+   wording and only with the owner's approval, and every drafted key is listed in
+   `docs/i18n-provenance-<code>.tsv` for the translator to review.
 
 ## Catalog labels
 
-Study features, collection modules, sensors, dispositions and export data types keep their
-English presentation in `lib/study-constants.ts` and `lib/participant-data-types.ts`. Run
+Study features, collection modules, sensors, export data types and the Android diagnostics
+families and issue codes keep their English presentation in `lib/study-constants.ts` and `lib/participant-data-types.ts`. Run
 `bun run i18n:sync-catalog` after changing those files; it regenerates the `catalog.*` keys in
 the English table so a language table can override any of them.
 
@@ -31,14 +35,14 @@ and every standalone participant page. Right-to-left languages flip `dir` automa
 `bun run i18n:lint` runs the ast-grep rules in `lint/i18n/` over `src/modern` (also part of
 `bun run check` and the monorepo `make i18n-lint`). They fail the build on:
 
-| Rule | Catches |
-| --- | --- |
-| `web-i18n-jsx-text` | English words as JSX text (the brand word, camelCase identifiers, path/URL-shaped tokens, and lowercase unit tokens such as `ms` are allowed) |
-| `web-i18n-jsx-string-expression` | `{'literal'}` / `{`literal`}` as a JSX child; only the literal fragments of a template count |
-| `web-i18n-jsx-attr` | literal `title`, `alt`, `label`, `description`, `aria-label`, … attributes, whether `title="…"` or `title={'…'}` |
-| `web-i18n-placeholder-prose` | multi-word prose in `placeholder` (identifier-shaped examples such as an email or URL are allowed) |
-| `web-i18n-object-label` / `-ts` | prose stored in a `label`/`title`/`description`/`message` object property (catalog source files are excluded; they are overridden via `translateCatalog`) |
-| `web-i18n-error-message` / `-ts` | prose in `new Error(...)` unless it carries a bracketed developer tag such as `[study-constants] …` |
+| Rule                             | Catches                                                                                                                                                   |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `web-i18n-jsx-text`              | English words as JSX text (the brand word, camelCase identifiers, path/URL-shaped tokens, and lowercase unit tokens such as `ms` are allowed)             |
+| `web-i18n-jsx-string-expression` | `{'literal'}` / `{`literal`}` as a JSX child; only the literal fragments of a template count                                                              |
+| `web-i18n-jsx-attr`              | literal `title`, `alt`, `label`, `description`, `aria-label`, … attributes, whether `title="…"` or `title={'…'}`                                          |
+| `web-i18n-placeholder-prose`     | multi-word prose in `placeholder` (identifier-shaped examples such as an email or URL are allowed)                                                        |
+| `web-i18n-object-label` / `-ts`  | prose stored in a `label`/`title`/`description`/`message` object property (catalog source files are excluded; they are overridden via `translateCatalog`) |
+| `web-i18n-error-message` / `-ts` | prose in `new Error(...)` unless it carries a bracketed developer tag such as `[study-constants] …`                                                       |
 
 The `-ts` twins are the same rules for plain `.ts` files, since ast-grep applies a rule only to
 its own language; use the twin's id in a suppression comment inside a `.ts` file.
@@ -67,11 +71,12 @@ convention): every table string renders with accented letters (`Ŵĥáţ ɱáð�
 that stays plain English is hardcoded or came from the server. It is never offered in the
 picker.
 
-**Off-the-shelf tools evaluated (2026-09-02).** `eslint-plugin-i18next` `no-literal-string` is
+**Off-the-shelf tools evaluated.** `eslint-plugin-i18next` `no-literal-string` is
 the widely used ESLint rule for this; run in `jsx-only` mode over `src/modern` it reported 145
 findings untuned and 5 after tuning, four of them wire values, and it cannot honour
 `ast-grep-ignore`, see `.ts` files, or check thrown errors, so the ast-grep rules stay the
 gate (the tuned config lives outside the repo for re-runs). `@lingual/i18n-check` misreads this
 translator's `_one`/`_many` keys and dynamic `catalog.*` lookups, so `i18n:report` remains the
-key-hygiene check. Plural and gender grammar is not modelled; when a language needing it
-lands, MessageFormat 2 (stable in CLDR 47) is the standard to adopt rather than ad-hoc suffixes.
+key-hygiene check. Plurals stop at `_one` (enough for English and Spanish) and gender
+is not modelled; when a language needing more lands, MessageFormat 2 (stable in CLDR 47) is the
+standard to adopt rather than more ad-hoc suffixes.

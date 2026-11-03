@@ -26,12 +26,8 @@ test('my flow', async ({ scenario, providers }) => {
             });
           });
         });
-        await study.export({ dataTypes: ['UsageEvents'], participantIds: [/* … */], format: 'CSV' }, async (exp) => {
-          const info = await exp.awaitCompletion({ timeoutMs: 30_000 });
-          expect(info.status).toBe('COMPLETED');
-          const bytes = await exp.download();
-          expect(bytes.length).toBeGreaterThan(0);
-        });
+        const bytes = await study.exportCsv('UsageEvents', [/* participant ids */]);
+        expect(bytes.length).toBeGreaterThan(0);
       });
     });
   });
@@ -62,8 +58,7 @@ chronicleScenario
         │   └─ ParticipantScope.device ─── .asPersona(name)   ◄─ participant-seeded personas
         │       └─ DeviceScope.upload(events)
         │           └─ DataScope.flush() / .verify()
-        └─ StudyScope.export(req)
-            └─ ExportScope.awaitCompletion() / .download()
+        └─ StudyScope.exportCsv(dataType, participantIds)
 ```
 
 - Every scope owns its own teardown via `ScenarioContext.pushCleanup` (LIFO; failures swallow so one bad teardown doesn't strand the rest). Destructive cleanup uses a standalone cookie+CSRF request context captured immediately after authentication, so a Playwright timeout closing the browser context cannot strand seeded data.
@@ -115,7 +110,7 @@ Anywhere outside this module that hand-writes those strings is a regression risk
 Three steps:
 
 1. Add the name to the `PersonaName` union in `scopes/persona-scope.ts`. (Stringly-typed; the union is the contract.)
-2. Create `e2e/persona-<your-name>.spec.ts` driving through `auth.asPersona(...)` or `study.asPersona(...)`. Keep `test.describe.configure({ mode: 'serial' })` if any test calls `data.flush()` (the flush is process-global on the backend).
+2. Create `e2e/persona-<your-name>.spec.ts` driving through `auth.asPersona(...)` or `study.asPersona(...)`. Keep `test.describe.configure({ mode: 'serial' })` if any test calls `data.flush()` (the flush drains the whole backend buffer).
 3. If the persona needs new helpers (e.g. another a11y-style assertion), add them as methods on `PersonaScope`. Generic helpers belong on the scope; persona-specific assertions live in the spec file.
 
 The five canonical personas (expert-researcher, novice-user, adversary, accessibility, data-integrity-auditor) are documented in `chronicle-web/e2e/persona-*.spec.ts` headers.
