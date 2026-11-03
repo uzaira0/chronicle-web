@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import english from '@/i18n/en/translation.json';
 import { getErrorMessage } from '@/lib/errors';
-import { installRelativeRequest } from '@/test/http-fixtures';
+import { installRelativeRequest, routeFetch } from '@/test/http-fixtures';
 import { createApiStore } from '@/test/study-operations-store';
 
 import { studyOperationsApi } from './study-operations-api';
 
-// ai-built-code B1: the server pages every list (default page 100, max 500; audit and
+// The server pages every list (default page 100, max 500; audit and
 // acknowledgments max 200). A study with more rows than one page must still show them all.
 
 let restoreRequest: () => void;
@@ -18,18 +19,16 @@ let requested: string[];
 function serve(path: string, rows: unknown[], { defaultLimit = 100, maxLimit = 500 } = {}) {
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
-    value: (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost');
-      requested.push(url.pathname + url.search);
-      if (url.pathname !== path || (init?.method ?? 'GET') !== 'GET') {
-        return Promise.resolve(new Response('nope', { status: 404 }));
-      }
-      const limit = Math.min(Number(url.searchParams.get('limit') ?? defaultLimit), maxLimit);
-      const offset = Number(url.searchParams.get('offset') ?? 0);
-      const page = rows.slice(offset, offset + limit);
-      const body = Array.isArray(page[0]) ? Object.fromEntries(page as [string, unknown][]) : page;
-      return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } }));
-    },
+    value: routeFetch({
+      [`GET ${path}`]: (request) => {
+        const url = new URL(request.url);
+        requested.push(url.pathname + url.search);
+        const limit = Math.min(Number(url.searchParams.get('limit') ?? defaultLimit), maxLimit);
+        const offset = Number(url.searchParams.get('offset') ?? 0);
+        const page = rows.slice(offset, offset + limit);
+        return Response.json(Array.isArray(page[0]) ? Object.fromEntries(page as [string, unknown][]) : page);
+      },
+    }),
     writable: true,
   });
 }
@@ -63,6 +62,89 @@ afterEach(() => {
 });
 
 describe('list endpoints read every server page', () => {
+  it.each([
+    ['devices', studyOperationsApi.endpoints.getStudyDevices],
+    ['participants/ios/upload-status', studyOperationsApi.endpoints.getIosUploadStatus],
+  ] as const)('reads every participant page of %s', async (path, endpoint) => {
+    serve(
+      `/chronicle/api/web/study/s1/${path}`,
+      range(501).map((i) => [`p-${i}`, []]),
+    );
+    const result = (await read(endpoint, 's1')) as Record<string, unknown>;
+    expect(Object.keys(result)).toHaveLength(501);
+    expect(requested).toHaveLength(2);
+  });
+
+  it.each([
+    ['api-keys', studyOperationsApi.endpoints.listStudyApiKeys],
+    ['pending-enrollments', studyOperationsApi.endpoints.getPendingEnrollments],
+  ] as const)('reads every page of %s', async (path, endpoint) => {
+    serve(
+      `/chronicle/api/web/study/s1/${path}`,
+      range(501).map((i) => `row-${i}`),
+    );
+    expect(await read(endpoint, 's1')).toHaveLength(501);
+    expect(requested).toHaveLength(2);
+  });
+
+  it('follows compliance participant offsets through empty and sparse violation pages', async () => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: routeFetch({
+        'GET /chronicle/api/web/compliance/study/s1': (request) => {
+          const url = new URL(request.url);
+          requested.push(url.pathname + url.search);
+          const offset = Number(url.searchParams.get('offset') ?? 0);
+          return Response.json(offset === 0 ? {} : { s1: { 'p-501': [{ reason: 'NO_RECENT_DATA_UPLOADED' }] } }, {
+            headers: offset === 0 ? { 'X-Next-Offset': '500' } : {},
+          });
+        },
+      }),
+      writable: true,
+    });
+    expect(await read(studyOperationsApi.endpoints.getComplianceViolations, 's1')).toEqual({
+      s1: { 'p-501': [{ reason: 'NO_RECENT_DATA_UPLOADED' }] },
+    });
+    expect(requested).toHaveLength(2);
+  });
+
+  it('concatenates a participant device array split across bounded row pages', async () => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: routeFetch({
+        'GET /chronicle/api/web/study/s1/devices': (request) => {
+          const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0);
+          requested.push(request.url);
+          return Response.json(
+            { 'same-participant': [{ randomDeviceId: `device-${offset}` }] },
+            {
+              headers: offset === 0 ? { 'X-Next-Offset': '500' } : {},
+            },
+          );
+        },
+      }),
+      writable: true,
+    });
+    expect(await read(studyOperationsApi.endpoints.getStudyDevices, 's1')).toEqual({
+      'same-participant': [{ randomDeviceId: 'device-0' }, { randomDeviceId: 'device-500' }],
+    });
+    expect(requested).toHaveLength(2);
+  });
+
+  it.each(['0', '-1', '1.5', 'NaN', '9007199254740992'])('refuses invalid continuation %s', async (offset) => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: () => Promise.resolve(Response.json({}, { headers: { 'X-Next-Offset': offset } })),
+      writable: true,
+    });
+    const failure = await read(studyOperationsApi.endpoints.getComplianceViolations, 's1').then(
+      () => null,
+      (error: unknown) => error,
+    );
+    // The message reaches the screen, so it comes from the catalog in the researcher's language.
+    expect(failure).toMatchObject({ status: 'CUSTOM_ERROR', error: english.common.error_unreadable_response });
+  });
+
   it('getStudyParticipants returns all 101 participants, not the first default page', async () => {
     serve(
       '/chronicle/api/web/study/s1/participants',
@@ -98,6 +180,34 @@ describe('list endpoints read every server page', () => {
     );
     const stats = (await read(studyOperationsApi.endpoints.getParticipantStats, 's1')) as Record<string, unknown>;
     expect(Object.keys(stats)).toHaveLength(120);
+  });
+
+  it.each([
+    ['participants/stats', studyOperationsApi.endpoints.getParticipantStats],
+    ['participants/ios/upload-status', studyOperationsApi.endpoints.getIosUploadStatus],
+  ] as const)('preserves a later-page error and sparse continuation for %s', async (path, endpoint) => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: routeFetch({
+        [`GET /chronicle/api/web/study/s1/${path}`]: (request) => {
+          const url = new URL(request.url);
+          requested.push(url.pathname + url.search);
+          return url.searchParams.get('offset') === '0'
+            ? Response.json({ first: {} }, { headers: { 'X-Next-Offset': '777' } })
+            : Response.json({ message: 'temporarily busy' }, { status: 503 });
+        },
+      }),
+      writable: true,
+    });
+    const error = await read(endpoint, 's1').then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+    expect(error).toEqual({ status: 503, data: { message: 'temporarily busy' } });
+    expect(requested).toEqual([
+      `/chronicle/api/web/study/s1/${path}?limit=500&offset=0`,
+      `/chronicle/api/web/study/s1/${path}?limit=500&offset=777`,
+    ]);
   });
 
   it.each([
@@ -150,14 +260,6 @@ describe('list endpoints read every server page', () => {
     expect(await read(studyOperationsApi.endpoints.getStudyCollectionAcknowledgments, { studyId: 's1' })).toHaveLength(
       230,
     );
-  });
-
-  it('the exports list reaches exports older than the first page', async () => {
-    serve(
-      '/chronicle/api/web/study/s1/export',
-      range(520).map((i) => ({ exportId: `e-${i}` })),
-    );
-    expect(await read(studyOperationsApi.endpoints.listStudyExports, { studyId: 's1' })).toHaveLength(520);
   });
 
   it('a page error fails the whole read instead of returning a silent partial list', async () => {

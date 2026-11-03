@@ -1,0 +1,2 @@
+src/modern/types/chronicle-api.generated.ts openapi-typescript output (bun run generate:api-types): type declarations only, erased at compile time, so no coverage report can list it
+src/modern/components/study-form/types.ts study form type declarations only (no runtime statements), erased at compile time, so no coverage report can list it

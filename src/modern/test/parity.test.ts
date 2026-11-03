@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ParticipantSchema, StudySchema, UsageEventSchema } from '../state/zod-schemas';
+import { ParticipantSchema, StudySchema, UsageEventSchema } from './zod-schemas';
 
 // ---------------------------------------------------------------------------
+// Monorepo-only suite: run scripts/local-ci.sh parity from the root checkout.
 // Fixture loader — reads shared parity fixtures from the monorepo root
 // ---------------------------------------------------------------------------
 

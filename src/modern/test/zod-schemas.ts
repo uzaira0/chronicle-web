@@ -19,7 +19,6 @@ export const StudySchema = z.object({
   group: z.string().max(255).optional().default(''),
   version: z.string().max(50).optional().default(''),
   organizationIds: z.array(z.string().uuid()).optional().default([]),
-  notificationsEnabled: z.boolean().optional().default(false),
   storage: z
     .string()
     .max(36)

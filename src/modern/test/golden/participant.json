@@ -10,7 +10,9 @@
     },
     "participationStatus": "ENROLLED",
     "participantTags": ["control", "wave-2"],
-    "participantNotes": "Completed all sessions"
+    "participantNotes": "Completed all sessions",
+    "statusRevision": 4,
+    "consentState": { "declinedRequiredModules": ["battery_telemetry"], "modulesAwaitingDecision": ["usage_events"] }
   },
   "expected": [
     {
@@ -25,7 +27,12 @@
       "participantNotes": "Completed all sessions",
       "participantTags": ["control", "wave-2"],
       "participationStatus": "ENROLLED",
-      "withdrawnAt": null
+      "withdrawnAt": null,
+      "processingBlockedAt": null,
+      "processingBlockReason": null,
+      "processingBlockedBy": null,
+      "statusRevision": 4,
+      "consentState": { "declinedRequiredModules": ["battery_telemetry"], "modulesAwaitingDecision": ["usage_events"] }
     }
   ]
 }

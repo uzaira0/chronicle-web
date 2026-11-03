@@ -10,6 +10,29 @@ import {
 
 // --- normalizeQuestionnaireQuestion ---
 
+it('rejects malformed participant tags instead of presenting them as an empty set', () => {
+  for (const participantTags of ['tag', {}, [1], ['valid', null], [true]]) {
+    expect(() =>
+      normalizeParticipantList([{ participantId: 'p1', participationStatus: 'ENROLLED', participantTags }]),
+    ).toThrow();
+  }
+  expect(
+    normalizeParticipantList([{ participantId: 'p1', participationStatus: 'ENROLLED', participantTags: ['valid'] }])[0]
+      ?.participantTags,
+  ).toEqual(['valid']);
+});
+
+it('preserves the authoritative processing block fields in researcher participant rows', () => {
+  const fields = {
+    processingBlockedAt: '2026-10-18T00:00:00Z',
+    processingBlockReason: 'Review request',
+    processingBlockedBy: 'researcher',
+  };
+  expect(
+    normalizeParticipantList([{ participantId: 'p1', participationStatus: 'ENROLLED', ...fields }])[0],
+  ).toMatchObject(fields);
+});
+
 it('rejects object and numeric participant identifiers and preserves valid string identifiers', () => {
   for (const participantId of [{ id: 'participant-1' }, ['participant-1'], 123]) {
     expect(() => normalizeParticipantList([{ participantId, participationStatus: 'ENROLLED' }])).toThrow();
@@ -586,14 +609,12 @@ describe('normalizeParticipantList() — exhaustive edge cases', () => {
     expect(result[0]?.candidate).toEqual(candidate);
   });
 
-  it('defaults participantTags to [] when non-array', () => {
-    const result = normalizeParticipantList([{ participantId: 'p-1', participantTags: 'not-array' }]);
-    expect(result[0]?.participantTags).toEqual([]);
+  it('rejects participantTags when non-array', () => {
+    expect(() => normalizeParticipantList([{ participantId: 'p-1', participantTags: 'not-array' }])).toThrow();
   });
 
-  it('defaults participantTags to [] when null', () => {
-    const result = normalizeParticipantList([{ participantId: 'p-1', participantTags: null }]);
-    expect(result[0]?.participantTags).toEqual([]);
+  it('rejects participantTags when null', () => {
+    expect(() => normalizeParticipantList([{ participantId: 'p-1', participantTags: null }])).toThrow();
   });
 
   it('preserves valid participantTags', () => {

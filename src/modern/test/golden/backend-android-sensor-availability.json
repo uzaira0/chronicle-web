@@ -1,8 +1,7 @@
 {
   "participantId": "p-1",
-  "deviceId": "device-abc-123",
+  "randomDeviceId": "device-abc-123",
   "availableSensors": ["accelerometer", "gyroscope"],
-  "unavailableSensors": ["magnetometer"],
   "screenWidthPixels": 1080,
   "screenHeightPixels": 2340,
   "screenDensityDpi": 440,

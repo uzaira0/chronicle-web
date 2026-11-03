@@ -6,5 +6,10 @@
   "participationStatus": "ENROLLED",
   "participantNotes": "Completed all sessions",
   "participantTags": ["control", "wave-2"],
-  "withdrawnAt": null
+  "withdrawnAt": null,
+  "processingBlockedAt": null,
+  "processingBlockReason": null,
+  "processingBlockedBy": null,
+  "statusRevision": 0,
+  "consentState": null
 }

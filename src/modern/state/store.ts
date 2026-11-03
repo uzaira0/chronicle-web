@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
-import { type TypedUseSelectorHook, useSelector } from 'react-redux';
+import { type TypedUseSelectorHook, useDispatch, useSelector, useStore } from 'react-redux';
 
 import { bootstrapSession, loginWithPassword, sessionListenerMiddleware, sessionReducer } from '@/state/session-slice';
 import { studyOperationsApi } from '@/state/study-operations-api';
@@ -21,6 +21,7 @@ export const store = configureStore({
 setupListeners(store.dispatch);
 
 export type RootState = ReturnType<typeof store.getState>;
+export type AppStore = typeof store;
 
 sessionListenerMiddleware.startListening({
   predicate: (action) => loginWithPassword.fulfilled.match(action) || bootstrapSession.fulfilled.match(action),
@@ -32,3 +33,5 @@ sessionListenerMiddleware.startListening({
 });
 
 export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;
+export const useAppDispatch = useDispatch.withTypes<AppStore['dispatch']>();
+export const useAppStore = useStore.withTypes<AppStore>();

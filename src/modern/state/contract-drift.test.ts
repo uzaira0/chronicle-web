@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type ZodType, z } from 'zod';
 import { PARTICIPATION_STATUSES } from '@/generated/chronicle-contracts';
-import { ParticipantSchema } from './zod-schemas';
+import { ParticipantSchema } from '../test/zod-schemas';
 
 // ---------------------------------------------------------------------------
 // Golden fixture loader
@@ -70,7 +70,6 @@ const StudySummarySchema = z.object({
   group: z.string().optional(),
   id: z.string().optional(),
   modules: z.record(z.string(), z.unknown()).optional(),
-  notificationsEnabled: z.boolean().optional(),
   phoneNumber: z.string().optional(),
   settings: z.record(z.string(), z.any()).optional(),
   startedAt: z.string().optional(),
@@ -95,28 +94,9 @@ const ParticipantStatsSchema = z.object({
   tudUniqueDates: z.array(z.string()),
 });
 
-const StudyRealtimeStatsSchema = z.object({
-  activeParticipants24h: z.number(),
-  dataSubmissions24h: z.number(),
-  lastDataReceived: z.string().nullable(),
-  studyId: z.string(),
-  submissionsByType: z.record(z.string(), z.number()),
-  timestamp: z.string(),
-  totalParticipants: z.number(),
-});
-
-const StudyEventSchema = z.object({
-  createdAt: z.string(),
-  eventId: z.string(),
-  eventType: z.string(),
-  metadata: z.record(z.string(), z.any()).optional(),
-  participantId: z.string().nullable().optional(),
-  studyId: z.string(),
-});
-
 const AndroidDeviceSensorAvailabilitySchema = z.object({
   availableSensors: z.array(z.string()),
-  deviceId: z.string(),
+  randomDeviceId: z.string(),
   displayRotation: z.number().nullable(),
   interactionPointerCaptureCapability: z.enum(['PLATFORM_API_UNAVAILABLE', 'REQUIRES_INPUT_INTERCEPTION']).nullable(),
   participantId: z.string(),
@@ -124,7 +104,6 @@ const AndroidDeviceSensorAvailabilitySchema = z.object({
   screenDensityDpi: z.number().nullable(),
   screenHeightPixels: z.number().nullable(),
   screenWidthPixels: z.number().nullable(),
-  unavailableSensors: z.array(z.string()),
 });
 
 const StudyDurationSchema = z.object({
@@ -310,40 +289,6 @@ describe('Contract drift detection — backend golden fixtures vs frontend schem
       const fixture = readBackendGolden('participant-stats');
       const backendFields = fieldNames(fixture);
       const frontendFields = zodFieldNames(ParticipantStatsSchema);
-      expect(backendFields).toEqual(frontendFields);
-    });
-  });
-
-  // ==========================================================================
-  // StudyRealtimeStats
-  // ==========================================================================
-  describe('StudyRealtimeStats', () => {
-    it('backend fixture parses with strict frontend schema', () => {
-      const fixture = withoutFixtureComment(readBackendGolden('study-realtime-stats'));
-      expect(() => StudyRealtimeStatsSchema.strict().parse(fixture)).not.toThrow();
-    });
-
-    it('field names match exactly', () => {
-      const fixture = readBackendGolden('study-realtime-stats');
-      const backendFields = fieldNames(fixture);
-      const frontendFields = zodFieldNames(StudyRealtimeStatsSchema);
-      expect(backendFields).toEqual(frontendFields);
-    });
-  });
-
-  // ==========================================================================
-  // StudyEvent
-  // ==========================================================================
-  describe('StudyEvent', () => {
-    it('backend fixture parses with frontend schema', () => {
-      const fixture = readBackendGolden('study-event');
-      expect(() => StudyEventSchema.parse(fixture)).not.toThrow();
-    });
-
-    it('field names match', () => {
-      const fixture = readBackendGolden('study-event');
-      const backendFields = fieldNames(fixture);
-      const frontendFields = zodFieldNames(StudyEventSchema);
       expect(backendFields).toEqual(frontendFields);
     });
   });

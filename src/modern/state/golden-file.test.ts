@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type ZodType, z } from 'zod';
+import { COLLECTION_MODULE_ID, COLLECTION_MODULE_IDS, PARTICIPATION_STATUSES } from '@/generated/chronicle-contracts';
 import {
   normalizeParticipantList,
   normalizeQuestionnaireRecord,
@@ -17,19 +18,17 @@ const StudySummaryGoldenSchema = z
     id: z.string(),
     modules: z
       .object({
-        ANDROID_SENSOR: z.record(z.string(), z.unknown()),
+        CHRONICLE_DATA_COLLECTION: z.record(z.string(), z.unknown()),
         TIME_USE_DIARY: z.record(z.string(), z.unknown()),
       })
       .passthrough(),
-    notificationsEnabled: z.boolean(),
     settings: z
       .object({
-        AndroidSensor: z
+        DataCollection: z
           .object({
-            dutyCycleActiveSeconds: z.number(),
-            dutyCyclePeriodSeconds: z.number(),
-            samplingRateHz: z.number(),
-            sensors: z.array(z.string()),
+            modules: z.record(z.string(), z.unknown()),
+            settingsVersion: z.number(),
+            version: z.number(),
           })
           .passthrough(),
       })
@@ -50,17 +49,30 @@ const CandidateGoldenSchema = z
   })
   .passthrough();
 
+const ConsentStateGoldenSchema = z.object({
+  declinedRequiredModules: z.array(z.enum(COLLECTION_MODULE_IDS)),
+  modulesAwaitingDecision: z.array(z.enum(COLLECTION_MODULE_IDS)),
+});
+
 const ParticipantGoldenSchema = z.object({
   candidate: CandidateGoldenSchema,
   participantId: z.string(),
   participantNotes: z.string(),
   participantTags: z.array(z.string()),
-  participationStatus: z.enum(['ENROLLED', 'NOT_ENROLLED', 'PAUSED', 'COLLECTION_COMPLETED', 'UNKNOWN']),
+  participationStatus: z.enum(PARTICIPATION_STATUSES),
+  statusRevision: z.number().int(),
   withdrawnAt: z.string().nullable().optional(),
+  consentState: ConsentStateGoldenSchema.nullable().optional(),
 });
 
 // The normalizer always emits withdrawnAt; the raw backend payload may omit it.
-const NormalizedParticipantGoldenSchema = ParticipantGoldenSchema.extend({ withdrawnAt: z.string().nullable() });
+const NormalizedParticipantGoldenSchema = ParticipantGoldenSchema.extend({
+  withdrawnAt: z.string().nullable(),
+  processingBlockedAt: z.string().nullable(),
+  processingBlockReason: z.string().nullable(),
+  processingBlockedBy: z.string().nullable(),
+  consentState: ConsentStateGoldenSchema.nullable(),
+});
 
 const ParticipantGoldenFileSchema = z.object({
   expected: z.array(NormalizedParticipantGoldenSchema).min(1),
@@ -105,7 +117,7 @@ function readGolden<T>(name: string, schema: ZodType<T>): T {
 describe('golden file tests — API response shape contracts', () => {
   describe('StudySummary shape', () => {
     it('has all expected fields', () => {
-      const golden = readGolden('study-summary', StudySummaryGoldenSchema);
+      const golden = readGolden('backend-study', StudySummaryGoldenSchema);
       const keys = Object.keys(golden);
       expect(keys).toContain('id');
       expect(keys).toContain('title');
@@ -116,7 +128,7 @@ describe('golden file tests — API response shape contracts', () => {
     });
 
     it('field types match', () => {
-      const golden = readGolden('study-summary', StudySummaryGoldenSchema);
+      const golden = readGolden('backend-study', StudySummaryGoldenSchema);
       expect(typeof golden.id).toBe('string');
       expect(typeof golden.title).toBe('string');
       expect(typeof golden.contact).toBe('string');
@@ -124,21 +136,18 @@ describe('golden file tests — API response shape contracts', () => {
     });
 
     it('modules is an object with known feature keys', () => {
-      const golden = readGolden('study-summary', StudySummaryGoldenSchema);
-      expect(golden.modules).toHaveProperty('ANDROID_SENSOR');
+      const golden = readGolden('backend-study', StudySummaryGoldenSchema);
+      expect(golden.modules).toHaveProperty('CHRONICLE_DATA_COLLECTION');
       expect(golden.modules).toHaveProperty('TIME_USE_DIARY');
     });
 
-    it('settings contains AndroidSensor config', () => {
-      const golden = readGolden('study-summary', StudySummaryGoldenSchema);
-      const sensor = golden.settings.AndroidSensor;
-      expect(sensor).toBeDefined();
-      expect(typeof sensor.samplingRateHz).toBe('number');
-      expect(Array.isArray(sensor.sensors)).toBe(true);
+    it('settings contains generalized collection modules', () => {
+      const golden = readGolden('backend-study', StudySummaryGoldenSchema);
+      expect(golden.settings.DataCollection.modules).toHaveProperty(COLLECTION_MODULE_ID.sensor_accelerometer);
     });
 
     it('optional date fields are strings when present', () => {
-      const golden = readGolden('study-summary', StudySummaryGoldenSchema);
+      const golden = readGolden('backend-study', StudySummaryGoldenSchema);
       expect(typeof golden.createdAt).toBe('string');
       expect(typeof golden.startedAt).toBe('string');
     });
@@ -151,24 +160,24 @@ describe('golden file tests — API response shape contracts', () => {
       expect(normalized).toEqual(golden.expected);
     });
 
-    it('golden input has all required participant fields', () => {
-      const golden = readGolden('participant', ParticipantGoldenFileSchema);
-      expect(golden.input).toHaveProperty('participantId');
-      expect(golden.input).toHaveProperty('candidate');
-      expect(golden.input).toHaveProperty('participationStatus');
-      expect(golden.input).toHaveProperty('participantTags');
-    });
-
-    it('golden expected preserves candidate details', () => {
-      const golden = readGolden('participant', ParticipantGoldenFileSchema);
-      const expected = golden.expected[0];
-      expect(expected).toBeDefined();
-      if (!expected) {
-        throw new Error('Participant golden file must contain at least one expected participant');
-      }
-      expect(expected.candidate).toHaveProperty('id');
-      expect(expected.candidate).toHaveProperty('firstName');
-      expect(expected.candidate).toHaveProperty('lastName');
+    // The server's own serialization (chronicle-server web-golden), with its null consent state, field for field.
+    it('normalizes the backend participant golden', () => {
+      const backend = readGolden('backend-participant', z.record(z.string(), z.unknown()));
+      expect(normalizeParticipantList([backend])).toEqual([
+        {
+          candidate: { id: '11111111-1111-4111-8111-111111111111' },
+          consentState: null,
+          participantId: 'p-golden-1',
+          participantNotes: 'Completed all sessions',
+          participantTags: ['control', 'wave-2'],
+          participationStatus: 'ENROLLED',
+          processingBlockReason: null,
+          processingBlockedAt: null,
+          processingBlockedBy: null,
+          statusRevision: 0,
+          withdrawnAt: null,
+        },
+      ]);
     });
   });
 

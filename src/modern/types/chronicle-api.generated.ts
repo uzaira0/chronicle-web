@@ -92,6 +92,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chronicle/v3/study/{studyId}/pending-enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List participants whose unacknowledged enrollment attempts block disclosure edits
+         * @description Requires study READ access. Includes only live, unrevoked replay-safe attempts without their own enrollment acknowledgment.
+         */
+        get: operations["getPendingEnrollments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/participant/{participantId}/pending-enrollment/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a participant's pending enrollment
+         * @description Requires study WRITE access, as for issuing form-access codes. Idempotently revokes
+         *     every enrollment attempt without an ENROLLMENT acknowledgment, together with its proposed
+         *     device key when that key already installed. Never withdraws: preserves collected data,
+         *     participation status, acknowledged enrollment evidence, and unrelated form codes. A
+         *     cancelled code returns 401; the phone's enroll of a cancelled attempt returns 410 with
+         *     code ENROLLMENT_CANCELLED, and its other calls with that key return 410.
+         */
+        post: operations["cancelPendingEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/participant/{participantId}/enrollment-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the participant's live enrollment link code
+         * @description Requires study WRITE access, as for issuing form-access codes. Returns the researcher-issued
+         *     enrollment code already sent while it is unused, unrevoked and unexpired, so the QR dialog
+         *     shows that link instead of replacing it. Issuing a new ENROLLMENT code through
+         *     form-access-codes replaces it. The response is not cached.
+         */
+        get: operations["getLiveEnrollmentCode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chronicle/v3/study/{studyId}/participants": {
         parameters: {
             query?: never;
@@ -127,6 +195,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chronicle/v3/study/{studyId}/participant/{participantId}/processing-block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Block participant processing without changing participation status */
+        post: operations["blockParticipantProcessing"];
+        /** Resume participant processing under the existing participation status */
+        delete: operations["unblockParticipantProcessing"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chronicle/v3/study/{studyId}/participant/{participantId}/status": {
         parameters: {
             query?: never;
@@ -151,36 +237,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get participant annotations with their edit revision */
+        get: operations["getParticipantAnnotations"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /** Read the current edit revision */
+        head: operations["getParticipantAnnotationsRevision"];
         /** Update participant annotations */
         patch: operations["updateParticipantAnnotations"];
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/{sourceDeviceId}/enroll": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Enroll a participant's device in a study (deprecated)
-         * @deprecated
-         * @description Deprecated. Use POST `/chronicle/v4/study/{studyId}/participant/{participantId}/enroll`
-         *     which carries the Chronicle app-instance ID in the `X-Chronicle-Device-Id` header.
-         */
-        post: operations["enroll"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/chronicle/v4/study/{studyId}/participant/{participantId}/enrollment-preview": {
@@ -232,7 +298,7 @@ export interface paths {
          * @description Participant self-service withdrawal. The enrollment to withdraw is
          *     identified entirely by the participant- and device-bound API key —
          *     no study or participant appears in the path. Auth (`X-Api-Key`) and
-         *     the Chronicle app-instance id (`X-Chronicle-Device-Id`) ride the
+         *     the Chronicle app-instance id (`X-Chronicle-Random-Device-Id`) ride the
          *     standard v4 mobile headers.
          *
          *     Idempotent: before its first request the client generates and durably
@@ -243,8 +309,37 @@ export interface paths {
          *     bound retry until a newer active key exists for the same device, so a
          *     client that crashed mid-request can safely retry and observe the same
          *     withdrawal result.
+         *
+         *     Cancelling an enrollment attempt: with the attempt's proposed key and
+         *     `X-Chronicle-Withdrawal-Request-Id` set to the attempt id, an attempt
+         *     without an ENROLLMENT acknowledgment is cancelled, whether or not its key
+         *     installed: the attempt's key and binding are revoked and the receipt names
+         *     the attempt. It never withdraws the participant. After the acknowledgment the
+         *     cancel is refused with 409; a real enrollment ends only through withdrawal.
+         *     An attempt the server holds no binding for answers 410 and is recorded as
+         *     cancelled, so its delayed enroll is refused.
          */
         delete: operations["withdrawCurrentEnrollment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v4/study/{studyId}/participant/{participantId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The bound device's participation status poll
+         * @description The phone's status poll, read in one snapshot: the participation status, every closed capture window, the latest hard stop (Mark not enrolled or withdrawal) and the database clock. A phone that was enrolled again before it polled learns of the hard stop here and clears what it queued before the stop. An erased key reads ERASED with no windows and no hard stop.
+         */
+        get: operations["getDeviceParticipationStatusV4"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -261,7 +356,7 @@ export interface paths {
         put?: never;
         /**
          * Report a participant's acknowledgment of newly-enabled collection modules
-         * @description Records a participant's on-device acknowledgment of one or more newly-enabled collection modules — the device-side close of the consent loop (collection loop closure design §5.2). A module a researcher enables stays in PENDING_ACK (not collecting) until the participant acknowledges it on-device. Auth (`X-Api-Key`) and app-instance id (`X-Chronicle-Device-Id`) ride the standard v4 android headers. The server stamps its own authoritative receipt time; the body's `acknowledgedAt` is advisory only.
+         * @description Records a participant's on-device acknowledgment of one or more newly-enabled collection modules — the device-side close of the consent loop. A module a researcher enables stays in PENDING_ACK (not collecting) until the participant acknowledges it on-device. Auth (`X-Api-Key`) and app-instance id (`X-Chronicle-Random-Device-Id`) ride the standard v4 android headers. The server stamps its own authoritative receipt time; the body's `acknowledgedAt` is advisory only.
          */
         post: operations["reportCollectionAcknowledgmentV4"];
         delete?: never;
@@ -281,7 +376,7 @@ export interface paths {
         put?: never;
         /**
          * Upload Android usage and lifecycle event data
-         * @description Uploads the authenticated app instance's usage and lifecycle event batch. The app-instance id is carried in `X-Chronicle-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
+         * @description Uploads the authenticated app instance's usage and lifecycle event batch. Every event carries a `clientEventId` assigned once on the phone; the server stores each ID at most once per study participant, so a retried batch never duplicates rows. The app-instance id is carried in `X-Chronicle-Random-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
          */
         post: operations["uploadAndroidUsageEventDataV4"];
         delete?: never;
@@ -301,7 +396,7 @@ export interface paths {
         put?: never;
         /**
          * Upload Android sensor data
-         * @description Uploads the authenticated app instance's Android sensor sample batch. The app-instance id is carried in `X-Chronicle-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
+         * @description Uploads the authenticated app instance's Android sensor sample batch. The app-instance id is carried in `X-Chronicle-Random-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
          */
         post: operations["uploadAndroidSensorDataV4"];
         delete?: never;
@@ -321,7 +416,7 @@ export interface paths {
         put?: never;
         /**
          * Upload Android sensors with exact row receipts
-         * @description Uploads the authenticated app instance's Android sensor sample batch. The app-instance id is carried in `X-Chronicle-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
+         * @description Uploads the authenticated app instance's Android sensor sample batch. The app-instance id is carried in `X-Chronicle-Random-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
          */
         post: operations["uploadAndroidSensorDataReceiptV4"];
         delete?: never;
@@ -341,65 +436,9 @@ export interface paths {
         put?: never;
         /**
          * Upload Android battery telemetry
-         * @description Uploads the authenticated app instance's `battery_telemetry` sample batch. The app-instance id is carried in `X-Chronicle-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
+         * @description Uploads the authenticated app instance's `battery_telemetry` sample batch. The app-instance id is carried in `X-Chronicle-Random-Device-Id`; the participant- and device-bound API key is carried in `X-Api-Key`.
          */
         post: operations["uploadBatteryTelemetryV4"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/android/{sourceDeviceId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload Android usage event data */
-        post: operations["uploadAndroidUsageEventData"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/android/{sourceDeviceId}/sensors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload Android sensor data */
-        post: operations["uploadAndroidSensorData"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/android/{sourceDeviceId}/battery": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Android battery telemetry
-         * @description Uploads a batch of battery-telemetry samples collected by the Android
-         *     `battery_telemetry` collection module. The v4 equivalent carries the
-         *     Chronicle app-instance id in the `X-Chronicle-Device-Id` header.
-         */
-        post: operations["uploadBatteryTelemetry"];
         delete?: never;
         options?: never;
         head?: never;
@@ -421,9 +460,9 @@ export interface paths {
          *     `interaction_events` collection module. INTERACTION_METADATA-class data —
          *     content-free (screen-region grid cell + element role + foreground package),
          *     never element text. Auth (`X-Api-Key`) and the Chronicle app-instance id
-         *     (`X-Chronicle-Device-Id`) ride the standard v4 android headers — matching
+         *     (`X-Chronicle-Random-Device-Id`) ride the standard v4 android headers — matching
          *     every sibling android module (audio-activity, sleep, …). This replaces the
-         *     retired v3 `{sourceDeviceId}`-in-path form; only v4 is server-implemented.
+         *     retired v3 `{sourceRandomDeviceId}`-in-path form; only v4 is server-implemented.
          */
         post: operations["uploadInteractionEvents"];
         delete?: never;
@@ -448,7 +487,7 @@ export interface paths {
          *     mic-free by construction: it carries which app is producing audio, the
          *     playback/route/volume state and ringer/DND posture, but never any audio
          *     content or microphone capture. Auth (`X-Api-Key`) and the Chronicle
-         *     app-instance id (`X-Chronicle-Device-Id`) ride the standard v4 android
+         *     app-instance id (`X-Chronicle-Random-Device-Id`) ride the standard v4 android
          *     headers.
          */
         post: operations["uploadAudioActivityEvents"];
@@ -474,7 +513,7 @@ export interface paths {
          *     opt-in track-metadata path: it carries the active media session's
          *     title / artist / album and play position for the foreground audio
          *     package, never the audio itself. Auth (`X-Api-Key`) and the Chronicle
-         *     app-instance id (`X-Chronicle-Device-Id`) ride the standard v4 android
+         *     app-instance id (`X-Chronicle-Random-Device-Id`) ride the standard v4 android
          *     headers.
          */
         post: operations["uploadAudioContentEvents"];
@@ -500,7 +539,7 @@ export interface paths {
          *     content-free by construction: it carries per-app notification posted/removed
          *     events with category and importance, but never any notification text or
          *     title. Auth (`X-Api-Key`) and the Chronicle app-instance id
-         *     (`X-Chronicle-Device-Id`) ride the standard v4 android headers.
+         *     (`X-Chronicle-Random-Device-Id`) ride the standard v4 android headers.
          */
         post: operations["uploadNotificationActivityEvents"];
         delete?: never;
@@ -524,7 +563,7 @@ export interface paths {
          *     module (Google Play Services Sleep API). Health-metrics-class data —
          *     content-free and mic-free by construction: a sleep label/confidence plus the
          *     coarse light/motion levels the on-device classifier reports. Auth (`X-Api-Key`)
-         *     and the Chronicle app-instance id (`X-Chronicle-Device-Id`) ride the standard
+         *     and the Chronicle app-instance id (`X-Chronicle-Random-Device-Id`) ride the standard
          *     v4 android headers.
          */
         post: operations["uploadSleepEvents"];
@@ -549,7 +588,7 @@ export interface paths {
          *     `activity_recognition` collection module (Play Services Activity Recognition /
          *     Activity Transition API). Behavioral-metadata-class data (default OFF) —
          *     content-free: an activity label plus confidence, no raw sensors or location.
-         *     Auth (`X-Api-Key`) and the Chronicle app-instance id (`X-Chronicle-Device-Id`)
+         *     Auth (`X-Api-Key`) and the Chronicle app-instance id (`X-Chronicle-Random-Device-Id`)
          *     ride the standard v4 android headers.
          */
         post: operations["uploadActivityRecognitionEvents"];
@@ -575,7 +614,7 @@ export interface paths {
          *     data, opt-in. Each record is an aggregated/instantaneous value (interpreted per
          *     metricType + unit); Chronicle only reads records the participant's own
          *     apps/wearables have written. Auth (`X-Api-Key`) and the Chronicle app-instance
-         *     id (`X-Chronicle-Device-Id`) ride the standard v4 android headers.
+         *     id (`X-Chronicle-Random-Device-Id`) ride the standard v4 android headers.
          */
         post: operations["uploadHealthMetrics"];
         delete?: never;
@@ -599,7 +638,7 @@ export interface paths {
          *     `connectivity_state` collection module. Device-state-metadata-class data
          *     (default OFF) — the active transport plus metered/validated flags only; no
          *     SSID, BSSID, IP, or cell identifiers (those would be a location proxy). Auth
-         *     (`X-Api-Key`) and the Chronicle app-instance id (`X-Chronicle-Device-Id`) ride
+         *     (`X-Api-Key`) and the Chronicle app-instance id (`X-Chronicle-Random-Device-Id`) ride
          *     the standard v4 android headers.
          */
         post: operations["uploadConnectivityStateEvents"];
@@ -625,7 +664,7 @@ export interface paths {
          *     Behavioral-metadata-class data (default OFF) — volume counts only: the
          *     transmitted/received byte counts for one app over one time bucket, with zero
          *     visibility into payloads, destinations, domains, or URLs. Auth (`X-Api-Key`)
-         *     and the Chronicle app-instance id (`X-Chronicle-Device-Id`) ride the standard
+         *     and the Chronicle app-instance id (`X-Chronicle-Random-Device-Id`) ride the standard
          *     v4 android headers.
          */
         post: operations["uploadAppNetworkUsage"];
@@ -651,7 +690,7 @@ export interface paths {
          *     (default OFF) — a content-free, identity-free snapshot of display / sound /
          *     accessibility / system toggles; nothing reveals what the participant does, only
          *     how the device is configured. Auth (`X-Api-Key`) and the Chronicle app-instance
-         *     id (`X-Chronicle-Device-Id`) ride the standard v4 android headers.
+         *     id (`X-Chronicle-Random-Device-Id`) ride the standard v4 android headers.
          */
         post: operations["uploadDeviceSettings"];
         delete?: never;
@@ -671,10 +710,12 @@ export interface paths {
         put?: never;
         /**
          * Upload bounded Android delivery diagnostics
-         * @description Uploads idempotent, bounded, structured aggregates describing earlier
+         * @description Uploads idempotent, bounded, structured diagnostic occurrences describing earlier
          *     Android upload failures. Study, participant, and app-instance identity come from
          *     the authenticated path and headers. The payload must not contain credentials or
-         *     unrestricted stack traces. A successful response acknowledges every supplied id.
+         *     unrestricted stack traces. Each occurrence is filtered by the participation window
+         *     on its own instant. The receipt accepts exactly the stored ids and discards the ids
+         *     refused by a pause, archive, or erasure; it never holds a diagnostic.
          */
         post: operations["uploadAndroidUploadDiagnostics"];
         delete?: never;
@@ -683,73 +724,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/chronicle/v4/study/{studyId}/participant/{participantId}/android/encrypted": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload envelope-encrypted Android sensor/usage/battery data
-         * @description HIPAA-2028 "W2" envelope-encrypted upload. The device seals each batch of
-         *     sensor, usage, or battery samples into one or more `EncryptedEnvelope`s
-         *     (hybrid AES-256-GCM content encryption + RSA-OAEP-SHA256 key wrapping) before
-         *     upload, so the payload is opaque in transit and at rest until decrypted with
-         *     the study's private key (held in Vault). Studies opt in via the
-         *     `StudyEncryptionSetting` (settings type `Encryption`); the device fetches that
-         *     study's RSA public key and `keyId` from
-         *     `GET /chronicle/v3/study/{studyId}/settings/type/Encryption` and seals to it.
-         *
-         *     Each envelope's `payloadType` (sensor, usage, battery, interaction, audio_activity,
-         *     audio_content, notification_activity) selects the destination
-         *     store after decryption. Auth (`X-Api-Key`) and the Chronicle app-instance id
-         *     (`X-Chronicle-Device-Id`) ride the standard v4 android headers.
-         */
-        post: operations["uploadAndroidEncryptedData"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/android/{sourceDeviceId}/sensors/availability": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Report Android sensor availability for a device */
-        post: operations["reportAndroidSensorAvailability"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/ios/{sourceDeviceId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload iOS sensor data */
-        post: operations["uploadSensorData"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/ios/{sourceDeviceId}/screen-time": {
+    "/chronicle/v4/study/{studyId}/participant/{participantId}/ios/screen-time": {
         parameters: {
             query?: never;
             header?: never;
@@ -759,24 +734,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Upload iOS Screen Time usage data */
-        post: operations["uploadScreenTimeData"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/participant/{participantId}/ios/{sourceDeviceId}/user-identification": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload iOS user identification snapshots */
-        post: operations["uploadUserIdentificationData"];
+        post: operations["uploadScreenTimeDataV4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -794,7 +752,7 @@ export interface paths {
         put?: never;
         /**
          * Report an iOS participant's acknowledgment of collection modules
-         * @description iOS counterpart of `reportCollectionAcknowledgmentV4` — records a participant's on-device acknowledgment (accept/decline) of consent-gated collection modules, closing the consent loop for the iOS collector. Same body, semantics, and append-only trail as the android route; the server stamps its own authoritative receipt time and the body's `acknowledgedAt` stays advisory. Auth (`X-Api-Key`) and app-instance id (`X-Chronicle-Device-Id`) ride the standard v4 headers.
+         * @description iOS counterpart of `reportCollectionAcknowledgmentV4` — records a participant's on-device acknowledgment (accept/decline) of consent-gated collection modules, closing the consent loop for the iOS collector. Same body, semantics, and append-only trail as the android route; the server stamps its own authoritative receipt time and the body's `acknowledgedAt` stays advisory. Auth (`X-Api-Key`) and app-instance id (`X-Chronicle-Random-Device-Id`) ride the standard v4 headers.
          */
         post: operations["reportCollectionAcknowledgmentIosV4"];
         delete?: never;
@@ -820,7 +778,7 @@ export interface paths {
          *     or plug type — so the sample schema is deliberately slimmer than the Android
          *     `BatterySample`; the missing hardware fields are stored as NULL, never
          *     fabricated. Auth (`X-Api-Key`) and the Chronicle app-instance id
-         *     (`X-Chronicle-Device-Id`) ride the standard v4 headers.
+         *     (`X-Chronicle-Random-Device-Id`) ride the standard v4 headers.
          */
         post: operations["uploadIosBatteryTelemetry"];
         delete?: never;
@@ -846,7 +804,7 @@ export interface paths {
          *     SSID, BSSID, IP, or cell identifiers. The sample schema is shared with the
          *     android route (`AndroidConnectivityStateEvent` is platform-neutral despite its
          *     historical name). Auth (`X-Api-Key`) and the Chronicle app-instance id
-         *     (`X-Chronicle-Device-Id`) ride the standard v4 headers.
+         *     (`X-Chronicle-Random-Device-Id`) ride the standard v4 headers.
          */
         post: operations["uploadIosConnectivityStateEvents"];
         delete?: never;
@@ -872,39 +830,10 @@ export interface paths {
          *     Health-metrics-class data, opt-in. The record schema is shared with the android
          *     route (`AndroidHealthMetricEvent` is platform-neutral despite its historical
          *     name; `sourcePackage` carries the source app's bundle identifier on iOS). Auth
-         *     (`X-Api-Key`) and the Chronicle app-instance id (`X-Chronicle-Device-Id`) ride
+         *     (`X-Api-Key`) and the Chronicle app-instance id (`X-Chronicle-Random-Device-Id`) ride
          *     the standard v4 headers.
          */
         post: operations["uploadIosHealthMetrics"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v4/study/{studyId}/participant/{participantId}/ios/ambient-audio": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload iOS ambient-audio classification events
-         * @description Uploads a batch of ambient-audio classification events produced by the iOS
-         *     `ambient_audio` collection module. Labels-only by construction: sound is
-         *     classified ON DEVICE (Apple SoundAnalysis) in short duty-cycled windows and
-         *     the audio is immediately discarded — each event carries only a sound-class
-         *     label (music, speech, television, …) with a confidence score and the window
-         *     bounds. Never any recording, transcript, or raw audio. This is deliberately
-         *     a DIFFERENT module from the mic-free `audio_activity` module, which never
-         *     touches the microphone. Opt-in, default OFF. Auth (`X-Api-Key`) and the
-         *     Chronicle app-instance id (`X-Chronicle-Device-Id`) ride the standard v4
-         *     headers.
-         */
-        post: operations["uploadIosAmbientAudio"];
         delete?: never;
         options?: never;
         head?: never;
@@ -983,85 +912,10 @@ export interface paths {
         };
         /**
          * Get the participant collection-acknowledgment trail for a study
-         * @description Append-only record of when each participant acknowledged each newly-enabled collection module on-device (collection loop closure design §5.3). Surfaced in the web audit view alongside the settings audit; a sibling feed so the immutable settings-audit schema stays unchanged. Most recent first.
+         * @description Append-only record of when each participant acknowledged each newly-enabled collection module on-device. Surfaced in the web audit view alongside the settings audit; a sibling feed so the immutable settings-audit schema stays unchanged. Most recent first.
          */
         get: operations["getStudyCollectionAcknowledgments"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/settings/sensors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get enabled sensor types for a study */
-        get: operations["getStudySensors"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/settings/type/AndroidSensor": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Android sensor settings for a study */
-        get: operations["getAndroidSensorSettings"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/settings/type/Encryption": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get envelope-encryption settings for a study
-         * @description Returns the study's `StudyEncryptionSetting` (HIPAA-2028 "W2"). The Android
-         *     app reads this to decide whether to seal uploads via the encrypted endpoint
-         *     and to obtain the RSA public key (`publicKeyPem`) and `keyId` to wrap each
-         *     batch's AES-256-GCM content key against. Only the public half is exposed here;
-         *     the matching private key lives in Vault and never leaves the server.
-         */
-        get: operations["getStudyEncryptionSetting"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/study/{studyId}/data-collection": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Set data collection settings for a study */
-        put: operations["setChronicleDataCollectionSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1133,7 +987,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get server-observed iOS upload status for study participants */
+        /** Get stored iOS Screen Time status for study participants */
         get: operations["getIosUploadStatus"];
         put?: never;
         post?: never;
@@ -1170,7 +1024,8 @@ export interface paths {
         /** Get participant data for a study */
         get: operations["getParticipantsData"];
         put?: never;
-        post?: never;
+        /** Get participant data for a study */
+        post: operations["postGetParticipantsData"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1214,6 +1069,23 @@ export interface paths {
         patch: operations["filterAppForStudyAppUsageSurvey"];
         trace?: never;
     };
+    "/chronicle/v3/survey/{studyId}/participant/{participantId}/app-usage/days": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the participant's ended survey days with their answer state */
+        get: operations["getAppUsageSurveyDays"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chronicle/v3/survey/{studyId}/participant/{participantId}/app-usage": {
         parameters: {
             query?: never;
@@ -1221,10 +1093,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get app usage survey data for a participant */
+        /** Get one ended survey day with its apps, blocks and stored answers */
         get: operations["getAppUsageSurveyData"];
         put?: never;
-        /** Submit app usage survey */
+        /** Answer unanswered blocks of one ended survey day; an empty list confirms a day with no apps */
         post: operations["submitAppUsageSurvey"];
         delete?: never;
         options?: never;
@@ -1284,7 +1156,8 @@ export interface paths {
         /** Delete a questionnaire */
         delete: operations["deleteQuestionnaire"];
         options?: never;
-        head?: never;
+        /** Read the current edit revision */
+        head: operations["getQuestionnaireRevision"];
         /** Update a questionnaire */
         patch: operations["updateQuestionnaire"];
         trace?: never;
@@ -1316,7 +1189,8 @@ export interface paths {
         /** Get questionnaire responses */
         get: operations["getQuestionnaireResponses"];
         put?: never;
-        post?: never;
+        /** Get questionnaire responses */
+        post: operations["postGetQuestionnaireResponses"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1388,7 +1262,8 @@ export interface paths {
         /** Get TUD submissions for a study */
         get: operations["getStudyTUDSubmissions"];
         put?: never;
-        post?: never;
+        /** Get TUD submissions for a study */
+        post: operations["postGetStudyTUDSubmissions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1405,7 +1280,8 @@ export interface paths {
         /** Get TUD submissions for specific participants */
         get: operations["getParticipantsTudSubmissions"];
         put?: never;
-        post?: never;
+        /** Get TUD submissions for specific participants */
+        post: operations["postGetParticipantsTudSubmissions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1636,94 +1512,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/chronicle/v3/notification/{studyId}/principal/{principalId}/phone-numbers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get a researcher's phone number */
-        get: operations["getResearcherPhoneNumber"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/notification/{studyId}/principal/{principalId}/phone-numbers/{phoneNumber}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Set a researcher's phone number */
-        put: operations["setResearcherPhoneNumber"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/notification/{studyId}/principal/{principalId}/phone-numbers/{phoneNumber}/verify": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Check if a researcher's phone number is verified */
-        get: operations["isResearcherPhoneNumberVerified"];
-        put?: never;
-        /** Verify a researcher's phone number with confirmation code */
-        post: operations["verifyResearcherPhoneNumber"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/notification/{studyId}/principal/{principalId}/notifications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get researcher notification settings */
-        get: operations["getResearcherNotificationSettings"];
-        /** Set researcher notification settings */
-        put: operations["setResearcherNotificationSettings"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/chronicle/v3/notification/{studyId}/principal/{principalId}/notifications/{notificationType}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get delivery types for a specific notification type */
-        get: operations["getResearcherNotificationSetting"];
-        /** Set delivery types for a specific notification type */
-        put: operations["setResearcherNotificationSetting"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/chronicle/v3/notification/{studyId}": {
         parameters: {
             query?: never;
@@ -1775,24 +1563,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/chronicle/principal/users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get all users */
-        get: operations["getAllUsers"];
-        put?: never;
-        /** Get users by ID */
-        post: operations["getUsers"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/chronicle/principal/users/{userId}": {
         parameters: {
             query?: never;
@@ -1800,8 +1570,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get a user by ID */
-        get: operations["getUser"];
+        get?: never;
         put?: never;
         post?: never;
         /** Delete a user account */
@@ -1897,17 +1666,706 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chronicle/v3/compliance/study/{studyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get compliance violations by participant for a study */
+        get: operations["getStudyComplianceViolations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/limits/study/{studyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get study limits */
+        get: operations["getStudyLimits"];
+        /** Set study limits */
+        put: operations["setStudyLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/participant-access/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recover the participant form session from its cookie */
+        get: operations["recoverParticipantFormSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List study API keys */
+        get: operations["listApiKeys"];
+        put?: never;
+        /** Create a study API key */
+        post: operations["createApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/api-keys/{keyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a study API key */
+        delete: operations["revokeApiKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/api-keys/{keyId}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace a study API key with a new key of the same scope */
+        post: operations["rotateApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive a study */
+        post: operations["archiveStudy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unarchive a study */
+        post: operations["unarchiveStudy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/schedule-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a scheduled study deletion */
+        post: operations["cancelScheduledDeletion"];
+        /** Schedule study deletion */
+        delete: operations["scheduleStudyDeletion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get study lifecycle status */
+        get: operations["getStudyLifecycleStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/deletions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List data deletion operations for a study */
+        get: operations["listDataDeletionOperations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/deletions/{operationId}/erase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Erase a requested data deletion now (owner command) */
+        post: operations["eraseDataDeletionNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/export/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get which data types a study can export */
+        get: operations["getExportAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/settings/locks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List study setting types locked by participant policy */
+        get: operations["getStudySettingLocks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v4/mobile/reviewer-enrollment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bootstrap a store reviewer enrollment */
+        post: operations["createReviewerEnrollment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/jwks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get public jwks */
+        get: operations["getPublicJwks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/.well-known/jwks.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get chronicle jwks */
+        get: operations["getChronicleJwks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/dashboard-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dashboard login */
+        post: operations["dashboardLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Oidc callback */
+        get: operations["oidcCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/oidc/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Oidc login */
+        get: operations["oidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get auth session */
+        get: operations["getAuthSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/set-cookie": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set auth cookie */
+        post: operations["setAuthCookie"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/auth/testing-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Testing login */
+        post: operations["testingLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/compliance/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trigger all compliance notifications */
+        get: operations["triggerAllComplianceNotifications"];
+        put?: never;
+        /** Trigger study compliance notifications */
+        post: operations["triggerStudyComplianceNotifications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/participant-access/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange participant access code */
+        post: operations["exchangeParticipantAccessCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clone study */
+        post: operations["cloneStudy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/deletions/{operationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get deletion operation */
+        get: operations["getDeletionOperation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/participant/{participantId}/form-access-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create participant form access code v3 */
+        post: operations["createParticipantFormAccessCodeV3"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/participants/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute participant purge */
+        post: operations["executeParticipantPurge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/participants/{participantId}/purge/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview participant purge */
+        get: operations["previewParticipantPurge"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/webhooks/{webhookId}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get webhook deliveries */
+        get: operations["getWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/webhooks/{webhookId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test webhook */
+        post: operations["testWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/webhooks/{webhookId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete webhook */
+        delete: operations["deleteWebhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v3/study/{studyId}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List webhooks */
+        get: operations["listWebhooks"];
+        put?: never;
+        /** Create webhook */
+        post: operations["createWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v4/study/{studyId}/participant/{participantId}/form-access-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create participant form access code v4
+         * @description An enrolled device supplies both native headers and may issue APP_USAGE or QUESTIONNAIRE links. Researchers use their authenticated session or bearer token with study write access; native headers are omitted for that alternative.
+         */
+        post: operations["createParticipantFormAccessCodeV4"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v4/study/{studyId}/participant/{participantId}/reminders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** getMobileReminderSchedule */
+        get: operations["getMobileReminderSchedule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/chronicle/v4/study/{studyId}/participant/{participantId}/android/sensors/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** reportAndroidSensorAvailability */
+        post: operations["reportAndroidSensorAvailability"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        SensorUploadReceipt: {
-            acceptedIds: components["schemas"]["SensorReceiptIds"];
-            discardedIds: components["schemas"]["SensorReceiptIds"];
-            heldIds: components["schemas"]["SensorReceiptIds"];
+        /** @description The common error envelope returned by controllers, authentication and servlet filters. */
+        ApiError: {
+            status: number;
+            error: string;
+            message: string;
+            errorId?: string;
+            /** Format: date-time */
+            timestamp?: string;
+            path?: string;
+            details?: string[];
+            /** @description Machine-readable refusal the client acts on, for example UPLOAD_ROW_REJECTED (a 400 caused by a row's own content), ENROLLMENT_CANCELLED or ENROLLMENT_STUDY_CHANGED. */
+            code?: string;
+            blockingParticipantIds?: string[];
+            /**
+             * Format: int64
+             * @description Retry delay in seconds.
+             */
+            retryAfter?: number;
+            trace?: string;
+        };
+        /** @enum {string} */
+        StudyLifecycleStatus: "ACTIVE" | "ARCHIVED" | "SCHEDULED_FOR_DELETION";
+        StudyDisclosureConflictError: {
+            /** @enum {integer} */
+            status: 409;
+            error: string;
+            /** @description For pending enrollment, names blocking participants and explains that the device can finish or the researcher can cancel pending enrollment. */
+            message: string;
+            /** @description Present when live, unacknowledged enrollment attempts block the edit. */
+            blockingParticipantIds?: string[];
+            errorId?: string;
+            /** Format: date-time */
+            timestamp?: string;
+            path?: string;
+        };
+        UploadReceipt: {
+            acceptedIds: components["schemas"]["UploadReceiptIds"];
+            discardedIds: components["schemas"]["UploadReceiptIds"];
+            /** @description Settings revision the rows were judged at; 0 from an endpoint that does not judge by revision. */
             settingsVersion: number;
         };
-        SensorReceiptIds: string[];
+        UploadReceiptIds: string[];
         /**
          * @description Returned with HTTP 412 when an `If-Match` settings precondition no longer matches. Carries
          *     the current state so the client can re-render without issuing another GET and racing again.
@@ -1952,6 +2410,11 @@ export interface components {
              *     Sent as `X-Api-Key` for subsequent uploads to this server. Shown ONCE.
              */
             apiKey?: string | null;
+            /**
+             * Format: int64
+             * @description Current hard-stop generation, the phone's durable baseline before this enrollment starts collecting.
+             */
+            hardStopGeneration?: number | null;
         };
         /** @description Study-specific informed-consent and privacy notice controlled by the responsible institution. */
         StudyParticipantPolicy: {
@@ -1974,6 +2437,11 @@ export interface components {
             version: string;
             /** Format: date-time */
             effectiveAt: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.study.StudyParticipantPolicy";
         };
         /** @description Authoritative disclosure snapshot a participant reviews before enrollment. */
         EnrollmentManifest: {
@@ -1993,10 +2461,32 @@ export interface components {
             issuedAt: string;
             /** Format: date-time */
             expiresAt: string;
+            /** @description The study policy for keeping or erasing prior data on withdrawal. */
+            withdrawalMode?: string;
         };
         EnrollmentPreviewResponse: {
             manifest: components["schemas"]["EnrollmentManifest"];
             manifestDigest: string;
+        };
+        /**
+         * @description A requested erasure or collected-data purge. QUARANTINED means requested, data
+         *     blocked and nothing erased yet. `erasable` is the server's answer to whether an
+         *     owner may run it now (Erase now); clients do not restate the rule from `status`.
+         */
+        DataDeletionOperation: {
+            /** Format: uuid */
+            operationId: string;
+            /** Format: uuid */
+            studyId: string;
+            /** @description Null for a study erasure. */
+            participantId: string | null;
+            /** @enum {string} */
+            mode: "COLLECTED_DATA_PURGE" | "WITHDRAW_AND_ERASE" | "STUDY_ERASURE";
+            /** @enum {string} */
+            status: "PREVIEW" | "QUARANTINED" | "ERASING" | "VERIFYING" | "COMPLETED" | "FAILED" | "CANCELLED";
+            /** Format: date-time */
+            requestedAt: string;
+            erasable: boolean;
         };
         /**
          * @description Accepted participant self-service withdrawal. `requestId` is the exact
@@ -2020,43 +2510,47 @@ export interface components {
             /** @description True when a prior withdrawal or erasure already applies to the participant. */
             alreadyWithdrawn: boolean;
         };
-        /** @description One enrollment event for a deduped app-device instance. */
-        DeviceEnrollmentEvent: {
-            /** Format: uuid */
-            enrollmentId?: string | null;
-            /** Format: date-time */
-            enrolledAt?: string | null;
-        };
-        /** @description Deduped app-device instance plus enrollment event trail. */
         StudyDeviceInstance: {
-            /**
-             * Format: uuid
-             * @description Server-assigned deduped app-device instance UUID.
-             */
-            deviceId?: string;
+            /** Format: uuid */
+            randomDeviceId?: string;
             deviceType?: string;
-            /** @description Sanitized mobile device metadata. Hardware identifiers and messaging tokens are stripped before storage. */
             sourceDevice?: {
                 [key: string]: unknown;
             };
-            enrollments?: components["schemas"]["DeviceEnrollmentEvent"][];
+        } & {
+            [key: string]: unknown;
         };
         Study: {
             /** Format: uuid */
             id?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             title?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             description?: string;
-            /** Format: uuid */
-            organizationId?: string;
+            organizationIds?: string[];
+            /** @description Study settings keyed by setting type (Withdrawal, Notifications, TimeUseDiary, Survey, ...). */
+            settings?: {
+                [key: string]: unknown;
+            };
+            /** @description Enabled study features keyed by feature name. */
+            modules?: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            readonly category?: "Study";
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             version?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             contact?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             group?: string;
             /** Format: double */
             lat?: number;
             /** Format: double */
             lon?: number;
-            notificationsEnabled?: boolean;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             phoneNumber?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             storage?: string;
             /** Format: date-time */
             createdAt?: string;
@@ -2064,16 +2558,37 @@ export interface components {
             updatedAt?: string;
             /** Format: date-time */
             startedAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Omitted when the study has no end date.
+             */
             endedAt?: string;
         };
+        StudyDuration: {
+            years: number;
+            months: number;
+            days: number;
+        };
+        /** @description A study ends only when the researcher sets studyDuration or studyEnds. Both null means the study runs until someone stops it; nothing pauses or archives it on a date. */
+        StudyLimits: {
+            studyDuration?: components["schemas"]["StudyDuration"] | null;
+            dataRetentionDuration?: components["schemas"]["StudyDuration"];
+            /** Format: date-time */
+            studyEnds?: string | null;
+            /** Format: date-time */
+            studyDataExpires?: string | null;
+        };
         StudyUpdate: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             title?: string | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             description?: string | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             contact?: string | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             version?: string | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             group?: string | null;
-            notificationsEnabled?: boolean | null;
             /** Format: double */
             lat?: number | null;
             /** Format: double */
@@ -2084,14 +2599,35 @@ export interface components {
             modules?: {
                 [key: string]: unknown;
             } | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             storage?: string | null;
         };
-        /** @description Polymorphic study setting (uses @class discriminator) */
-        StudySetting: {
-            "@class"?: string;
-        } & {
-            [key: string]: unknown;
-        };
+        /** @description Study setting selected by the @class name accepted by the server Jackson subtype registry. */
+        StudySetting: (components["schemas"]["AndroidDataCollectionSetting"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.collection.AndroidDataCollectionSetting";
+        }) | (components["schemas"]["AndroidSensorSetting"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.android.AndroidSensorSetting";
+        }) | (components["schemas"]["StudyNotificationSettings"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.notifications.StudyNotificationSettings";
+        }) | (components["schemas"]["TimeUseDiarySettings"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.timeusediary.TimeUseDiarySettings";
+        }) | (components["schemas"]["SurveySettings"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.survey.SurveySettings";
+        }) | (components["schemas"]["StudyParticipantPolicy"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.study.StudyParticipantPolicy";
+        }) | (components["schemas"]["StudyWithdrawalSetting"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.study.StudyWithdrawalSetting";
+        }) | (components["schemas"]["AppUsageSurveySetting"] & {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.study.AppUsageSurveySetting";
+        });
         /** @description Hardware-sensor sampling policy (chronicle-models AndroidSensorSetting). Every field is optional on input; the server applies the listed default. */
         AndroidSensorSetting: {
             /** @description Enabled sensors; empty when omitted. */
@@ -2114,17 +2650,28 @@ export interface components {
              * @default 300
              */
             dutyCyclePeriodSeconds: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.android.AndroidSensorSetting";
         };
         /** @enum {string} */
-        AndroidSensorType: "accelerometer" | "gyroscope" | "magnetometer" | "gravity" | "linearAcceleration" | "rotationVector" | "stepCounter" | "light" | "proximity" | "significantMotion" | "tiltDetector" | "screenOrientation" | "samsungGripWifi" | "samsungMotion";
-        ChronicleDataCollectionSettings: {
-            [key: string]: unknown;
+        AndroidSensorType: "accelerometer" | "gyroscope" | "magnetometer" | "gravity" | "linearAcceleration" | "rotationVector" | "stepCounter" | "light" | "proximity" | "significantMotion" | "tiltDetector" | "screenOrientation";
+        AppUsageSurveySetting: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.study.AppUsageSurveySetting";
+            /** @default DAILY */
+            appUsageFrequency: components["schemas"]["AppUsageFrequency"];
         };
         /**
-         * @description Stable lowercase snake_case identifier for a data collection module (design §1A.2 / §1A.3). Reserved IDs freeze the namespace for future modules. Unknown IDs are ignored on read, never fatal.
+         * @description Stable lowercase snake_case identifier for a data collection module. Reserved IDs freeze the namespace for future modules. Unknown IDs are ignored on read, never fatal.
          * @enum {string}
          */
-        CollectionModuleId: "usage_events" | "device_lifecycle" | "user_identification" | "upload_telemetry" | "sensor_availability" | "battery_telemetry" | "interaction_events" | "in_app_activity_class" | "sensor_accelerometer" | "sensor_gyroscope" | "sensor_magnetometer" | "sensor_gravity" | "sensor_linear_acceleration" | "sensor_rotation_vector" | "sensor_step_counter" | "sensor_light" | "sensor_proximity" | "sensor_significant_motion" | "sensor_tilt_detector" | "sensor_screen_orientation" | "sensor_samsung_grip_wifi" | "sensor_samsung_motion" | "time_use_diary" | "questionnaire" | "app_inventory" | "audio_activity" | "audio_content" | "notification_activity" | "hardware_sensors" | "sleep" | "activity_recognition" | "health_connect" | "connectivity_state" | "app_network_usage" | "device_settings" | "ambient_audio" | "gaze_tracking" | "interaction_content" | "location" | "communication_log";
+        CollectionModuleId: "usage_events" | "device_lifecycle" | "user_identification" | "upload_telemetry" | "sensor_availability" | "battery_telemetry" | "interaction_events" | "in_app_activity_class" | "sensor_accelerometer" | "sensor_gyroscope" | "sensor_magnetometer" | "sensor_gravity" | "sensor_linear_acceleration" | "sensor_rotation_vector" | "sensor_step_counter" | "sensor_light" | "sensor_proximity" | "sensor_significant_motion" | "sensor_tilt_detector" | "sensor_screen_orientation" | "time_use_diary" | "questionnaire" | "app_inventory" | "audio_activity" | "audio_content" | "notification_activity" | "sleep" | "activity_recognition" | "health_connect" | "connectivity_state" | "app_network_usage" | "device_settings" | "gaze_tracking" | "interaction_content" | "location" | "communication_log";
         /** @description How often a collection or upload action runs. */
         CollectionCadence: {
             /**
@@ -2138,38 +2685,23 @@ export interface components {
              */
             jitterSeconds?: number;
         };
-        /** @description Battery-aware collection policy. */
-        BatteryPolicy: {
-            /** @description Minimum battery level (percent) for the module to run. */
-            minLevelPercent?: number;
-            /** @description Battery level (percent) at or below which the module stops entirely. */
-            stopBelowCriticalPercent?: number;
-            /** @description Whether the module degrades (reduced cadence) in OS power-save mode. */
-            degradeInPowerSave?: boolean;
-        };
-        /** @description Network constraints applied to a module's upload behavior. */
-        NetworkPolicy: {
-            /** @description Require an unmetered (e.g. Wi-Fi) connection before uploading. */
-            requireUnmetered?: boolean;
-            /** @description Require any connected network before uploading. */
-            requireConnected?: boolean;
-        };
         /** @description Per-module configuration entry inside an AndroidDataCollectionSetting. Carries no apiKey, signing secret, or participantId — pure configuration. */
         CollectionModuleSetting: {
+            /**
+             * Format: int32
+             * @description Server-derived consent reset revision in device settings; ignored on settings writes.
+             * @default 1
+             */
+            readonly consentEpoch: number;
             /** @description Whether the module is active. Privacy-sensitive modules are never enabled implicitly. */
             enabled: boolean;
             /** @description Whether the module is mandatory for study participation (per-module consent design §3.1). Meaningful only when enabled. Required modules must be accepted to enroll and cannot be self-disabled in the Data Sharing surface; optional modules (the default) are participant-toggleable. Defaults false for legacy settings. */
             required?: boolean;
             collectionCadence?: components["schemas"]["CollectionCadence"];
-            uploadCadence?: components["schemas"]["CollectionCadence"];
-            batteryPolicy?: components["schemas"]["BatteryPolicy"];
-            networkPolicy?: components["schemas"]["NetworkPolicy"];
-            /** @description Per-sensor sampling policy (rate Hz + duty cycle). Only the per-sensor sensor_* modules populate this — each carries its own rate/duty (web-editable, mobile read-only); every non-sensor module leaves it null. Also decodes the legacy hardware_sensors.sensorPolicy shape for old data. */
+            /** @description Per-sensor sampling policy (rate Hz + duty cycle). Only the per-sensor sensor_* modules populate this — each carries its own rate/duty (web-editable, mobile read-only); every non-sensor module leaves it null. */
             sensorPolicy?: components["schemas"]["AndroidSensorSetting"] | null;
             /** @description Exact Health Connect record families approved for this study; valid only on health_connect. */
             healthConnectRecordTypes?: ("steps" | "distance" | "heart_rate" | "total_calories_burned" | "active_calories_burned" | "floors_climbed" | "resting_heart_rate" | "oxygen_saturation" | "respiratory_rate" | "sleep" | "exercise" | "heart_rate_variability" | "body_temperature" | "skin_temperature")[];
-            /** @description For a mid-study disable (enabled=false), the researcher-chosen disposition for data already collected on-device but not yet uploaded. Set only when enabled=false; left null (and ignored by the device) while the module is enabled. The device acts on it only on the ACTIVE -> INACTIVE transition. */
-            disableDisposition?: components["schemas"]["CollectionDataDisposition"] | null;
             interactionPolicy?: {
                 /** @default 4 */
                 gridRows: number;
@@ -2180,22 +2712,15 @@ export interface components {
                 /** @default true */
                 captureScrolls: boolean;
                 /** @default true */
-                captureExactPosition: boolean;
-                /** @default true */
                 captureElementPosition: boolean;
             } | null;
         };
         /**
-         * @description What the device does with a module's already-collected-but-unsent data when a researcher disables that module mid-study (collection loop closure design §5.1). Default is flush_then_stop (no data loss).
-         * @enum {string}
-         */
-        CollectionDataDisposition: "flush_then_stop" | "discard_and_stop" | "hold_pending";
-        /**
-         * @description What produced a participant's per-module consent decision snapshot (per-module consent design §3.3).
+         * @description What produced a participant's per-module consent decision snapshot.
          * @enum {string}
          */
         CollectionConsentTrigger: "ENROLLMENT" | "PARTICIPANT_TOGGLE" | "SETTINGS_CHANGE" | "WITHDRAWAL";
-        /** @description A participant's on-device per-module consent decision snapshot — the request body the Android app POSTs when its consent picture changes (design §5.2, generalized to per-module consent design §3.3). Records the modules accepted and declined in this snapshot plus what triggered the decision. */
+        /** @description A participant's on-device per-module consent decision snapshot — the request body the Android app POSTs when its consent picture changes. Records the modules accepted and declined in this snapshot plus what triggered the decision. */
         CollectionAcknowledgment: {
             /** @description The modules the participant accepted in this snapshot. */
             acknowledgedModules: components["schemas"]["CollectionModuleId"][];
@@ -2210,7 +2735,7 @@ export interface components {
             unavailableModules?: components["schemas"]["CollectionModuleId"][];
             /** @description What produced this decision (defaults ENROLLMENT for legacy payloads). */
             trigger?: components["schemas"]["CollectionConsentTrigger"];
-            /** @description Optional app version string, for diagnostics. */
+            /** @description Optional app version string. The legacy limit is 64 UTF-16 code units; maxLength retains its Unicode code-point meaning. Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             appVersion?: string | null;
             /** @description Server-controlled DataCollection revision whose policy was decided. */
             settingsVersion?: number | null;
@@ -2218,15 +2743,22 @@ export interface components {
             disclosureVersion?: string | null;
             /** @description Digest of the authoritative enrollment manifest reviewed by the participant. */
             manifestDigest?: string | null;
+            /**
+             * Format: int64
+             * @description The phone's per-enrollment decision counter. It identifies a retried acknowledgment and orders decisions; uploads carry it in X-Chronicle-Collection-Decision. A client that sends none gets the next one.
+             */
+            decisionSeq?: number | null;
         };
         /** @description One append-only record in a study's participant collection-acknowledgment trail, surfaced to researchers alongside the immutable settings audit (design §5.3, §11). recordedAt is the server-stamped authoritative anchor; acknowledgedAt is the advisory device-reported time. */
         CollectionAcknowledgmentEntry: {
+            /** @description Current consent evaluated by the server against authoritative module policies. */
+            currentConsentedModules?: components["schemas"]["CollectionModuleId"][];
             /** Format: uuid */
             id?: string;
             /** Format: uuid */
             studyId: string;
             participantId: string;
-            sourceDeviceId: string;
+            sourceRandomDeviceId: string;
             acknowledgedModules: components["schemas"]["CollectionModuleId"][];
             /**
              * Format: date-time
@@ -2247,11 +2779,20 @@ export interface components {
             settingsVersion?: number | null;
             disclosureVersion?: string | null;
             manifestDigest?: string | null;
+            /**
+             * Format: int64
+             * @description The decision counter the phone sent, or the one the server assigned.
+             */
+            decisionSeq?: number | null;
             unavailableModules?: components["schemas"]["CollectionModuleId"][];
         };
-        /** @description Generalized Android data collection setting, bound to the DataCollection study setting type (design §1B.2). A polymorphic StudySetting subtype, added additively — it is returned from GET /settings/type/DataCollection and rides the existing @class-discriminated StudySetting mechanism. A missing setting falls back to the legacy AndroidSensor setting. */
+        /** @description Generalized Android data collection setting, bound to the DataCollection study setting type. A polymorphic StudySetting subtype, added additively — it is returned from GET /settings/type/DataCollection and rides the existing @class-discriminated StudySetting mechanism. Missing modules use safe defaults; omitted sensors remain disabled. */
         AndroidDataCollectionSetting: {
-            "@class"?: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.collection.AndroidDataCollectionSetting";
             /** @description Per-module settings, keyed by CollectionModuleId. Unknown IDs are dropped on read. */
             modules?: {
                 [key: string]: components["schemas"]["CollectionModuleSetting"];
@@ -2261,81 +2802,33 @@ export interface components {
             /** @description Server-controlled revision of the actual settings content. Defaults to 1. */
             settingsVersion?: number;
         };
-        /** @description Envelope-encryption opt-in for a study (HIPAA-2028 "W2"). A polymorphic StudySetting subtype bound to the `Encryption` study setting type, returned from GET /settings/type/Encryption and riding the existing @class-discriminated StudySetting mechanism. When `enabled`, the Android app uploads via the encrypted endpoint, sealing each batch's content key against `publicKeyPem` (identified by `keyId`). Only the public key is ever exposed; the matching private key lives in Vault and never leaves the server. */
-        StudyEncryptionSetting: {
-            "@class"?: string;
-            /**
-             * @description Whether envelope-encrypted uploads are required for this study. Defaults false (legacy plaintext uploads).
-             * @default false
-             */
-            enabled: boolean;
-            /** @description Stable identifier of the active study key pair. Echoed back in each EncryptedEnvelope.keyId so the server selects the matching private key for decryption and supports key rotation. */
-            keyId?: string;
-            /** @description Hybrid envelope algorithm in use (e.g. "RSA-OAEP-256+A256GCM"): RSA-OAEP with SHA-256 for key wrapping plus AES-256-GCM for content. */
-            algorithm?: string;
-            /** @description PEM-encoded RSA public key the device wraps each batch's AES-256-GCM content key against. Public key only; the private key lives in Vault. */
-            publicKeyPem?: string;
-            /** @description Base64 ML-KEM-1024 public key for hybrid wrapping; empty for legacy RSA-only settings. */
-            mlkemPublicKey?: string;
-        };
-        /** @description One envelope-encrypted batch uploaded to the encrypted Android endpoint (HIPAA-2028 "W2"). Hybrid encryption: a fresh AES-256-GCM content key encrypts the serialized batch (the `ciphertext`, with its GCM tag), and that content key is itself wrapped under the study's RSA public key using RSA-OAEP-SHA256 to form `encryptedKey`. The GCM AAD binds `version|studyId|participantId|payloadType`; it is recomputed identically on both ends from the request context and is NOT transmitted on the wire. The server unwraps `encryptedKey` with the study private key (from Vault), then AES-256-GCM-decrypts `ciphertext` using `iv` and the recomputed AAD, authenticating integrity via the tag. */
-        EncryptedEnvelope: {
-            /**
-             * @description Envelope schema version. Part of the AAD; defaults to 1.
-             * @default 1
-             */
-            version: number;
-            /**
-             * @description Hybrid algorithm identifier: RSA-OAEP with SHA-256 key wrapping plus AES-256-GCM content encryption.
-             * @default RSA-OAEP-256+A256GCM
-             */
-            alg: string;
-            /** @description Identifier of the study key pair used to wrap the content key. Must match the active StudyEncryptionSetting.keyId so the server picks the right private key (supports rotation). */
-            keyId: string;
-            /**
-             * @description Which decrypted store the plaintext batch lands in. Part of the AAD.
-             * @enum {string}
-             */
-            payloadType: "sensor" | "usage" | "battery" | "interaction" | "audio_activity" | "audio_content" | "notification_activity";
-            /** @description Base64-encoded AES-256-GCM content key, wrapped under the study RSA public key via RSA-OAEP-SHA256. */
-            encryptedKey: string;
-            /** @description Base64-encoded AES-256-GCM initialization vector (nonce) for this batch. */
-            iv: string;
-            /** @description Base64-encoded AES-256-GCM ciphertext of the serialized batch, with the GCM authentication tag appended. */
-            ciphertext: string;
-            /**
-             * @description Advisory count of samples sealed in this envelope (for telemetry/sizing). The authoritative count is determined server-side after decryption.
-             * @default 0
-             */
-            sampleCount: number;
-        };
         /** @description A single immutable entry in a study's settings-change audit trail. Records who changed which setting type, when, and from where, with the full before/after snapshot and a human-readable change summary (module-granular for DataCollection). The backing table is append-only (DELETE/UPDATE revoked from all application roles). */
         StudySettingsAuditEntry: {
             /** Format: uuid */
             id?: string;
             /** Format: uuid */
-            studyId?: string;
+            studyId: string;
             /** @description Principal id of the user who made the change. */
-            changedBy?: string;
+            changedBy: string;
             /** Format: date-time */
             changedAt?: string;
             /** @description Client IP the change originated from, if known. */
             sourceIp?: string | null;
             /** @description The StudySettingType that changed (e.g. DataCollection, AndroidSensor). */
-            settingKey?: string;
+            settingKey: string;
             /** @description Full snapshot of the setting before the change; null on first configuration. */
             beforeValue?: {
                 [key: string]: unknown;
             } | null;
             /** @description Full snapshot of the setting after the change. */
-            afterValue?: {
+            afterValue: {
                 [key: string]: unknown;
             };
             /** @description Human-readable summary of what changed. */
-            changeSummary?: string;
+            changeSummary: string;
         };
         ChronicleUserProfile: {
-            id?: string;
+            id: string;
             email?: string | null;
             name?: string | null;
             nickname?: string | null;
@@ -2345,14 +2838,57 @@ export interface components {
             connections?: string[];
             identityUserIds?: string[];
         };
+        ParticipantProcessingBlockRequest: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            reason: string;
+        };
         Participant: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             participantId: string;
             candidate: components["schemas"]["Candidate"];
             participationStatus: components["schemas"]["ParticipationStatus"];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             participantNotes?: string | null;
             participantTags?: string[];
             /** Format: date-time */
             withdrawnAt?: string | null;
+            /** Format: date-time */
+            processingBlockedAt?: string | null;
+            processingBlockReason?: string | null;
+            processingBlockedBy?: string | null;
+            /**
+             * Format: int64
+             * @description Advances on every status change; send it as If-Match when changing the status.
+             */
+            statusRevision?: number;
+            /** @description Server-derived from the participant's decisions; null before any device recorded one. Ignored on registration. */
+            consentState?: components["schemas"]["ParticipantConsentState"] | null;
+        };
+        /** @description Required modules whose decline halts the whole study, and enabled modules still waiting for the participant's review. */
+        ParticipantConsentState: {
+            declinedRequiredModules: components["schemas"]["CollectionModuleId"][];
+            modulesAwaitingDecision: components["schemas"]["CollectionModuleId"][];
+        };
+        /** @description A closed capture window `[start, end)` on the server's clock; end is null while it lasts. */
+        CaptureWindow: {
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end?: string | null;
+        };
+        /** @description The participant's latest hard stop: generation counts every Mark not enrolled or withdrawal, at is when the latest began on the server's clock. */
+        HardStop: {
+            /** Format: int64 */
+            generation: number;
+            /** Format: date-time */
+            at: string;
+        };
+        MobileParticipationStatus: {
+            participationStatus: components["schemas"]["ParticipationStatus"];
+            /** Format: date-time */
+            serverTime: string;
+            captureWindows?: components["schemas"]["CaptureWindow"][];
+            hardStop?: components["schemas"]["HardStop"] | null;
         };
         /** @enum {string} */
         ParticipationStatus: "ENROLLED" | "NOT_ENROLLED" | "PAUSED" | "COLLECTION_COMPLETED" | "UNKNOWN" | "ERASED";
@@ -2380,14 +2916,6 @@ export interface components {
             tudLastDate?: string | null;
             tudUniqueDates?: string[];
         };
-        AndroidDataDrop: {
-            /** @enum {string} */
-            issueCode: "SENSOR_AGE_EXPIRED" | "SENSOR_CAPACITY_DROPPED" | "SENSOR_DEAD_LETTER_DROPPED" | "USAGE_QUEUE_EVICTED";
-            /** Format: int64 */
-            count: number;
-            /** Format: date-time */
-            lastOccurredAt: string;
-        };
         AndroidDiagnosticCodeSummary: {
             eventId: string;
             moduleFamily: string;
@@ -2401,23 +2929,13 @@ export interface components {
             httpStatus?: number | null;
             errorType?: string | null;
         };
-        DataQualityAlertHistoryItem: {
-            /** Format: uuid */
-            alertId: string;
-            alertType: string;
-            /** Format: double */
-            score: number;
-            /** Format: date-time */
-            createdAt: string;
-        };
         AndroidDiagnosticsHistoryRow: {
             participantId: string;
             /** Format: uuid */
-            deviceId?: string | null;
+            randomDeviceId?: string | null;
             /** Format: date */
             day: string;
             codes: components["schemas"]["AndroidDiagnosticCodeSummary"][];
-            dataQualityAlert?: components["schemas"]["DataQualityAlertHistoryItem"] | null;
         };
         AndroidDiagnosticsPage: {
             items: components["schemas"]["AndroidDiagnosticsHistoryRow"][];
@@ -2431,12 +2949,6 @@ export interface components {
             lastCommittedAt?: string | null;
             /** Format: date-time */
             lastObservationEndAt?: string | null;
-            /** Format: int64 */
-            bufferedBatches: number;
-            /** Format: int64 */
-            bufferedRecords: number;
-            /** Format: date-time */
-            lastBufferedUploadAt?: string | null;
         };
         /** @description Polymorphic mobile source-device enrollment payload. */
         SourceDevice: components["schemas"]["AndroidDevice"] | components["schemas"]["IOSDevice"];
@@ -2447,20 +2959,28 @@ export interface components {
              * @enum {string}
              */
             "@class": "com.openlattice.chronicle.sources.AndroidDevice";
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             device: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             model: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             codename: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             brand: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             osVersion: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             sdkVersion: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             product: string;
-            deviceId: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            randomDeviceId: string;
             additionalInfo?: {
                 [key: string]: unknown;
             };
             /**
              * @deprecated
-             * @description Legacy Android field retained for wire compatibility; local hosting does not use FCM.
+             * @description Legacy Android field retained for wire compatibility; local hosting does not use FCM. Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points.
              */
             fcmRegistrationToken?: string;
         };
@@ -2471,17 +2991,41 @@ export interface components {
              * @enum {string}
              */
             "@class": "com.openlattice.chronicle.sources.IOSDevice";
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             name: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             systemName: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             model: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             localizedModel: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             version: string;
-            deviceId: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            randomDeviceId: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             apnDeviceToken?: string;
         };
-        /** @description Container for usage event data uploaded from Android devices */
-        ChronicleData: {
-            [key: string]: unknown;
+        /** @description Usage event array uploaded from Android devices; ChronicleData uses a delegating list creator. */
+        ChronicleData: components["schemas"]["ChronicleUsageEvent"][];
+        ChronicleUsageEvent: {
+            /** @enum {string} */
+            "@class": "com.openlattice.chronicle.android.ChronicleUsageEvent";
+            /** Format: uuid */
+            studyId: string;
+            participantId: string;
+            appPackageName: string;
+            interactionType: string;
+            /** Format: int32 */
+            eventType?: number;
+            /** Format: date-time */
+            timestamp: string;
+            timezone: string;
+            user: string;
+            applicationLabel: string;
+            activityClass?: string | null;
+            /** Format: uuid */
+            clientEventId?: string | null;
         };
         AndroidSensorSample: {
             sensor: components["schemas"]["AndroidSensorType"];
@@ -2490,6 +3034,7 @@ export interface components {
             timestamp: string;
             /** Format: uuid */
             id: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             timezone: string;
             /** Format: float */
             x?: number | null;
@@ -2508,6 +3053,8 @@ export interface components {
          *     content. Units follow Android BatteryManager / ACTION_BATTERY_CHANGED.
          */
         BatterySample: {
+            /** @description Collector app version recorded with this sample at capture; omitted/null when unknown. Length is measured in Unicode code points; a value must contain a character outside Unicode White_Space. Must not be inferred from current enrollment or upload version. */
+            producerVersion?: string | null;
             /** @description Stable per-sample identifier, used for de-duplication on upload. */
             id: string;
             /**
@@ -2539,6 +3086,7 @@ export interface components {
          *     and are stored as NULL, never fabricated.
          */
         IosBatterySample: {
+            producerVersion?: components["schemas"]["BatterySample"]["producerVersion"] | null;
             /** @description Stable per-sample identifier, used for de-duplication on upload. */
             id: string;
             /**
@@ -2556,45 +3104,7 @@ export interface components {
              */
             chargingState: "UNKNOWN" | "CHARGING" | "DISCHARGING" | "NOT_CHARGING" | "FULL";
             /** @description Whether Low Power Mode was active at sample time; omitted when unknown. */
-            lowPowerMode?: boolean;
-        };
-        /**
-         * @description One on-device sound-classification result from the `ambient_audio`
-         *     collection module: a single label + confidence within one short listen
-         *     window. AMBIENT-CONTEXT data, labels-only by construction — classification
-         *     runs on device and the audio is discarded before this event is ever
-         *     created; no recording, transcript, voice, or content exists anywhere in
-         *     the pipeline.
-         */
-        AmbientAudioClassificationEvent: {
-            /** @description Stable per-event identifier, used for de-duplication on upload. */
-            id: string;
-            /**
-             * Format: date-time
-             * @description Listen-window end time in UTC.
-             */
-            timestamp: string;
-            /** @description Device-default time-zone id at classification time. */
-            timezone: string;
-            /**
-             * Format: int64
-             * @description Listen-window start (epoch millis).
-             */
-            windowStartMillis: number;
-            /**
-             * Format: int64
-             * @description Listen-window end (epoch millis).
-             */
-            windowEndMillis: number;
-            /** @description Classifier sound-class identifier (e.g. music, speech, television). */
-            label: string;
-            /**
-             * Format: double
-             * @description Best classifier confidence observed for this label within the window.
-             */
-            confidence: number;
-            /** @description Classifier identifier/version that produced the label (e.g. apple-soundanalysis-v1). */
-            classifierVersion?: string;
+            lowPowerMode?: boolean | null;
         };
         /**
          * @description One interaction-salience event produced by the Android `interaction_events`
@@ -2982,9 +3492,11 @@ export interface components {
             bucketEndMillis: number;
         };
         /**
-         * @description Bounded, redacted aggregate describing one or more equivalent Android upload
-         *     failures. Participant, device, and destination identity are supplied by the
-         *     authenticated request and connection rather than duplicated in this body.
+         * @description Bounded, redacted occurrence: count equivalent Android failures at one instant
+         *     (firstOccurredAt equals lastOccurredAt). The phone never merges different instants,
+         *     so the server can filter each occurrence by the participation window. Participant,
+         *     device, and destination identity are supplied by the authenticated request and
+         *     connection rather than duplicated in this body.
          */
         AndroidUploadDiagnosticEvent: {
             /** Format: uuid */
@@ -2993,8 +3505,8 @@ export interface components {
             day: string;
             /** @enum {string} */
             moduleFamily: "USAGE_LIFECYCLE" | "BATTERY" | "DEVICE_TELEMETRY" | "SENSOR" | "APP_RUNTIME" | "INTERACTION" | "AUDIO_ACTIVITY" | "AUDIO_CONTENT" | "NOTIFICATION" | "SLEEP" | "ACTIVITY_RECOGNITION" | "HEALTH" | "CONNECTIVITY" | "APP_NETWORK" | "DEVICE_SETTINGS" | "LOCAL_STORE";
-            /** @enum {string} */
-            issueCode: "DESTINATION_MISSING" | "DESTINATION_IDENTITY_MISMATCH" | "DESTINATION_SOURCE_DEVICE_MISSING" | "DESTINATION_SETUP_INCOMPLETE" | "DESTINATION_DISABLED" | "DESTINATION_NONCANONICAL" | "DESTINATION_CREDENTIAL_INCOMPLETE" | "HTTP_SERVER_ERROR" | "HTTP_CLIENT_ERROR" | "TIMEOUT" | "DNS_FAILURE" | "TLS_FAILURE" | "CONNECTION_FAILURE" | "UPLOAD_FAILURE" | "SENSOR_SAMPLE_QUARANTINED" | "SENSOR_DEAD_LETTER_DROPPED" | "APP_CRASH" | "APP_CRASH_NATIVE" | "APP_ANR" | "SENSOR_AGE_EXPIRED" | "SENSOR_CAPACITY_DROPPED" | "USAGE_QUEUE_EVICTED" | "SAMPLE_QUARANTINED" | "LOCAL_BUFFER_OVERFLOW" | "LOCAL_REQUEUE_OVERFLOW" | "LOCAL_WRITE_FAILED" | "LOCAL_SHUTDOWN_DROPPED" | "COLLECTION_GATE_DROPPED" | "MODULE_POLICY_ERASED" | "DISTRIBUTION_POLICY_ERASED" | "DIRECT_BOOT_CAPACITY_DROPPED" | "DIRECT_BOOT_CORRUPT_RECORD" | "COLLECTION_PAUSED_STORAGE" | "COLLECTION_ACCESS_MISSING";
+            /** @description A code this server does not know, from a newer app, is stored as UNRECOGNIZED_ISSUE. */
+            issueCode: string;
             count: number;
             /** Format: date-time */
             firstOccurredAt: string;
@@ -3104,7 +3616,7 @@ export interface components {
         };
         AndroidDeviceSensorAvailability: {
             participantId?: string;
-            deviceId?: string;
+            randomDeviceId?: string;
             /** @description Display width in pixels at report time; null if unavailable. */
             screenWidthPixels?: number | null;
             /** @description Display height in pixels at report time; null if unavailable. */
@@ -3118,47 +3630,27 @@ export interface components {
              * @enum {string|null}
              */
             interactionPointerCaptureCapability?: "PLATFORM_API_UNAVAILABLE" | "REQUIRES_INPUT_INTERCEPTION" | null;
+            /** @description Every AndroidSensorType the device has, checked whether or not a sensor module is enabled; a type missing here is one the device lacks. */
             availableSensors?: components["schemas"]["AndroidSensorType"][];
-            unavailableSensors?: components["schemas"]["AndroidSensorType"][];
             /** Format: date-time */
             reportedAt?: string | null;
-        };
-        SensorDataSample: {
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            dateRecorded: string;
-            /** Format: double */
-            duration: number;
-            data: string;
-            device: string;
-            timezone: string;
-            /** @enum {string} */
-            sensor: "deviceUsage" | "keyboardMetrics" | "messagesUsage" | "phoneUsage" | "accelerometer" | "pedometer" | "motionActivity";
-            /** Format: date-time */
-            startDate: string;
-            /** Format: date-time */
-            endDate: string;
         };
         ScreenTimeUsageEnvelope: {
             /** @default 1 */
             schemaVersion: number;
-            deviceId: string;
+            randomDeviceId: string;
             studyId: string;
             participantId: string;
             /** Format: date-time */
             generatedAt: string;
             records: components["schemas"]["ScreenTimeUsageRecord"][];
         };
+        /** @description One DeviceActivity App & Web Usage total of one app or web domain over one observation window. An `application` record names the app (`appName` or `bundleIdentifier`) and no `webDomain`; a `webDomain` record has a non-null `webDomain` (including an empty string supplied by Apple) and neither app label. Category labels are independent of row kind. The server refuses any other record as a row defect. */
         ScreenTimeUsageRecord: {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            source: "monitorThreshold" | "deviceActivityExport" | "reportSummary" | "shortcutSnapshot";
-            /** @enum {string} */
-            confidence: "appleDeviceActivity" | "exactParticipantSubmitted" | "thresholdEstimate" | "externalShortcut" | "reportViewOnly";
-            /** @enum {string} */
-            rowKind?: "application" | "webDomain" | "categorySummary" | "thresholdEvent";
+            rowKind: "application" | "webDomain";
             /** Format: date-time */
             capturedAt: string;
             /** Format: date-time */
@@ -3173,77 +3665,124 @@ export interface components {
             durationSeconds: number;
             notificationCount?: number;
             pickupCount?: number;
-            thresholdSeconds?: number;
-            rawSourceLabel?: string;
-        };
-        UserIdentificationEnvelope: {
-            /** @default 1 */
-            schemaVersion: number;
-            deviceId: string;
-            studyId: string;
-            participantId: string;
-            /** Format: date-time */
-            generatedAt: string;
-            records: components["schemas"]["UserIdentificationRecord"][];
-        };
-        UserIdentificationRecord: {
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            capturedAt: string;
-            timezoneIdentifier: string;
-            /** @enum {string} */
-            trigger: "appBecameActive" | "manualInApp" | "notificationAction" | "shortcut" | "screenTimeThreshold";
-            /** @enum {string} */
-            choice: "participant" | "someoneElse";
-            /** Format: uuid */
-            promptId?: string;
-            sourceLabel?: string;
         };
         Candidate: {
             /** Format: uuid */
             id: string;
         };
         DeviceUsage: {
-            users?: string[];
-            usageByApp?: {
+            /** @description Total device usage in seconds. */
+            totalTime: number;
+            /** @description Device usage in seconds, keyed by package name. */
+            usageByPackage: {
                 [key: string]: number;
             };
-        };
-        AppUsage: {
-            appPackageName?: string;
-            appLabel?: string;
+            categoryByPackage: {
+                [key: string]: string;
+            };
             users?: string[];
+        };
+        /**
+         * @description Answer state of one ended survey day.
+         * @enum {string}
+         */
+        AppUsageDayState: "UNANSWERED" | "ANSWERED" | "NEW_APPS";
+        AppUsageSurveyDays: {
+            timeZone: string;
+            /**
+             * Format: date
+             * @description The server's current day in the study time zone; not answerable until it ends.
+             */
+            today: string;
+            days: components["schemas"]["AppUsageSurveyDay"][];
+        };
+        AppUsageSurveyDay: {
+            /** Format: date */
+            date: string;
+            state: components["schemas"]["AppUsageDayState"];
+        };
+        AppUsageDaySurvey: {
+            /** Format: date */
+            date: string;
+            timeZone: string;
+            state: components["schemas"]["AppUsageDayState"];
+            apps: components["schemas"]["AppUsageDayApp"][];
+        };
+        AppUsageDayApp: {
+            appPackageName: string;
+            appLabel: string;
+            blocks: components["schemas"]["AppUsageBlock"][];
+        };
+        AppUsageBlock: {
             /** Format: date-time */
-            timestamp?: string;
+            start: string;
+            /** Format: date-time */
+            end: string;
+            /** @description Stored answer; absent while the block is unanswered. */
+            users?: string[] | null;
+        };
+        AppUsageAnswer: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            appPackageName: string;
+            /** Format: date-time */
+            blockStart: string;
+            users: string[];
         };
         Questionnaire: {
             /** Format: uuid */
-            id?: string;
-            /** Format: uuid */
-            studyId?: string;
-            title?: string;
+            id: string | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            title: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             description?: string;
             active?: boolean;
-            recurrence?: string;
-            questions?: Record<string, never>[];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            recurrenceRule: string | null;
+            questions: components["schemas"]["Question"][];
             /** Format: date-time */
-            createdAt?: string;
+            dateCreated: string | null;
+        };
+        ParticipantAnnotations: {
+            participantNotes: string | null;
+            participantTags: string[] | null;
+        };
+        /** @description Omitted fields are unchanged. Null clears notes or tags. */
+        ParticipantAnnotationsUpdate: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            participantNotes?: string | null;
+            participantTags?: string[] | null;
         };
         QuestionnaireUpdate: {
-            title?: string;
-            description?: string;
-            active?: boolean;
-            questions?: Record<string, never>[];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            title: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            description: string | null;
+            /** @description Omit to keep the reminder, null to clear it, or an RFC 5545 rule to set it. Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            recurrenceRule?: string | null;
+            active: boolean | null;
+            questions: components["schemas"]["Question"][] | null;
         };
         QuestionnaireResponse: {
-            /** Format: uuid */
-            questionId?: string;
-            values?: string[];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            questionTitle: string;
+            value: string[];
         };
         TimeUseDiaryResponse: {
-            [key: string]: unknown;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            "ol.code": string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            "ol.title": string;
+            "ol.values": string[];
+            /** Format: date-time */
+            "ol.datetimestart": string | null;
+            /** Format: date-time */
+            "ol.datetimeend": string | null;
         };
+        /**
+         * @description Time Use Diary download layout (server TimeUseDiaryDownloadDataType).
+         * @enum {string}
+         */
+        TimeUseDiaryDownloadDataType: "DayTime" | "NightTime" | "Summarized";
         /** @description Participant-readable projection of the study's TimeUseDiarySettings — only the non-sensitive variant flags the web diary needs to render the configured instrument. */
         TimeUseDiarySettingsResponse: {
             enableChangesForOhioStateUniversity: boolean;
@@ -3261,55 +3800,64 @@ export interface components {
             appUsageFrequency: components["schemas"]["AppUsageFrequency"];
         };
         ParticipantNotification: {
-            participantId?: string;
-            message?: string;
-            deliveryType?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            participantId: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            message: string;
+            deliveryType: ("SMS" | "EMAIL")[];
+            /** @enum {string} */
+            notificationType: "AUDIT_EVENT" | "PASSIVE_DATA_COLLECTION_COMPLIANCE" | "TUD_SUBMISSION_COMPLIANCE" | "OPERATIONAL_CHECKS" | "ENROLLMENT";
+            /** Format: date-time */
+            dateTime?: string;
         };
         AclData: {
             /** @enum {string} */
-            action?: "ADD" | "REMOVE" | "SET";
-            acl?: components["schemas"]["Acl"];
+            action: "ADD" | "REMOVE" | "SET";
+            acl: components["schemas"]["Acl"];
         };
         AclKey: string[];
         Acl: {
-            aclKey?: components["schemas"]["AclKey"];
-            aces?: components["schemas"]["Ace"][];
+            aclKey: components["schemas"]["AclKey"];
+            aces: components["schemas"]["Ace"][];
         };
         Ace: {
-            principal?: components["schemas"]["Principal"];
-            permissions?: string[];
+            principal: components["schemas"]["Principal"];
+            permissions: string[];
+            /** Format: date-time */
+            expiration?: string;
         };
         AclExplanation: {
-            aclKey?: components["schemas"]["AclKey"];
-            principal?: components["schemas"]["Principal"];
-            permissions?: string[];
-            path?: components["schemas"]["Principal"][];
+            principal: components["schemas"]["Principal"];
+            principalPaths: components["schemas"]["Principal"][][];
         };
         AccessCheck: {
-            aclKey?: components["schemas"]["AclKey"];
-            permissions?: string[];
+            aclKey: components["schemas"]["AclKey"];
+            permissions: string[];
         };
         Authorization: {
-            aclKey?: components["schemas"]["AclKey"];
-            permissions?: {
+            aclKey: components["schemas"]["AclKey"];
+            permissions: {
                 [key: string]: boolean;
             };
         };
         AuthorizedObjectsSearchResult: {
-            pagingToken?: string;
-            authorizedObjects?: components["schemas"]["AclKey"][];
+            pagingToken: string;
+            authorizedObjects: components["schemas"]["AclKey"][];
         };
         Principal: {
             /** @enum {string} */
-            type?: "USER" | "ROLE";
-            id?: string;
+            type: "USER" | "ROLE";
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            id: string;
         };
         SecurablePrincipal: {
             /** Format: uuid */
             id?: string;
             aclKey?: components["schemas"]["AclKey"];
             principal?: components["schemas"]["Principal"];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             title?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             description?: string;
         };
         Role: {
@@ -3317,7 +3865,9 @@ export interface components {
             id?: string;
             aclKey?: components["schemas"]["AclKey"];
             principal?: components["schemas"]["Principal"];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             title?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             description?: string;
             /** Format: uuid */
             organizationId?: string;
@@ -3329,44 +3879,504 @@ export interface components {
             organizations?: string[];
         };
         UserSearchFields: {
-            name?: string;
-            email?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            name: string | null;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            email: string | null;
         };
         DirectedAclKeys: {
-            source?: components["schemas"]["AclKey"];
-            destination?: components["schemas"]["AclKey"];
+            target: components["schemas"]["AclKey"];
+            src: components["schemas"]["AclKey"];
         };
         Organization: {
             /** Format: uuid */
             id?: string;
-            title?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            title: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
             description?: string;
         };
+        ApiKeyCreateRequest: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            name: string;
+            scope?: components["schemas"]["ApiKeyScope"];
+            /** @default 90 */
+            expiresInDays: number;
+        };
+        ApiKeyCreateResponse: {
+            /** Format: uuid */
+            keyId: string;
+            rawKey: string;
+            info: components["schemas"]["ApiKeyInfo"];
+        };
+        ApiKeyInfo: {
+            /** Format: uuid */
+            keyId: string;
+            /** Format: uuid */
+            studyId: string;
+            prefix: string;
+            name: string;
+            scope: components["schemas"]["ApiKeyScope"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            lastUsedAt?: string | null;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            usageCount: number;
+            participantId?: string | null;
+            /** Format: uuid */
+            randomDeviceId?: string | null;
+        };
+        /** @enum {string} */
+        ApiKeyScope: "READ_ONLY" | "WRITE" | "ADMIN";
+        AuthLoginError: {
+            authenticated?: boolean;
+            error: string;
+        };
+        AuthSession: {
+            authenticated: boolean;
+            authMode?: string;
+            csrfToken?: string;
+            providerLabel: string;
+            status: string;
+            testingLoginEnabled?: boolean;
+            tokenSource: string;
+            loginUrl?: string;
+            /**
+             * Format: int64
+             * @description Inactivity window in milliseconds.
+             */
+            idleWindowMs?: number;
+            /**
+             * Format: int64
+             * @description Unix epoch milliseconds.
+             */
+            expiresAt?: number;
+            /**
+             * Format: int64
+             * @description Unix epoch milliseconds.
+             */
+            idleExpiresAt?: number;
+            subject?: string;
+            authToken?: string;
+            user?: {
+                email?: string | null;
+                id?: string | null;
+                name?: string | null;
+                roles?: string[];
+            };
+        };
+        ComplianceViolation: {
+            /** @enum {string} */
+            reason: "NO_DATA_UPLOADED" | "NO_RECENT_DATA_UPLOADED" | "NOT_ENROLLED";
+            description: string;
+        };
+        ComplianceViolationsMap: {
+            [key: string]: {
+                [key: string]: components["schemas"]["ComplianceViolation"][];
+            };
+        };
+        CreateParticipantFormAccessCodeRequest: {
+            formKind: components["schemas"]["ParticipantFormKind"];
+            /** Format: uuid */
+            resourceId?: string | null;
+            /** Format: date */
+            logicalDate?: string | null;
+            /** Format: date-time */
+            expiresAt?: string | null;
+        };
+        DashboardLoginRequest: {
+            password: string;
+        };
+        ExchangeParticipantFormAccessCodeRequest: {
+            accessCode: string;
+            /** Format: uuid */
+            attemptId: string;
+        };
+        /** @description Export columns depend on the selected data asset; values preserve the stored JSON scalar or structure. */
+        ExportRecord: {
+            [key: string]: unknown;
+        };
+        JsonWebKeySet: {
+            keys: {
+                kty: string;
+                kid: string;
+                n: string;
+                e: string;
+            }[];
+        };
+        ParticipantDataPurgeSummary: {
+            /** Format: uuid */
+            studyId: string;
+            participantId: string;
+            /** Format: int64 */
+            usageEventsCount?: number;
+            /** Format: int64 */
+            usageStatsCount?: number;
+            /** Format: int64 */
+            androidSensorDataCount?: number;
+            /** Format: int64 */
+            appUsageSurveyCount?: number;
+            /** Format: int64 */
+            questionnaireSubmissionsCount?: number;
+            /** Format: int64 */
+            tudSubmissionsCount?: number;
+            /** Format: int64 */
+            participantStatsCount?: number;
+            /** Format: int64 */
+            uploadBufferCount?: number;
+            /** Format: int64 */
+            totalRows?: number;
+            assetCounts?: {
+                [key: string]: number;
+            };
+            confirmationToken?: string;
+            /** Format: date-time */
+            tokenExpiresAt?: string | null;
+        };
+        ParticipantFormAccessCodeResponse: {
+            accessCode: string;
+            /** Format: date-time */
+            expiresAt: string;
+            formKind: components["schemas"]["ParticipantFormKind"];
+            /** Format: uuid */
+            resourceId?: string | null;
+            /** Format: date */
+            logicalDate?: string | null;
+        };
+        /** @enum {string} */
+        ParticipantFormKind: "ENROLLMENT" | "APP_USAGE" | "QUESTIONNAIRE" | "TIME_USE_DIARY" | "PORTAL";
+        ParticipantFormSessionResponse: {
+            csrfToken: string;
+            /** Format: uuid */
+            studyId: string;
+            participantId: string;
+            formKind: components["schemas"]["ParticipantFormKind"];
+            /** Format: uuid */
+            resourceId?: string | null;
+            /** Format: date */
+            logicalDate?: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+            privacyPolicyUrl?: string | null;
+            withdrawalUrl?: string | null;
+        };
+        ParticipantPurgeRequest: {
+            participantId: string;
+            confirmationToken: string;
+        };
+        ReviewerEnrollmentBootstrapResponse: {
+            enrollmentCode: string;
+            preview: components["schemas"]["EnrollmentPreviewResponse"];
+        };
+        SetAuthCookieRequest: {
+            token: string;
+        };
+        StudyCloneRequest: {
+            /**
+             * @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points.
+             * @default
+             */
+            newTitle: string;
+            /** @default true */
+            includeSettings: boolean;
+        };
+        StudyExportAvailability: {
+            dataTypes: components["schemas"]["ParticipantDataType"][];
+            timeUseDiary: boolean;
+        };
+        /** @description Optional user selector for an explicitly enabled testing-login deployment. */
+        TestingLoginRequest: {
+            userId?: string;
+        };
+        WebhookCreateRequest: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            url: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            secret: string;
+            eventTypes: components["schemas"]["WebhookEventType"][];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            description?: string;
+        };
+        WebhookDeliveryInfo: {
+            /** Format: uuid */
+            deliveryId: string;
+            /** Format: uuid */
+            webhookId: string;
+            eventType: components["schemas"]["WebhookEventType"];
+            status: number;
+            attemptCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            lastAttemptAt?: string | null;
+            /** @enum {string|null} */
+            deliveryState?: "PENDING" | "IN_FLIGHT" | "SUCCEEDED" | "FAILED" | null;
+            outcomeCode?: string | null;
+            /** Format: date-time */
+            availableAt?: string | null;
+            /** Format: date-time */
+            completedAt?: string | null;
+        };
+        /** @enum {string} */
+        WebhookEventType: "PARTICIPANT_ENROLLED" | "DATA_SUBMITTED" | "STUDY_STATUS_CHANGED";
+        WebhookRegistration: {
+            /** Format: uuid */
+            webhookId?: string;
+            /** Format: uuid */
+            studyId?: string;
+            url?: string;
+            eventTypes?: components["schemas"]["WebhookEventType"][];
+            enabled?: boolean;
+            description?: string;
+            /** Format: date-time */
+            createdAt?: string | null;
+        };
+        MobileReminderConfiguration: {
+            participationStatus: components["schemas"]["ParticipationStatus"];
+            forms: components["schemas"]["MobileReminderForm"][];
+        };
+        MobileReminderForm: {
+            formKind: components["schemas"]["ParticipantFormKind"];
+            /** Format: uuid */
+            resourceId?: string | null;
+            title: string;
+            recurrenceRule: string;
+            timeZone?: string | null;
+            /** @default false */
+            unansweredDays: boolean;
+        };
+        OK: {
+            /** @default SUCCESS */
+            msg: string;
+        };
+        /** @enum {string} */
+        ParticipantDataType: "UsageEvents" | "AppUsageSurvey" | "IOSScreenTime" | "AndroidSensor" | "SensorAvailability" | "BatteryTelemetry" | "InteractionEvents" | "AudioActivity" | "AudioContent" | "NotificationActivity" | "SleepEvents" | "ActivityRecognition" | "HealthMetrics" | "ConnectivityState" | "AppNetworkUsage" | "DeviceSettings" | "UploadDiagnostics";
+        Question: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            title: string;
+            choices?: string[];
+        };
+        /** @description Accepted friendly aliases for a participant diary submission. The server serializes the canonical ol.* names. */
+        TimeUseDiarySubmission: {
+            code: components["schemas"]["TimeUseDiaryResponse"]["ol.code"];
+            question: components["schemas"]["TimeUseDiaryResponse"]["ol.title"];
+            response: components["schemas"]["TimeUseDiaryResponse"]["ol.values"];
+            startDateTime?: components["schemas"]["TimeUseDiaryResponse"]["ol.datetimestart"];
+            endDateTime?: components["schemas"]["TimeUseDiaryResponse"]["ol.datetimeend"];
+        };
+        OrganizationPrincipal: {
+            /** Format: uuid */
+            id?: string;
+            aclKey?: components["schemas"]["AclKey"];
+            principal?: components["schemas"]["Principal"];
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            title?: string;
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            description?: string;
+        };
+        StudyNotificationSettings: {
+            /** @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points. */
+            labFriendlyName: string;
+            studyFriendlyName: string;
+            /** @default false */
+            notifyResearchers: boolean;
+            /** @default false */
+            notifyOnEnrollment: boolean;
+            /**
+             * @description Application length bounds (x-minLengthUtf16/x-maxLengthUtf16) count UTF-16 code units; standard minLength/maxLength count Unicode code points.
+             * @default
+             */
+            researcherPhoneNumbers: string;
+            /**
+             * @default {
+             *       "years": 0,
+             *       "months": 0,
+             *       "days": 1
+             *     }
+             */
+            noDataUploaded: components["schemas"]["StudyDuration"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.notifications.StudyNotificationSettings";
+        };
+        TimeUseDiarySettings: {
+            /** @default false */
+            enableChangesForSherbrookeUniversity: boolean;
+            /** @default false */
+            enableChangesForOhioStateUniversity: boolean;
+            /** @default en */
+            language: string;
+            /**
+             * Format: int32
+             * @default 12
+             */
+            clockFormat: number;
+            /** @default false */
+            clockFormatLocked: boolean;
+            /**
+             * @description An IANA time zone identifier.
+             * @default UTC
+             */
+            timeZone: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.timeusediary.TimeUseDiarySettings";
+        };
+        SurveySettings: {
+            /**
+             * Format: int32
+             * @description App usage threshold in seconds.
+             * @default 60
+             */
+            appUsageThresholdInSeconds: number;
+            /**
+             * Format: int32
+             * @description Device usage threshold in seconds.
+             * @default 180
+             */
+            deviceUsageThresholdInSeconds: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.survey.SurveySettings";
+        };
+        StudyWithdrawalSetting: {
+            mode?: components["schemas"]["WithdrawalMode"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            "@class": "com.openlattice.chronicle.study.StudyWithdrawalSetting";
+        };
+        /**
+         * @description Prior-data policy on withdrawal; values are owned by the Chronicle ontology.
+         * @enum {string}
+         */
+        WithdrawalMode: "KEEP_PRIOR_DATA" | "ERASE";
     };
-    responses: never;
+    responses: {
+        /** @description Invalid request parameters, headers or body. Malformed URI encodings may be rejected by the HTTP container before servlet dispatch. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+                "text/html": string;
+            };
+        };
+        /** @description Authentication is missing, invalid or expired. */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description The caller is not permitted to access this resource. */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description The requested resource does not exist or is unavailable. */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description The requested response media type is not supported. */
+        NotAcceptable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description The request conflicts with the current resource state. */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description The request exceeded a rate limit; retry after the indicated delay. */
+        TooManyRequests: {
+            headers: {
+                /** @description Seconds until another request may be attempted. */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ApiError"];
+            };
+        };
+        /** @description Settings changes conflict with active enrollment disclosure; pending attempts identify participants who can finish enrollment or have it cancelled. */
+        StudyDisclosureConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["StudyDisclosureConflictError"];
+            };
+        };
+    };
     parameters: {
+        /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+        idempotencyKey: string;
         /** @description Immutable settings revision recorded when this queue batch was captured. */
         collectionVersionHeader: number;
+        /** @description Sequence number of the phone's latest collection decision when this queue batch was captured. */
+        collectionDecisionHeader: number;
         studyId: string;
         organizationId: string;
         participantId: string;
-        /** @description Legacy path name for the Chronicle app-instance ID. */
-        sourceDeviceId: string;
         /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-        chronicleDeviceIdHeader: string;
+        chronicleRandomDeviceIdHeader: string;
         /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
         mobileApiKeyHeader: string;
         questionnaireId: string;
         settingType: string;
         principalId: string;
+        /** @description Strong ETag from the resource GET or HEAD. Stale edits return 412; omitted revisions return 428. */
+        ifMatchEditRevision: string;
         /**
-         * @description Optimistic-concurrency precondition. Supply the quoted `settingsRevision` taken from the
-         *     `ETag` of the settings response this edit was based on, e.g. `"7"`. The write is applied
-         *     only if the study's settings revision still matches; otherwise the server returns 412 with
-         *     the current revision and settings.
-         *
-         *     Omitting the header (or sending `*`) skips the check, which is what older mobile and iOS
-         *     clients do.
+         * @description Quoted `statusRevision` of the participant as last read, for example "3". Participation
+         *     status and the processing block share this revision. Re-sending a change already in force
+         *     succeeds whatever the revision; a stale revision returns 412 and a missing one 428.
+         */
+        ifMatchStatusRevision: string;
+        /**
+         * @description Quoted study revision from the ETag of the study settings response, for example "7".
+         *     Every lifecycle change advances it. Re-sending a change already in force succeeds whatever
+         *     the revision; a stale revision returns 412 and a missing one 428.
+         */
+        ifMatchStudyRevision: string;
+        /**
+         * @description Quoted study settings revision from the ETag of the settings response this edit
+         *     was based on, for example "7". A missing or wildcard revision returns 428.
+         *     A stale revision returns 412 with the current revision and settings.
          */
         ifMatchSettingsRevision: string;
     };
@@ -3399,13 +4409,9 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invalid or unredacted report */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             /** @description Report exceeds 2048 bytes */
             413: {
                 headers: {
@@ -3413,6 +4419,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAllStudies: {
@@ -3433,12 +4440,20 @@ export interface operations {
                     "application/json": components["schemas"]["Study"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     createStudy: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3457,6 +4472,11 @@ export interface operations {
                     "application/json": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudy: {
@@ -3479,6 +4499,12 @@ export interface operations {
                     "application/json": components["schemas"]["Study"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     destroyStudy: {
@@ -3501,6 +4527,11 @@ export interface operations {
                     "application/json": string[];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     updateStudy: {
@@ -3508,7 +4539,14 @@ export interface operations {
             query?: {
                 retrieve?: boolean;
             };
-            header?: never;
+            header: {
+                /**
+                 * @description Quoted study settings revision from the ETag of the settings response this edit
+                 *     was based on, for example "7". A missing or wildcard revision returns 428.
+                 *     A stale revision returns 412 with the current revision and settings.
+                 */
+                "If-Match": components["parameters"]["ifMatchSettingsRevision"];
+            };
             path: {
                 studyId: components["parameters"]["studyId"];
             };
@@ -3529,6 +4567,33 @@ export interface operations {
                     "application/json": components["schemas"]["Study"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            409: components["responses"]["StudyDisclosureConflict"];
+            /**
+             * @description The `If-Match` revision no longer matches; another client changed the study's
+             *     settings. The body carries the current revision and settings.
+             */
+            412: {
+                headers: {
+                    /** @description The study's current settings revision, quoted. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudySettingsPreconditionFailure"];
+                };
+            };
+            /** @description The write requires an If-Match settings revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getOrgStudies: {
@@ -3551,6 +4616,11 @@ export interface operations {
                     "application/json": components["schemas"]["Study"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     registerParticipant: {
@@ -3577,6 +4647,99 @@ export interface operations {
                     "application/json": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPendingEnrollments: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Distinct blocking participant IDs, sorted by ID */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    cancelPendingEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending attempts cancelled, or none remain */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getLiveEnrollmentCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The live enrollment code and its expiry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accessCode: string;
+                        /** Format: date-time */
+                        expiresAt?: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudyParticipants: {
@@ -3599,6 +4762,11 @@ export interface operations {
                     "application/json": components["schemas"]["Participant"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     deleteStudyParticipants: {
@@ -3625,6 +4793,11 @@ export interface operations {
                     "application/json": string[];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     isKnownParticipant: {
@@ -3648,6 +4821,109 @@ export interface operations {
                     "application/json": boolean;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    blockParticipantProcessing: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Quoted `statusRevision` of the participant as last read, for example "3". Participation
+                 *     status and the processing block share this revision. Re-sending a change already in force
+                 *     succeeds whatever the revision; a stale revision returns 412 and a missing one 428.
+                 */
+                "If-Match": components["parameters"]["ifMatchStatusRevision"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantProcessingBlockRequest"];
+            };
+        };
+        responses: {
+            /** @description Processing blocked or already blocked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The status changed since this revision was read; reload the participant. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The change requires an If-Match status revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    unblockParticipantProcessing: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Quoted `statusRevision` of the participant as last read, for example "3". Participation
+                 *     status and the processing block share this revision. Re-sending a change already in force
+                 *     succeeds whatever the revision; a stale revision returns 412 and a missing one 428.
+                 */
+                "If-Match": components["parameters"]["ifMatchStatusRevision"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Processing unblocked or already unblocked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The status changed since this revision was read; reload the participant. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The change requires an If-Match status revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     updateParticipationStatus: {
@@ -3655,7 +4931,14 @@ export interface operations {
             query: {
                 participationStatus: components["schemas"]["ParticipationStatus"];
             };
-            header?: never;
+            header: {
+                /**
+                 * @description Quoted `statusRevision` of the participant as last read, for example "3". Participation
+                 *     status and the processing block share this revision. Re-sending a change already in force
+                 *     succeeds whatever the revision; a stale revision returns 412 and a missing one 428.
+                 */
+                "If-Match": components["parameters"]["ifMatchStatusRevision"];
+            };
             path: {
                 studyId: components["parameters"]["studyId"];
                 participantId: components["parameters"]["participantId"];
@@ -3671,9 +4954,35 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The participant is not in this study. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            406: components["responses"]["NotAcceptable"];
+            /** @description The status changed since this revision was read; reload the participant. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The change requires an If-Match status revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
-    updateParticipantAnnotations: {
+    getParticipantAnnotations: {
         parameters: {
             query?: never;
             header?: never;
@@ -3683,11 +4992,70 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description The participant's notes and tags */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantAnnotations"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getParticipantAnnotationsRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current strong revision */
+            204: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateParticipantAnnotations: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Strong ETag from the resource GET or HEAD. Stale edits return 412; omitted revisions return 428. */
+                "If-Match": components["parameters"]["ifMatchEditRevision"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["ParticipantAnnotationsUpdate"];
             };
         };
         responses: {
@@ -3698,39 +5066,26 @@ export interface operations {
                 };
                 content?: never;
             };
-        };
-    };
-    enroll: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourceDevice"];
-            };
-        };
-        responses: {
-            /**
-             * @description Enrollment response for this app-instance enrollment event. On servers
-             *     that issue per-device API keys (the BCM server) `apiKey` is populated;
-             *     legacy upstream servers may return `apiKey: null`.
-             */
-            200: {
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            /** @description The revision is stale; reload before saving. */
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["EnrollmentResponse"];
-                };
+                content?: never;
             };
+            /** @description The edit requires an If-Match revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getEnrollmentPreviewV4: {
@@ -3757,6 +5112,12 @@ export interface operations {
                     "application/json": components["schemas"]["EnrollmentPreviewResponse"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     enrollV4: {
@@ -3769,7 +5130,7 @@ export interface operations {
                  *     app data is intact so same-app re-enrollment can be distinguished from
                  *     multiple app instances for the same participant.
                  */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
                 /**
                  * @description One-time participant enrollment code delivered in the enrollment-link
                  *     URL fragment. Public mobile builds use it to bootstrap enrollment
@@ -3824,6 +5185,37 @@ export interface operations {
                     "application/json": components["schemas"]["EnrollmentResponse"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            /**
+             * @description The study the participant reviewed changed before the attempt bound (code
+             *     ENROLLMENT_STUDY_CHANGED). The invitation stays live; opening it again shows the
+             *     current study. Other 409s are a server-side conflict and are retried.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /**
+             * @description A cancel (dashboard or phone) ended this enrollment attempt (code
+             *     ENROLLMENT_CANCELLED). The participant is not withdrawn; a new invitation enrolls.
+             */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     withdrawCurrentEnrollment: {
@@ -3831,7 +5223,7 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
                 /** @description Canonical lowercase UUID generated and persisted by the client before the first withdrawal attempt, then reused unchanged for every retry of that withdrawal. */
                 "X-Chronicle-Withdrawal-Request-Id": string;
             };
@@ -3843,7 +5235,9 @@ export interface operations {
             /**
              * @description Withdrawal accepted. Participation is marked NOT_ENROLLED and the device
              *     API key is revoked. Data collected before withdrawal stays available by
-             *     default; studies configured for ERASE quarantine it for erasure after seven days.
+             *     default. Studies configured for ERASE keep the withdrawn data blocked until a
+             *     study owner runs the erasure. For a cancelled enrollment attempt the receipt
+             *     names the attempt and nothing is withdrawn.
              */
             202: {
                 headers: {
@@ -3853,6 +5247,63 @@ export interface operations {
                     "application/json": components["schemas"]["EnrollmentWithdrawalResponse"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            409: components["responses"]["Conflict"];
+            /** @description The key is unknown or the attempt was never bound; the refusal is final. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getDeviceParticipationStatusV4: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobileParticipationStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            /** @description The pending enrollment was cancelled; request a new invitation. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     reportCollectionAcknowledgmentV4: {
@@ -3860,7 +5311,7 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": components["parameters"]["chronicleDeviceIdHeader"];
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
                 /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
                 "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
             };
@@ -3883,6 +5334,12 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAndroidUsageEventDataV4: {
@@ -3890,9 +5347,13 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": components["parameters"]["chronicleDeviceIdHeader"];
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
                 /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
                 "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+                /** @description Immutable settings revision recorded when this queue batch was captured. */
+                "X-Chronicle-Collection-Version"?: components["parameters"]["collectionVersionHeader"];
+                /** @description Sequence number of the phone's latest collection decision when this queue batch was captured. */
+                "X-Chronicle-Collection-Decision"?: components["parameters"]["collectionDecisionHeader"];
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -3906,15 +5367,21 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Number of records uploaded */
+            /** @description Accepted and deliberately discarded client event IDs */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": number;
+                    "application/json": components["schemas"]["UploadReceipt"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAndroidSensorDataV4: {
@@ -3922,7 +5389,7 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": components["parameters"]["chronicleDeviceIdHeader"];
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
                 /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
                 "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
             };
@@ -3947,6 +5414,11 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAndroidSensorDataReceiptV4: {
@@ -3954,11 +5426,13 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": components["parameters"]["chronicleDeviceIdHeader"];
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
                 /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
                 "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Immutable settings revision recorded when this queue batch was captured. */
                 "X-Chronicle-Collection-Version"?: components["parameters"]["collectionVersionHeader"];
+                /** @description Sequence number of the phone's latest collection decision when this queue batch was captured. */
+                "X-Chronicle-Collection-Decision"?: components["parameters"]["collectionDecisionHeader"];
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -3972,15 +5446,20 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Accepted, deliberately discarded, and held sample IDs */
+            /** @description Accepted and deliberately discarded sample IDs */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SensorUploadReceipt"];
+                    "application/json": components["schemas"]["UploadReceipt"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadBatteryTelemetryV4: {
@@ -3988,9 +5467,13 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": components["parameters"]["chronicleDeviceIdHeader"];
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
                 /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
                 "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+                /** @description Immutable settings revision recorded when this queue batch was captured. */
+                "X-Chronicle-Collection-Version"?: components["parameters"]["collectionVersionHeader"];
+                /** @description Sequence number of the phone's latest collection decision when this queue batch was captured. */
+                "X-Chronicle-Collection-Decision"?: components["parameters"]["collectionDecisionHeader"];
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4004,110 +5487,31 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Number of samples uploaded */
+            /** @description Accepted and deliberately discarded sample IDs */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": number;
+                    "application/json": components["schemas"]["UploadReceipt"];
                 };
             };
-        };
-    };
-    uploadAndroidUsageEventData: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChronicleData"];
-            };
-        };
-        responses: {
-            /** @description Number of records uploaded */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
-        };
-    };
-    uploadAndroidSensorData: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AndroidSensorSample"][];
-            };
-        };
-        responses: {
-            /** @description Number of records uploaded */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
-        };
-    };
-    uploadBatteryTelemetry: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BatterySample"][];
-            };
-        };
-        responses: {
-            /** @description Number of samples uploaded */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadInteractionEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4130,14 +5534,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAudioActivityEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4160,14 +5572,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAudioContentEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4190,14 +5610,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadNotificationActivityEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4220,14 +5648,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadSleepEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4250,14 +5686,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadActivityRecognitionEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4280,14 +5724,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadHealthMetrics: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4310,14 +5762,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadConnectivityStateEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4340,14 +5800,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAppNetworkUsage: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4370,14 +5838,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadDeviceSettings: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4400,6 +5876,12 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadAndroidUploadDiagnostics: {
@@ -4407,7 +5889,7 @@ export interface operations {
             query?: never;
             header: {
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
                 /** @description Per-device API key issued by the exact enrolled study server. */
                 "X-Api-Key": string;
             };
@@ -4423,122 +5905,35 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Diagnostic event identifiers acknowledged by the server */
+            /** @description Stored (accepted) and refused (discarded) diagnostic event IDs */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string[];
+                    "application/json": components["schemas"]["UploadReceipt"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
-    uploadAndroidEncryptedData: {
+    uploadScreenTimeDataV4: {
         parameters: {
             query?: never;
             header: {
-                /**
-                 * @description Chronicle app-instance ID generated and encrypted by the mobile app.
-                 *     This is not an Android hardware identifier.
-                 */
-                "X-Chronicle-Device-Id": string;
-                /**
-                 * @description Per-device API key bound to (studyId, participantId, chronicleId),
-                 *     issued at enrollment.
-                 */
-                "X-Api-Key": string;
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+                /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
             };
             path: {
                 studyId: components["parameters"]["studyId"];
                 participantId: components["parameters"]["participantId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EncryptedEnvelope"][];
-            };
-        };
-        responses: {
-            /** @description Number of records stored (sum of decrypted samples across envelopes) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
-        };
-    };
-    reportAndroidSensorAvailability: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AndroidDeviceSensorAvailability"];
-            };
-        };
-        responses: {
-            /** @description Number of records stored */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
-        };
-    };
-    uploadSensorData: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SensorDataSample"][];
-            };
-        };
-        responses: {
-            /** @description Number of records uploaded */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
-        };
-    };
-    uploadScreenTimeData: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
             };
             cookie?: never;
         };
@@ -4557,43 +5952,21 @@ export interface operations {
                     "application/json": number;
                 };
             };
-        };
-    };
-    uploadUserIdentificationData: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-                /** @description Legacy path name for the Chronicle app-instance ID. */
-                sourceDeviceId: components["parameters"]["sourceDeviceId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserIdentificationEnvelope"];
-            };
-        };
-        responses: {
-            /** @description Number of records uploaded */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     reportCollectionAcknowledgmentIosV4: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4614,14 +5987,22 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadIosBatteryTelemetry: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4644,14 +6025,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadIosConnectivityStateEvents: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4674,14 +6063,22 @@ export interface operations {
                     "application/json": number;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     uploadIosHealthMetrics: {
         parameters: {
             query?: never;
             header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
                 /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
+                "X-Chronicle-Random-Device-Id": string;
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4704,36 +6101,12 @@ export interface operations {
                     "application/json": number;
                 };
             };
-        };
-    };
-    uploadIosAmbientAudio: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
-                "X-Chronicle-Device-Id": string;
-            };
-            path: {
-                studyId: components["parameters"]["studyId"];
-                participantId: components["parameters"]["participantId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AmbientAudioClassificationEvent"][];
-            };
-        };
-        responses: {
-            /** @description Number of events uploaded */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": number;
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudySettings: {
@@ -4763,6 +6136,12 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudySetting: {
@@ -4788,22 +6167,24 @@ export interface operations {
                     "application/json": components["schemas"]["StudySetting"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     updateStudySettings: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 /**
-                 * @description Optimistic-concurrency precondition. Supply the quoted `settingsRevision` taken from the
-                 *     `ETag` of the settings response this edit was based on, e.g. `"7"`. The write is applied
-                 *     only if the study's settings revision still matches; otherwise the server returns 412 with
-                 *     the current revision and settings.
-                 *
-                 *     Omitting the header (or sending `*`) skips the check, which is what older mobile and iOS
-                 *     clients do.
+                 * @description Quoted study settings revision from the ETag of the settings response this edit
+                 *     was based on, for example "7". A missing or wildcard revision returns 428.
+                 *     A stale revision returns 412 with the current revision and settings.
                  */
-                "If-Match"?: components["parameters"]["ifMatchSettingsRevision"];
+                "If-Match": components["parameters"]["ifMatchSettingsRevision"];
             };
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4826,6 +6207,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            409: components["responses"]["StudyDisclosureConflict"];
             /**
              * @description The `If-Match` revision no longer matches; another client changed the study's
              *     settings. The body carries the current revision and settings.
@@ -4840,6 +6226,7 @@ export interface operations {
                     "application/json": components["schemas"]["StudySettingsPreconditionFailure"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudySettingsAudit: {
@@ -4865,6 +6252,11 @@ export interface operations {
                     "application/json": components["schemas"]["StudySettingsAuditEntry"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudyCollectionAcknowledgments: {
@@ -4890,101 +6282,19 @@ export interface operations {
                     "application/json": components["schemas"]["CollectionAcknowledgmentEntry"][];
                 };
             };
-        };
-    };
-    getStudySensors: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Set of enabled sensor types */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-        };
-    };
-    getAndroidSensorSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Android sensor setting */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AndroidSensorSetting"];
-                };
-            };
-        };
-    };
-    getStudyEncryptionSetting: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Study encryption setting */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StudyEncryptionSetting"];
-                };
-            };
-        };
-    };
-    setChronicleDataCollectionSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChronicleDataCollectionSettings"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudyDevices: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -4996,6 +6306,8 @@ export interface operations {
             /** @description Map of participant ID to app-device instance list */
             200: {
                 headers: {
+                    /** @description Next device-row offset; absent on the final page. A participant's device array may span pages. */
+                    "X-Next-Offset"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5004,6 +6316,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudySensorAvailability: {
@@ -5026,6 +6343,11 @@ export interface operations {
                     "application/json": components["schemas"]["AndroidDeviceSensorAvailability"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getParticipantStats: {
@@ -5050,11 +6372,19 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getIosUploadStatus: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -5074,13 +6404,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAndroidDiagnostics: {
         parameters: {
             query?: {
                 participantId?: string;
-                deviceId?: string;
+                randomDeviceId?: string;
                 /** @description Inclusive diagnostic day or UTC calendar day of alert creation. */
                 from?: string;
                 /** @description Inclusive diagnostic day or UTC calendar day of alert creation. */
@@ -5107,6 +6442,11 @@ export interface operations {
                     "application/json": components["schemas"]["AndroidDiagnosticsPage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getParticipantsData: {
@@ -5114,10 +6454,10 @@ export interface operations {
             query: {
                 dataType: string;
                 participantId: string[];
-                /** @description Lower bound of a positive range of at most 31 elapsed days. */
-                startDate: string;
-                /** @description Upper bound of the bounded export range. */
-                endDate: string;
+                /** @description Inclusive lower bound; omitted, the export starts at the earliest retained row. */
+                startDate?: string;
+                /** @description Exclusive upper bound; omitted, the export runs to the latest retained row. */
+                endDate?: string;
                 responseType?: "csv" | "json";
                 fileName?: string;
                 sensorTypes?: string[];
@@ -5136,10 +6476,62 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": components["schemas"]["ExportRecord"][];
                     "text/csv": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    postGetParticipantsData: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    dataType: string;
+                    participantId: string[];
+                    /** Format: date-time */
+                    startDate?: string;
+                    /** Format: date-time */
+                    endDate?: string;
+                    /**
+                     * @default csv
+                     * @enum {string}
+                     */
+                    responseType?: "csv" | "json";
+                    fileName?: string;
+                    sensorTypes?: string[];
+                    _csrf?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Participant data rows in the selected responseType (CSV by default). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportRecord"][];
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getDeviceUsageSurveyData: {
@@ -5167,6 +6559,12 @@ export interface operations {
                     "application/json": components["schemas"]["DeviceUsage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAppsFilteredForStudyAppUsageSurvey: {
@@ -5183,18 +6581,32 @@ export interface operations {
             /** @description Collection of filtered app package names */
             200: {
                 headers: {
+                    /** @description Study settings revision for an If-Match replacement. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": string[];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     setAppsFilteredForStudyAppUsageSurvey: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Quoted study settings revision from the ETag of the settings response this edit
+                 *     was based on, for example "7". A missing or wildcard revision returns 428.
+                 *     A stale revision returns 412 with the current revision and settings.
+                 */
+                "If-Match": components["parameters"]["ifMatchSettingsRevision"];
+            };
             path: {
                 studyId: components["parameters"]["studyId"];
             };
@@ -5213,6 +6625,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     allowAppForStudyAppUsageSurvey: {
@@ -5237,6 +6654,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     filterAppForStudyAppUsageSurvey: {
@@ -5261,14 +6683,47 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getAppUsageSurveyDays: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ended survey days, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppUsageSurveyDays"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAppUsageSurveyData: {
         parameters: {
-            query?: {
-                startDateTime?: string;
-                endDateTime?: string;
-                thresholdInSeconds?: number;
+            query: {
+                /** @description The survey day, a calendar day in the study time zone. */
+                date: string;
             };
             header?: never;
             path: {
@@ -5279,20 +6734,30 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List of app usage data */
+            /** @description The survey day */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AppUsage"][];
+                    "application/json": components["schemas"]["AppUsageDaySurvey"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     submitAppUsageSurvey: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description The survey day, a calendar day in the study time zone. */
+                date: string;
+            };
             header?: never;
             path: {
                 studyId: components["parameters"]["studyId"];
@@ -5302,7 +6767,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AppUsage"][];
+                "application/json": components["schemas"]["AppUsageAnswer"][];
             };
         };
         responses: {
@@ -5313,6 +6778,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAppUsageFrequency: {
@@ -5335,6 +6807,12 @@ export interface operations {
                     "application/json": components["schemas"]["AppUsageFrequencyResponse"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudyQuestionnaires: {
@@ -5357,12 +6835,21 @@ export interface operations {
                     "application/json": components["schemas"]["Questionnaire"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     createQuestionnaire: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
             path: {
                 studyId: components["parameters"]["studyId"];
             };
@@ -5383,6 +6870,11 @@ export interface operations {
                     "application/json": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getQuestionnaire: {
@@ -5400,12 +6892,19 @@ export interface operations {
             /** @description The questionnaire */
             200: {
                 headers: {
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Questionnaire"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     deleteQuestionnaire: {
@@ -5427,12 +6926,48 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getQuestionnaireRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                questionnaireId: components["parameters"]["questionnaireId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current strong revision */
+            204: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     updateQuestionnaire: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Strong ETag from the resource GET or HEAD. Stale edits return 412; omitted revisions return 428. */
+                "If-Match": components["parameters"]["ifMatchEditRevision"];
+            };
             path: {
                 studyId: components["parameters"]["studyId"];
                 questionnaireId: components["parameters"]["questionnaireId"];
@@ -5452,6 +6987,26 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            /** @description The revision is stale; reload before saving. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The edit requires an If-Match revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     submitQuestionnaireResponses: {
@@ -5478,12 +7033,19 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getQuestionnaireResponses: {
         parameters: {
-            query?: {
-                fileType?: "csv" | "json";
+            query: {
+                type: "csv" | "json";
+                fileName?: string;
             };
             header?: never;
             path: {
@@ -5494,15 +7056,59 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Questionnaire response data */
+            /** @description Questionnaire responses in the requested type */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": components["schemas"]["ExportRecord"][];
+                    "text/csv": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    postGetQuestionnaireResponses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                questionnaireId: components["parameters"]["questionnaireId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @enum {string} */
+                    type: "csv" | "json";
+                    fileName?: string;
+                    _csrf?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Questionnaire response data in the selected type */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportRecord"][];
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getParticipantTUDSubmissionIdsByDate: {
@@ -5531,6 +7137,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     submitTimeUseDiary: {
@@ -5545,7 +7156,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TimeUseDiaryResponse"][];
+                "application/json": (components["schemas"]["TimeUseDiaryResponse"] | components["schemas"]["TimeUseDiarySubmission"])[];
             };
         };
         responses: {
@@ -5558,13 +7169,19 @@ export interface operations {
                     "application/json": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudyTUDSubmissionIdsByDate: {
         parameters: {
-            query?: {
-                startDateTime?: string;
-                endDateTime?: string;
+            query: {
+                startDate: string;
+                endDate: string;
                 timeZone?: string;
             };
             header?: never;
@@ -5586,6 +7203,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getTimeUseDiarySettings: {
@@ -5608,14 +7230,20 @@ export interface operations {
                     "application/json": components["schemas"]["TimeUseDiarySettingsResponse"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getStudyTUDSubmissions: {
         parameters: {
-            query?: {
-                dataType?: string;
-                startDateTime?: string;
-                endDateTime?: string;
+            query: {
+                dataType: components["schemas"]["TimeUseDiaryDownloadDataType"];
+                startDate: string;
+                endDate: string;
             };
             header?: never;
             path: {
@@ -5625,24 +7253,68 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description TUD submission data */
+            /** @description TUD submission data as CSV */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[][];
+                    "text/csv": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    postGetStudyTUDSubmissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    dataType: components["schemas"]["TimeUseDiaryDownloadDataType"];
+                    /** Format: date-time */
+                    startDate: string;
+                    /** Format: date-time */
+                    endDate: string;
+                    _csrf?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description TUD submission data as CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getParticipantsTudSubmissions: {
         parameters: {
-            query?: {
-                participantIds?: string[];
-                dataType?: string;
-                startDateTime?: string;
-                endDateTime?: string;
+            query: {
+                participantId: string[];
+                dataType: components["schemas"]["TimeUseDiaryDownloadDataType"];
+                startDate?: string;
+                endDate?: string;
+                fileName?: string;
             };
             header?: never;
             path: {
@@ -5652,21 +7324,69 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description TUD submission data */
+            /** @description TUD submission data as CSV */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[][];
+                    "text/csv": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    postGetParticipantsTudSubmissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    dataType: components["schemas"]["TimeUseDiaryDownloadDataType"];
+                    participantId: string[];
+                    /** Format: date-time */
+                    startDate?: string;
+                    /** Format: date-time */
+                    endDate?: string;
+                    fileName?: string;
+                    _csrf?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description TUD submission data as CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     registerCandidate: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5685,6 +7405,11 @@ export interface operations {
                     "application/json": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAcl: {
@@ -5709,6 +7434,11 @@ export interface operations {
                     "application/json": components["schemas"]["Acl"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     updateAcl: {
@@ -5731,6 +7461,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     updateAcls: {
@@ -5753,6 +7488,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAcls: {
@@ -5777,6 +7517,11 @@ export interface operations {
                     "application/json": components["schemas"]["Acl"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAclExplanation: {
@@ -5801,6 +7546,11 @@ export interface operations {
                     "application/json": components["schemas"]["AclExplanation"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAccessibleObjects: {
@@ -5825,6 +7575,11 @@ export interface operations {
                     "application/json": components["schemas"]["AuthorizedObjectsSearchResult"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     checkAuthorizations: {
@@ -5849,6 +7604,11 @@ export interface operations {
                     "application/json": components["schemas"]["Authorization"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     moveToEventStorage: {
@@ -5867,6 +7627,10 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     reloadCache: {
@@ -5885,6 +7649,10 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     reloadCacheByName: {
@@ -5905,6 +7673,10 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getUserPrincipals: {
@@ -5927,6 +7699,11 @@ export interface operations {
                     "application/json": components["schemas"]["Principal"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getCurrentUserPrincipals: {
@@ -5947,6 +7724,11 @@ export interface operations {
                     "application/json": components["schemas"]["Principal"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getOrganizations: {
@@ -5967,12 +7749,20 @@ export interface operations {
                     "application/json": components["schemas"]["Organization"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     createOrganization: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5991,6 +7781,11 @@ export interface operations {
                     "application/json": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getOrganization: {
@@ -6013,203 +7808,12 @@ export interface operations {
                     "application/json": components["schemas"]["Organization"];
                 };
             };
-        };
-    };
-    getResearcherPhoneNumber: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Phone number string */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string;
-                };
-            };
-        };
-    };
-    setResearcherPhoneNumber: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-                phoneNumber: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    isResearcherPhoneNumberVerified: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-                phoneNumber: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Whether the phone number is verified */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": boolean;
-                };
-            };
-        };
-    };
-    verifyResearcherPhoneNumber: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-                phoneNumber: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string;
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    getResearcherNotificationSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Map of notification type to delivery types */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string[];
-                    };
-                };
-            };
-        };
-    };
-    setResearcherNotificationSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    [key: string]: string[];
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    getResearcherNotificationSetting: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-                notificationType: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Set of delivery types */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-        };
-    };
-    setResearcherNotificationSetting: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                studyId: components["parameters"]["studyId"];
-                principalId: components["parameters"]["principalId"];
-                notificationType: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     sendNotifications: {
@@ -6227,12 +7831,20 @@ export interface operations {
             };
         };
         responses: {
-            /** @description OK */
-            200: {
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+            /** @description Participant notification delivery is not supported. This is a permanent capability refusal. */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
         };
     };
@@ -6255,6 +7867,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getSecurablePrincipal: {
@@ -6279,76 +7896,11 @@ export interface operations {
                     "application/json": components["schemas"]["SecurablePrincipal"];
                 };
             };
-        };
-    };
-    getAllUsers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Map of user ID to user */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: components["schemas"]["ChronicleUserProfile"];
-                    };
-                };
-            };
-        };
-    };
-    getUsers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description Map of user ID to user */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: components["schemas"]["ChronicleUserProfile"];
-                    };
-                };
-            };
-        };
-    };
-    getUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The user */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChronicleUserProfile"];
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     deleteUserAccount: {
@@ -6369,6 +7921,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     searchUsers: {
@@ -6395,6 +7952,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getCurrentRoles: {
@@ -6415,6 +7977,11 @@ export interface operations {
                     "application/json": components["schemas"]["SecurablePrincipal"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getAvailableRoles: {
@@ -6437,6 +8004,11 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     syncCallingUser: {
@@ -6455,6 +8027,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     addPrincipalToPrincipal: {
@@ -6477,6 +8054,11 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     removePrincipalFromPrincipal: {
@@ -6499,6 +8081,1394 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getStudyComplianceViolations: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Next enrolled-participant offset; absent on the final page. Follow this even when the violations map is empty. */
+                    "X-Next-Offset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceViolationsMap"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getStudyLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudyLimits"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    setStudyLimits: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Quoted study settings revision from the ETag of the settings response this edit
+                 *     was based on, for example "7". A missing or wildcard revision returns 428.
+                 *     A stale revision returns 412 with the current revision and settings.
+                 */
+                "If-Match": components["parameters"]["ifMatchSettingsRevision"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudyLimits"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            /**
+             * @description The `If-Match` revision no longer matches; another client changed the study's
+             *     settings. The body carries the current revision and settings.
+             */
+            412: {
+                headers: {
+                    /** @description The study's current settings revision, quoted. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudySettingsPreconditionFailure"];
+                };
+            };
+            /** @description The write requires an If-Match settings revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    recoverParticipantFormSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantFormSessionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listApiKeys: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyInfo"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createApiKey: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiKeyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyCreateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    revokeApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    rotateApiKey: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyCreateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    archiveStudy: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Quoted study revision from the ETag of the study settings response, for example "7".
+                 *     Every lifecycle change advances it. Re-sending a change already in force succeeds whatever
+                 *     the revision; a stale revision returns 412 and a missing one 428.
+                 */
+                "If-Match": components["parameters"]["ifMatchStudyRevision"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            /** @description The study changed since this revision was read; reload the study. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The change requires an If-Match study revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    unarchiveStudy: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Quoted study revision from the ETag of the study settings response, for example "7".
+                 *     Every lifecycle change advances it. Re-sending a change already in force succeeds whatever
+                 *     the revision; a stale revision returns 412 and a missing one 428.
+                 */
+                "If-Match": components["parameters"]["ifMatchStudyRevision"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            /** @description The study changed since this revision was read; reload the study. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The change requires an If-Match study revision. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    cancelScheduledDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    scheduleStudyDeletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getStudyLifecycleStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudyLifecycleStatus"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listDataDeletionOperations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataDeletionOperation"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    eraseDataDeletionNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataDeletionOperation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getExportAvailability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudyExportAvailability"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getStudySettingLocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createReviewerEnrollment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewerEnrollmentBootstrapResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            406: components["responses"]["NotAcceptable"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPublicJwks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonWebKeySet"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getChronicleJwks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JsonWebKeySet"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    dashboardLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DashboardLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+            /** @description OK */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            /** @description OK */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            /** @description OK */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    oidcCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+                error_description?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            302: {
+                headers: {
+                    /** @description Login redirect URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    oidcLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            302: {
+                headers: {
+                    /** @description Login redirect URL. */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getAuthSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    setAuthCookie: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAuthCookieRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+            /** @description OK */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            /** @description OK */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            /** @description OK */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    testingLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TestingLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSession"];
+                };
+            };
+            /** @description OK */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            /** @description OK */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            /** @description OK */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthLoginError"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    triggerAllComplianceNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    triggerStudyComplianceNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    exchangeParticipantAccessCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExchangeParticipantFormAccessCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantFormSessionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    cloneStudy: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudyCloneRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getDeletionOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataDeletionOperation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createParticipantFormAccessCodeV3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateParticipantFormAccessCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantFormAccessCodeResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    executeParticipantPurge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantPurgeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    previewParticipantPurge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDataPurgeSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getWebhookDeliveries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryInfo"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    testWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OK"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listWebhooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookRegistration"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createWebhook: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Client-chosen key, 1-128 letters, digits, underscores or hyphens. Retrying a create with the same key replays the first response; omitted keys return 428. */
+                "Idempotency-Key": components["parameters"]["idempotencyKey"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookRegistration"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createParticipantFormAccessCodeV4: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with the app-instance header for enrolled-device issuance; omitted for researcher authentication. */
+                "X-Api-Key"?: string;
+                /** @description Required with X-Api-Key for enrolled-device issuance; omitted for researcher authentication. */
+                "X-Chronicle-Random-Device-Id"?: string;
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateParticipantFormAccessCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantFormAccessCodeResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getMobileReminderSchedule: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+                /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobileReminderConfiguration"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    reportAndroidSensorAvailability: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Per-device API key bound to the enrolled study, participant, and app instance. */
+                "X-Api-Key": components["parameters"]["mobileApiKeyHeader"];
+                /** @description Chronicle app-instance ID generated and encrypted by the mobile app. */
+                "X-Chronicle-Random-Device-Id": components["parameters"]["chronicleRandomDeviceIdHeader"];
+            };
+            path: {
+                studyId: components["parameters"]["studyId"];
+                participantId: components["parameters"]["participantId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AndroidDeviceSensorAvailability"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": number;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
 }

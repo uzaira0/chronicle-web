@@ -1,66 +1,71 @@
 import {
   type BaseQueryApi,
-  type BaseQueryFn,
   createApi,
   type FetchArgs,
   type FetchBaseQueryError,
   fetchBaseQuery,
-  retry,
 } from '@reduxjs/toolkit/query/react';
 import {
-  type ConsentTrigger,
+  COLLECTION_MODULE_IDS,
+  type CollectionModuleId,
+  IDEMPOTENCY_KEY_HEADER,
+  PARTICIPANT_FORM_DATE_HEADER,
+  PARTICIPATION_STATUS,
   PARTICIPATION_STATUSES,
-  type ParticipantDataType,
   type ParticipationStatus,
+  RESEARCHER_CSRF_HEADER,
   STUDY_LIFECYCLE_STATUSES,
   type StudyLifecycleStatus,
+  type StudySettingType,
+  USER_ACTIVITY_HEADER,
 } from '@/generated/chronicle-contracts';
 import { createTranslator, getBaseLanguageCode, getCurrentLanguage } from '@/i18n';
-import { browserSessionDeadline } from '@/lib/bootstrap-auth';
-import { triggerBlobDownload } from '@/lib/download';
+import { AUTH_SESSION_ENDPOINT } from '@/lib/auth-endpoints';
+import { getResearcherCsrfToken } from '@/lib/bootstrap-auth';
+import { navigatePostDownload } from '@/lib/download';
 import {
   getParticipantCsrfToken,
   PARTICIPANT_CSRF_HEADER,
   PARTICIPANT_PUBLIC_API_BASE,
   type ParticipantFormKind,
   participantAccessCodeIssueUrl,
+  participantLiveEnrollmentCodeUrl,
 } from '@/lib/participant-access';
 import type { StudyParticipantPolicySetting } from '@/lib/participant-policy';
-import { DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, timeoutSignal } from '@/lib/request-timeout';
+import { anySignal, REQUEST_TIMEOUT_MS, timeoutSignal } from '@/lib/request-timeout';
 import type { WithdrawalMode } from '@/lib/study-constants';
+import type { SyncExportSelection } from '@/lib/sync-export-selection';
 import type { components } from '@/types/chronicle-api.generated';
-import { expireSession, SESSION_STATUS, updateIdleDeadline, waitForReauthentication } from './session-slice';
+import {
+  consumeUserActivity,
+  expireSession,
+  requeueUserActivity,
+  SESSION_STATUS,
+  type UserActivitySignal,
+  waitForReauthentication,
+} from './session-slice';
 import { forgetSettingsRevision, isSettingsConflict, rememberSettingsRevision } from './settings-revision';
 
 // Canonical status/policy value sets come from the generated LinkML contract module —
 // re-exported here so existing consumers keep importing them from this API surface.
-export type { ParticipantDataType, ParticipationStatus, StudyLifecycleStatus };
+export type { ParticipationStatus, StudyLifecycleStatus };
 
 type StudyWriteResult<T> = { data: T; settingsRevision: string | undefined };
 const ENROLLMENT_ACCESS_CODE_EXPIRY_MS = 29 * 24 * 60 * 60 * 1000;
-const DELETION_STATUS_RETRIES = 2;
+const STUDY_DELETIONS_TAG = 'StudyDeletions';
+const PENDING_ENROLLMENTS_TAG = 'PendingEnrollments';
 
-export type QuestionnaireQuestion = {
-  choices: string[];
-  title: string;
+export type QuestionnaireQuestion = Required<components['schemas']['Question']>;
+
+export type QuestionnaireRecord = QuestionnaireDraft & {
+  id: NonNullable<components['schemas']['Questionnaire']['id']>;
+  dateCreated?: NonNullable<components['schemas']['Questionnaire']['dateCreated']>;
 };
 
-export type QuestionnaireRecord = {
-  active: boolean;
-  dateCreated?: string;
-  description: string;
-  id: string;
-  questions: QuestionnaireQuestion[];
-  recurrenceRule?: string | null;
-  title: string;
-};
-
-export type QuestionnaireDraft = {
-  active: boolean;
-  description: string;
-  questions: QuestionnaireQuestion[];
-  title: string;
-};
+export type QuestionnaireDraft = Required<
+  Pick<components['schemas']['Questionnaire'], 'active' | 'description' | 'title'>
+> &
+  Partial<Pick<components['schemas']['Questionnaire'], 'recurrenceRule'>> & { questions: QuestionnaireQuestion[] };
 
 /**
  * One participant answer to a questionnaire question. The backend
@@ -69,10 +74,7 @@ export type QuestionnaireDraft = {
  * free-text as a single-element array; multiple-choice questions carry the
  * selected choices.
  */
-type ParticipantQuestionnaireResponse = {
-  questionTitle: string;
-  value: string[];
-};
+type ParticipantQuestionnaireResponse = components['schemas']['QuestionnaireResponse'];
 
 /**
  * The study's Time Use Diary variant settings, as returned by the participant-readable
@@ -88,36 +90,23 @@ type TimeUseDiarySettingsResponse = components['schemas']['TimeUseDiarySettingsR
  * `TimeUseDiaryResponseTest`). `response` is always an array of english canonical
  * values; the datetimes are present only on activity-section rows.
  */
-type ParticipantTimeUseDiaryResponse = {
-  code: string;
-  question: string;
-  response: string[];
-  startDateTime?: string;
-  endDateTime?: string;
-};
+type ParticipantTimeUseDiaryResponse = components['schemas']['TimeUseDiarySubmission'];
 
-/**
- * One app the participant used during the survey window, mirroring the backend
- * `AppUsage`. The participant answers *who* used each app by filling `users`
- * (the app-usage survey); all other fields are echoed back unchanged on submit.
- */
-export type AppUsageEntry = {
-  appLabel?: string | null;
-  appPackageName: string;
-  eventType: number;
-  timestamp: string;
-  timezone: string;
-  uploadedAt?: string | null;
-  users: string[];
-};
+/** Every ended survey day of the participant with its answer state, in the study time zone. */
+export type AppUsageSurveyDays = components['schemas']['AppUsageSurveyDays'];
+/** One ended survey day: the apps used for at least the study threshold, split into answer blocks. */
+export type AppUsageDaySurvey = components['schemas']['AppUsageDaySurvey'];
+export type AppUsageDayApp = components['schemas']['AppUsageDayApp'];
+/** Who used one app in one block of the submitted day. */
+export type AppUsageAnswer = components['schemas']['AppUsageAnswer'];
 
 /** Response of the participant-readable `GET /survey/{studyId}/app-usage-frequency`. */
 type AppUsageFrequencyResponse = components['schemas']['AppUsageFrequencyResponse'];
 
-// OpenAPI Study still omits the module/settings projection returned by the server.
-export type StudySummary = components['schemas']['Study'] & {
-  modules?: Record<string, unknown>;
+/** The served study, its open settings map narrowed to the setting types the web reads, and the ETag revision. */
+export type StudySummary = Omit<components['schemas']['Study'], 'settings'> & {
   settings?: StudySettings;
+  settingsRevision?: string | undefined;
 };
 
 type StudyUpdatePayload = components['schemas']['StudyUpdate'];
@@ -127,16 +116,12 @@ export type StudySubmissionGroup = {
   ids: string[];
 };
 
-type Candidate = {
-  id: string;
-} & Record<string, unknown>;
-
-type AndroidSensorSettingSummary = components['schemas']['AndroidSensorSetting'];
+type Candidate = components['schemas']['Candidate'] & Record<string, unknown>;
 
 type StudySettings = Record<string, unknown> & {
-  AndroidSensor?: AndroidSensorSettingSummary;
+  DataCollection?: DataCollectionSettingSummary;
+  AppUsageSurvey?: components['schemas']['AppUsageSurveySetting'];
   ParticipantPolicy?: StudyParticipantPolicySetting;
-  Sensor?: unknown[];
   Withdrawal?: { mode: WithdrawalMode };
   TimeUseDiary?: { timeZone?: string } & Record<string, unknown>;
 };
@@ -144,21 +129,21 @@ type StudySettings = Record<string, unknown> & {
 type CollectionModuleSettingSummary = Partial<components['schemas']['CollectionModuleSetting']> &
   Record<string, unknown>;
 
-// What produced a participant's per-module consent decision snapshot. The generated
-// chronicle-models ConsentTrigger, under its OpenAPI CollectionConsentTrigger wire name.
-type CollectionConsentTrigger = ConsentTrigger;
-
 // AndroidDataCollectionSetting from GET /settings/type/DataCollection.
 // Stored settings remain sparse; omitted modules use the Android catalog defaults.
 export type DataCollectionSettingSummary = Omit<components['schemas']['AndroidDataCollectionSetting'], 'modules'> & {
   modules?: Record<string, CollectionModuleSettingSummary>;
 };
 
+/** The server's reading of the participant's decisions; the dashboard shows it and never re-derives it. */
+export type ParticipantConsentState = components['schemas']['ParticipantConsentState'];
+
 export type Participant = Omit<
   components['schemas']['Participant'],
-  'candidate' | 'participantTags' | 'participantNotes' | 'participationStatus'
+  'candidate' | 'participantTags' | 'participantNotes' | 'participationStatus' | 'consentState'
 > & {
   candidate: Candidate;
+  consentState?: ParticipantConsentState | null;
   participantNotes?: components['schemas']['Participant']['participantNotes'];
   participantTags: string[];
   participationStatus: ParticipationStatus;
@@ -183,7 +168,7 @@ type AndroidDiagnosticsPage = components['schemas']['AndroidDiagnosticsPage'];
 function androidDiagnosticsUrl(filters: {
   studyId: string;
   participantId?: string;
-  deviceId?: string;
+  randomDeviceId?: string;
   fromDay?: string;
   toDay?: string;
   moduleFamily?: string;
@@ -194,7 +179,7 @@ function androidDiagnosticsUrl(filters: {
   const { studyId, ...queryValues } = filters;
   const entries = Object.entries({
     participantId: queryValues.participantId,
-    deviceId: queryValues.deviceId,
+    randomDeviceId: queryValues.randomDeviceId,
     from: queryValues.fromDay,
     to: queryValues.toDay,
     moduleFamily: queryValues.moduleFamily,
@@ -206,19 +191,7 @@ function androidDiagnosticsUrl(filters: {
   return `/study/${encodeURIComponent(studyId)}/participants/android/diagnostics${query ? `?${query}` : ''}`;
 }
 
-type DeviceEnrollmentEvent = {
-  enrolledAt?: string;
-  enrollmentId?: string;
-};
-
-export type StudyDeviceInstance = {
-  deviceId?: string;
-  deviceType?: string;
-  enrollments?: DeviceEnrollmentEvent[];
-  sourceDevice?: unknown;
-  sourceDeviceId?: string | null;
-  [key: string]: unknown;
-};
+export type StudyDeviceInstance = components['schemas']['StudyDeviceInstance'];
 
 type StudyDeviceInstancesMap = Record<string, StudyDeviceInstance[]>;
 
@@ -234,75 +207,40 @@ export const EMPTY_PARTICIPANT_MAP = Object.freeze(normalizeParticipantMap<never
 // RTK Query's default cache merge rebuilds plain objects with Object.prototype.
 const PARTICIPANT_MAP_QUERY_OPTIONS = { structuralSharing: false };
 
-export type ComplianceViolation = {
-  description: string;
-  reason: string;
-};
+export type ComplianceViolationsMap = components['schemas']['ComplianceViolationsMap'];
 
-export type ComplianceViolationsMap = Record<string, Record<string, ComplianceViolation[]>>;
-
-export type StudySettingsAuditEntry = {
-  afterValue?: unknown;
-  beforeValue?: unknown;
-  changeSummary?: string;
-  changedAt: string;
-  changedBy: string;
-  id: string;
-  settingKey: string;
-  studyId: string;
-};
+export type StudySettingsAuditEntry = components['schemas']['StudySettingsAuditEntry'] &
+  Required<Pick<components['schemas']['StudySettingsAuditEntry'], 'id' | 'changedAt'>>;
 
 // One append-only entry in a study's participant collection-acknowledgment trail
 // (GET /settings/acknowledgments). `recordedAt` is the server-stamped authoritative
 // time; `acknowledgedAt` is the advisory device-reported time.
-export type CollectionAcknowledgmentEntry = {
-  acknowledgedAt: string;
-  acknowledgedModules: string[];
-  appVersion?: string | null;
-  // The modules the participant DECLINED in this decision delta (per-module consent design §3.3).
-  // Empty for legacy accept-only rows.
-  declinedModules?: string[];
-  id: string;
-  participantId: string;
-  recordedAt: string;
-  settingsVersion?: number | null;
-  sourceDeviceId: string;
-  studyId: string;
-  unavailableModules?: string[];
-  // What produced this decision (enrollment / toggle / settings-change / withdrawal).
-  // Defaults ENROLLMENT for legacy rows.
-  trigger?: CollectionConsentTrigger;
-};
+export type CollectionAcknowledgmentEntry = components['schemas']['CollectionAcknowledgmentEntry'] &
+  Required<
+    Pick<
+      components['schemas']['CollectionAcknowledgmentEntry'],
+      | 'id'
+      | 'studyId'
+      | 'participantId'
+      | 'sourceRandomDeviceId'
+      | 'acknowledgedAt'
+      | 'recordedAt'
+      | 'acknowledgedModules'
+    >
+  >;
 
 // Mirrors TimeUseDiaryDownloadDataType in chronicle-api. Not part of ParticipantDataType.
-export const TIME_USE_DIARY_DATA_TYPES = ['DayTime', 'NightTime', 'Summarized'] as const;
-export type TimeUseDiaryDataType = (typeof TIME_USE_DIARY_DATA_TYPES)[number];
+export const TIME_USE_DIARY_DATA_TYPE = {
+  dayTime: 'DayTime',
+  nightTime: 'NightTime',
+  summarized: 'Summarized',
+} as const;
+export const TIME_USE_DIARY_DATA_TYPES = Object.values(TIME_USE_DIARY_DATA_TYPE);
+export type TimeUseDiaryDataType = (typeof TIME_USE_DIARY_DATA_TYPE)[keyof typeof TIME_USE_DIARY_DATA_TYPE];
 
-export type StudyExportFormat = 'CSV' | 'JSON' | 'EXCEL';
+export type StudyExportAvailability = components['schemas']['StudyExportAvailability'];
 
-export type StudyExportJobStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
-
-export type StudyExportJobInfo = {
-  completedAt?: string | null;
-  createdAt: string;
-  downloadToken?: string | null;
-  errorMessage?: string | null;
-  exportId: string;
-  format: StudyExportFormat;
-  rowCount: number;
-  status: StudyExportJobStatus;
-  studyId: string;
-};
-
-export type CreateStudyExportRequest = {
-  dataTypes: ParticipantDataType[];
-  endDate?: string;
-  format: StudyExportFormat;
-  participantIds?: string[];
-  startDate?: string;
-};
-
-export type ApiKeyScope = 'READ_ONLY' | 'WRITE' | 'ADMIN';
+export type ApiKeyScope = components['schemas']['ApiKeyScope'];
 const API_KEY_SCOPE_PERMISSIONS: [ApiKeyScope, string[]][] = [
   ['READ_ONLY', ['READ']],
   ['WRITE', ['READ', 'WRITE']],
@@ -310,55 +248,26 @@ const API_KEY_SCOPE_PERMISSIONS: [ApiKeyScope, string[]][] = [
 ];
 
 /** Researcher API key metadata (backend `ApiKeyInfo`); the raw key is never listed. */
-export type ApiKeyInfo = {
-  createdAt: string;
-  deviceId?: string | null;
-  expiresAt: string;
-  keyId: string;
-  lastUsedAt?: string | null;
-  name: string;
-  participantId?: string | null;
-  prefix: string;
-  scope: ApiKeyScope;
-  studyId: string;
-  usageCount?: number;
-};
+export type ApiKeyInfo = components['schemas']['ApiKeyInfo'];
 
 /** Backend `ApiKeyCreateResponse`: `rawKey` is returned this once and never again. */
-type ApiKeyCreateResponse = {
-  info: ApiKeyInfo;
-  keyId: string;
-  rawKey: string;
-};
+type ApiKeyCreateResponse = components['schemas']['ApiKeyCreateResponse'];
 
-export type DataDeletionOperation = {
-  mode: string;
-  operationId: string;
-  participantId?: string | null;
-  quarantineUntil?: string | null;
-  status: string;
-  studyId: string;
-};
+/** The erasure of a whole study; every other mode names a participant. */
+export const STUDY_ERASURE_MODE: DataDeletionOperation['mode'] = 'STUDY_ERASURE';
 
-export type AndroidDeviceSensorAvailability = {
-  availableSensors: string[];
-  deviceId: string;
-  displayRotation?: number | null;
-  interactionPointerCaptureCapability?: 'PLATFORM_API_UNAVAILABLE' | 'REQUIRES_INPUT_INTERCEPTION' | null;
-  participantId: string;
-  reportedAt?: string | null;
-  screenDensityDpi?: number | null;
-  screenHeightPixels?: number | null;
-  screenWidthPixels?: number | null;
-  unavailableSensors: string[];
-};
+/** A requested erasure: nothing is erased until an owner runs it; `erasable` is the server's verdict. */
+export type DataDeletionOperation = components['schemas']['DataDeletionOperation'];
 
-export type StudyLimits = {
-  dataRetentionDuration?: { days: number; months: number; years: number };
-  participantLimit?: number;
-  studyDuration?: { days: number; months: number; years: number };
-  studyDataExpires?: string;
-};
+export type AndroidDeviceSensorAvailability = components['schemas']['AndroidDeviceSensorAvailability'] &
+  Required<
+    Pick<
+      components['schemas']['AndroidDeviceSensorAvailability'],
+      'participantId' | 'randomDeviceId' | 'availableSensors'
+    >
+  >;
+
+export type StudyLimits = components['schemas']['StudyLimits'];
 
 /** @internal Exported for testing only. */
 export function normalizeQuestionnaireQuestion(value: unknown): QuestionnaireQuestion {
@@ -458,6 +367,30 @@ function normalizeCandidate(value: unknown): Candidate {
   };
 }
 
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function normalizeParticipantTags(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((tag: unknown) => typeof tag !== 'string')) {
+    throw new Error(createTranslator(getCurrentLanguage()).t('participants.response_contract_invalid_tags'));
+  }
+  return value as string[];
+}
+
+function normalizeConsentState(value: unknown): ParticipantConsentState | null {
+  if (!isRecord(value)) return null;
+  const modules = (list: unknown) =>
+    Array.isArray(list)
+      ? list.filter((id): id is CollectionModuleId => COLLECTION_MODULE_IDS.some((known) => known === id))
+      : [];
+  return {
+    declinedRequiredModules: modules(value.declinedRequiredModules),
+    modulesAwaitingDecision: modules(value.modulesAwaitingDecision),
+  };
+}
+
 /** @internal Exported for testing only. */
 export function normalizeParticipantList(payload: unknown): Participant[] {
   if (!Array.isArray(payload)) {
@@ -474,28 +407,26 @@ export function normalizeParticipantList(payload: unknown): Participant[] {
     return {
       candidate: normalizeCandidate(participant.candidate),
       participantId: participant.participantId,
-      withdrawnAt: typeof participant.withdrawnAt === 'string' ? participant.withdrawnAt : null,
+      withdrawnAt: nullableString(participant.withdrawnAt),
+      processingBlockedAt: nullableString(participant.processingBlockedAt),
+      processingBlockReason: nullableString(participant.processingBlockReason),
+      processingBlockedBy: nullableString(participant.processingBlockedBy),
       participantNotes:
         typeof participant.participantNotes === 'string' || participant.participantNotes === null
           ? participant.participantNotes
           : undefined,
-      participantTags: Array.isArray(participant.participantTags)
-        ? participant.participantTags.filter((tag): tag is string => typeof tag === 'string')
-        : [],
+      participantTags: normalizeParticipantTags(participant.participantTags),
       participationStatus: isParticipationStatus(participant.participationStatus)
         ? participant.participationStatus
-        : 'UNKNOWN',
+        : PARTICIPATION_STATUS.UNKNOWN,
+      statusRevision: typeof participant.statusRevision === 'number' ? participant.statusRevision : 0,
+      consentState: normalizeConsentState(participant.consentState),
     };
   });
   if (unknownStatuses) {
     console.warn(`[normalizeParticipantList] ${unknownStatuses} row(s) had an unknown participation status`);
   }
   return participants;
-}
-
-function getCsrfToken(): string | null {
-  const match = document.cookie.match(/(?:^|; )ol_csrf_token=([^;]*)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
 async function logoutExpiredSession(
@@ -518,99 +449,118 @@ async function logoutExpiredSession(
 export async function fetchWithCsrf(url: string, init?: RequestInit, api?: BaseQueryApi): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set('Accept-Language', getBaseLanguageCode(getCurrentLanguage()));
-  const csrfToken = getCsrfToken();
-  if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+  const csrfToken = getResearcherCsrfToken();
+  if (csrfToken) headers.set(RESEARCHER_CSRF_HEADER, csrfToken);
   const participantCsrfToken = getParticipantCsrfToken();
   if (participantCsrfToken) {
     headers.set(PARTICIPANT_CSRF_HEADER, participantCsrfToken);
-    if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
+    if (!headers.has(IDEMPOTENCY_KEY_HEADER)) headers.set(IDEMPOTENCY_KEY_HEADER, crypto.randomUUID());
   }
+  const activityApi = api && url.startsWith('/chronicle/api/web/') ? api : undefined;
   const request = {
     credentials: 'include',
     ...init,
     headers,
     signal: init?.signal ?? timeoutSignal(),
   } satisfies RequestInit;
-  const response = await fetch(url, request);
-  if (api) applyResponseIdleDeadline(response, api);
+  const response = await fetchWithActivity(url, request, activityApi);
   if (api && (await logoutExpiredSession(response.status, api))) {
-    const renewedCsrfToken = getCsrfToken();
-    if (renewedCsrfToken) headers.set('X-CSRF-Token', renewedCsrfToken);
-    else headers.delete('X-CSRF-Token');
-    const retried = await fetch(url, {
-      ...request,
-      signal: AbortSignal.any([api.signal, init?.signal ?? timeoutSignal()]),
-    });
-    applyResponseIdleDeadline(retried, api);
+    const renewedCsrfToken = getResearcherCsrfToken();
+    if (renewedCsrfToken) headers.set(RESEARCHER_CSRF_HEADER, renewedCsrfToken);
+    else headers.delete(RESEARCHER_CSRF_HEADER);
+    const retried = await fetchWithActivity(
+      url,
+      {
+        ...request,
+        signal: anySignal([api.signal, init?.signal ?? timeoutSignal()]),
+      },
+      activityApi,
+    );
     if (retried.status === 401) api.dispatch(expireSession());
     return retried;
   }
   return response;
 }
 
-export const SESSION_IDLE_DEADLINE_HEADER = 'X-Session-Idle-Expires-At';
+type ActivityApi = Pick<BaseQueryApi, 'getState' | 'dispatch'>;
 
-function applyResponseIdleDeadline(response: Response | undefined, api: BaseQueryApi): void {
-  const value = response?.headers.get(SESSION_IDLE_DEADLINE_HEADER);
-  if (!value || !response) return;
-  const deadline = browserSessionDeadline(Number(value), response.headers);
-  if (deadline !== null) api.dispatch(updateIdleDeadline(deadline));
+function applyUserActivityHeader(headers: Headers, api: ActivityApi): UserActivitySignal | null {
+  const session = (api.getState() as { session?: { status?: string; pendingUserActivityAt?: number | null } }).session;
+  headers.delete(USER_ACTIVITY_HEADER);
+  const activityAt = session?.pendingUserActivityAt;
+  if (session?.status !== SESSION_STATUS.authenticated || activityAt == null) return null;
+  const attemptStartedAt = performance.now();
+  headers.set(USER_ACTIVITY_HEADER, String(Math.max(0, Math.floor(attemptStartedAt - activityAt))));
+  api.dispatch(consumeUserActivity(activityAt));
+  return { activityAt, attemptStartedAt };
+}
+
+function restoreFailedActivity(api: ActivityApi, signal: UserActivitySignal | null, status?: number | string): void {
+  if (signal !== null && status !== 401) api.dispatch(requeueUserActivity(signal));
+}
+
+/** `init.signal` is required: every caller supplies the request deadline (timeoutSignal or anySignal with it). */
+async function fetchWithActivity(
+  url: string,
+  init: RequestInit & { signal: AbortSignal },
+  api?: ActivityApi,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const activitySignal = api ? applyUserActivityHeader(headers, api) : null;
+  try {
+    const response = await fetch(url, { ...init, headers, signal: init.signal });
+    if (api && !response.ok) restoreFailedActivity(api, activitySignal, response.status);
+    return response;
+  } catch (error) {
+    if (api) restoreFailedActivity(api, activitySignal);
+    throw error;
+  }
 }
 
 // A caller-held key makes a user retry of the same logical submission dedupe server-side;
 // without one, prepareHeaders mints a fresh key per request (replay protection only).
 function idempotencyHeaders(idempotencyKey: string | undefined): Record<string, string> | undefined {
-  return idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+  return idempotencyKey ? { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey } : undefined;
+}
+
+function participantSubmissionHeaders(idempotencyKey: string | undefined, logicalDate: string): Record<string, string> {
+  return { ...idempotencyHeaders(idempotencyKey), [PARTICIPANT_FORM_DATE_HEADER]: logicalDate };
 }
 
 const EXPORT_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-function exportDayBoundary(value: string, exclusiveEnd: boolean): Date {
-  const [year = 0, month = 1, day = 1] = value.split('-').map(Number);
-  const boundary = new Date(0);
-  boundary.setFullYear(year, month - 1, day + (exclusiveEnd ? 1 : 0));
-  boundary.setHours(0, 0, 0, 0);
-  return boundary;
+export function isCalendarDay(value: string): boolean {
+  if (!EXPORT_DAY.test(value)) return false;
+  const day = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === value;
 }
 
 /**
  * Date inputs give `YYYY-MM-DD`; the export endpoints bind ISO date-times. Resolve each
  * local day boundary, including days when midnight is skipped by a clock change.
  */
-export function toExportDateTime(value: string, exclusiveEnd = false, timeZone?: string): string {
-  if (!EXPORT_DAY.test(value)) return value;
-  if (timeZone) {
-    const wall = new Date(`${value}T00:00:00Z`);
-    if (exclusiveEnd) wall.setUTCDate(wall.getUTCDate() + 1);
-    const formatter = new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'longOffset' });
-    const offsetAt = (instant: number) => {
-      const offset = formatter.formatToParts(instant).find((part) => part.type === 'timeZoneName')?.value;
-      const match = offset?.match(/GMT([+-])(\d{2}):(\d{2})/);
-      return match ? (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3])) * 60_000 : 0;
-    };
-    const first = wall.getTime() - offsetAt(wall.getTime());
-    const second = wall.getTime() - offsetAt(first);
-    // A skipped midnight alternates between the two sides of the gap. The later
-    // instant is the first valid time on that day, matching ZoneId.atStartOfDay.
-    const boundary = wall.getTime() - offsetAt(second);
-    return new Date(boundary === first && first !== second ? Math.max(first, second) : boundary).toISOString();
-  }
-  const date = exportDayBoundary(value, exclusiveEnd);
-  const skippedMidnight = exclusiveEnd && (date.getHours() !== 0 || date.getMinutes() !== 0);
-  // Keep the instant, expressing a skipped-midnight end with the offset just before the boundary.
-  const offsetMinutes = -(skippedMidnight ? new Date(date.getTime() - 1) : date).getTimezoneOffset();
-  const wallTime = new Date(date.getTime() + offsetMinutes * 60_000);
-  const pad = (number: number) => String(number).padStart(2, '0');
-  const offset = `${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(Math.abs(offsetMinutes) % 60)}`;
-  return `${wallTime.getUTCFullYear()}-${pad(wallTime.getUTCMonth() + 1)}-${pad(wallTime.getUTCDate())}T${pad(wallTime.getUTCHours())}:${pad(wallTime.getUTCMinutes())}:${pad(wallTime.getUTCSeconds())}${offset}`;
-}
-
-/** The synchronous server cap is 31 elapsed days between local day boundaries. */
-export function exportRangeExceedsLimit(startDay: string, endDay: string): boolean {
-  if (!EXPORT_DAY.test(startDay) || !EXPORT_DAY.test(endDay)) return false;
-  const start = exportDayBoundary(startDay, false);
-  const end = exportDayBoundary(endDay, true);
-  return end.getTime() - start.getTime() > 31 * 86_400_000;
+export function toExportDateTime(value: string, exclusiveEnd: boolean, timeZone: string): string {
+  if (!isCalendarDay(value)) return value;
+  const wall = new Date(`${value}T00:00:00Z`);
+  if (exclusiveEnd) wall.setUTCDate(wall.getUTCDate() + 1);
+  const formatter = new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'longOffset' });
+  const offsetAt = (instant: number) => {
+    const offset = formatter.formatToParts(instant).find((part) => part.type === 'timeZoneName')?.value;
+    const match = offset?.match(/GMT([+-])(\d{2}):(\d{2})/);
+    return match ? (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3])) * 60_000 : 0;
+  };
+  const first = wall.getTime() - offsetAt(wall.getTime());
+  const second = wall.getTime() - offsetAt(first);
+  // A skipped midnight alternates between the two sides of the gap. The later
+  // instant is the first valid time on that day, matching ZoneId.atStartOfDay.
+  const boundary = wall.getTime() - offsetAt(second);
+  const instant = boundary === first && first !== second ? Math.max(first, second) : boundary;
+  // Preserve the exclusive calendar boundary as well as its instant when midnight is skipped.
+  const offset = exclusiveEnd ? wall.getTime() - instant : offsetAt(instant);
+  const local = new Date(instant + offset).toISOString().slice(0, -1);
+  const minutes = Math.abs(offset) / 60_000;
+  const suffix = `${offset < 0 ? '-' : '+'}${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  return `${local}${offset === 0 ? 'Z' : suffix}`;
 }
 
 function httpError(response: Response, text: string) {
@@ -632,7 +582,7 @@ function networkError(err: unknown) {
 // and acknowledgment lists max 200). Read pages until one comes back short, so a study larger
 // than one page is never silently truncated to its first page.
 const MAX_LIST_PAGES = 200; // Limit: 100k rows at 500 a page; past that a list needs server-side search
-type PageResult = { data?: unknown; error?: FetchBaseQueryError };
+type PageResult = { data?: unknown; error?: FetchBaseQueryError; meta?: { response?: Response } };
 type PageFetch = (url: string) => unknown; // the endpoint's bound baseQuery
 
 function pageSize(page: unknown): number {
@@ -646,12 +596,25 @@ async function readAllPages(
   limit: number,
 ): Promise<{ data: unknown[] } | { error: FetchBaseQueryError }> {
   const pages: unknown[] = [];
+  let offset = 0;
   for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const params = new URLSearchParams({ limit: String(limit), offset: String(page * limit) });
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     const result = (await fetchPage(`${path}${path.includes('?') ? '&' : '?'}${params.toString()}`)) as PageResult;
     if (result.error) return { error: result.error };
     pages.push(result.data);
-    if (pageSize(result.data) < limit) return { data: pages };
+    // Sparse aggregates page source participants, so the server supplies the next source offset.
+    const next = result.meta?.response?.headers.get('X-Next-Offset');
+    if (next != null) {
+      const parsed = Number(next);
+      if (!Number.isSafeInteger(parsed) || parsed <= offset) {
+        const error = createTranslator(getCurrentLanguage()).t('common.error_unreadable_response');
+        return { error: { status: 'CUSTOM_ERROR', error } };
+      }
+      offset = parsed;
+    } else {
+      if (pageSize(result.data) < limit) return { data: pages };
+      offset += limit;
+    }
   }
   return {
     error: {
@@ -681,6 +644,14 @@ async function readAllRows<T>(
   }
 }
 
+async function readParticipantPages<T>(
+  fetchPage: PageFetch,
+  path: string,
+): Promise<{ data: Record<string, T> } | { error: FetchBaseQueryError }> {
+  const result = await readAllPages(fetchPage, path, 500);
+  return 'error' in result ? result : { data: normalizeParticipantMap(...(result.data as Record<string, T>[])) };
+}
+
 function parsingError(response: Response, error: string) {
   return {
     error: {
@@ -690,6 +661,15 @@ function parsingError(response: Response, error: string) {
       status: 'PARSING_ERROR' as const,
     },
   };
+}
+
+async function readJsonResponse<T>(response: Response, emptyResponse?: T) {
+  try {
+    const text = await response.text();
+    return { data: !text && emptyResponse !== undefined ? emptyResponse : (JSON.parse(text) as T) };
+  } catch {
+    return parsingError(response, createTranslator(getCurrentLanguage()).t('common.error_unreadable_response'));
+  }
 }
 
 async function readRevisionedResource<T>(
@@ -704,23 +684,17 @@ async function readRevisionedResource<T>(
   return { data: { data: normalize(result.data), revision } };
 }
 
-async function downloadResource(url: string, filename: string, api: BaseQueryApi) {
+function downloadResource(url: string, filename: string | undefined) {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(new DOMException('Download headers timed out.', 'TimeoutError')),
-      DOWNLOAD_TIMEOUT_MS,
-    );
-    const response = await fetchWithCsrf(
-      url,
-      { signal: AbortSignal.any([api.signal, controller.signal]) },
-      api,
-    ).finally(() => clearTimeout(timer));
-    if (!response.ok) return httpError(response, await response.text());
-    triggerBlobDownload(await response.blob(), filename);
+    navigatePostDownload(url, getResearcherCsrfToken() ?? '', filename);
     return { data: null };
-  } catch (err) {
-    return networkError(err);
+  } catch {
+    return {
+      error: {
+        status: 'CUSTOM_ERROR' as const,
+        error: createTranslator(getCurrentLanguage()).t('common.error_download_browser'),
+      },
+    };
   }
 }
 
@@ -729,17 +703,27 @@ function participantDataQuery({
   participantIds,
   startDate,
   endDate,
+  timeZone,
 }: {
   dataType: string;
   participantIds: string[];
   startDate?: string | undefined;
   endDate?: string | undefined;
+  /** The loaded study's zone (useStudyTimeZone); day bounds are study-zone days. */
+  timeZone: string;
 }): string {
   const params = new URLSearchParams({ dataType });
   for (const pid of participantIds) params.append('participantId', pid);
-  if (startDate) params.set('startDate', toExportDateTime(startDate));
-  if (endDate) params.set('endDate', toExportDateTime(endDate, true));
+  if (startDate) params.set('startDate', toExportDateTime(startDate, false, timeZone));
+  if (endDate) params.set('endDate', toExportDateTime(endDate, true, timeZone));
   return params.toString();
+}
+
+type LifecycleTransition = { studyId: string; ifMatch: string | undefined };
+
+/** Archive and restore apply to the study revision the page shows; lifecycleTags refetch it on 412 too. */
+function ifMatchHeader(ifMatch: string | undefined) {
+  return ifMatch ? { 'If-Match': ifMatch } : undefined;
 }
 
 function lifecycleTags(studyId: string) {
@@ -760,42 +744,109 @@ const baseQueryOptions = {
     // ChronicleCookieOrBearerTokenResolver requires a matching X-CSRF-Token
     // header for cookie-based auth. Without this, requests with the
     // chronicle_auth cookie fail CSRF validation and return 401.
-    const csrfToken = getCsrfToken();
+    const csrfToken = getResearcherCsrfToken();
     if (csrfToken) {
-      headers.set('X-CSRF-Token', csrfToken);
+      headers.set(RESEARCHER_CSRF_HEADER, csrfToken);
     }
     const participantCsrfToken = getParticipantCsrfToken();
     if (participantCsrfToken) {
       headers.set(PARTICIPANT_CSRF_HEADER, participantCsrfToken);
-      if (!headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID());
+      if (!headers.has(IDEMPOTENCY_KEY_HEADER)) headers.set(IDEMPOTENCY_KEY_HEADER, crypto.randomUUID());
     }
     return headers;
   },
 } satisfies Parameters<typeof fetchBaseQuery>[0];
 const researcherBaseQuery = fetchBaseQuery({ ...baseQueryOptions, baseUrl: '/chronicle/api/web' });
+
+async function researcherRequest(
+  args: string | FetchArgs,
+  api: BaseQueryApi,
+  extraOptions: StudyOperationsExtraOptions,
+) {
+  const request = typeof args === 'string' ? { url: args } : args;
+  const headers = new Headers(request.headers as HeadersInit);
+  const passive = api.type === 'query' && api.forced;
+  if (passive) headers.delete(USER_ACTIVITY_HEADER);
+  const activitySignal = passive ? null : applyUserActivityHeader(headers, api);
+  const result = await researcherBaseQuery({ ...request, headers }, api, extraOptions);
+  if (result.error) restoreFailedActivity(api, activitySignal, result.error.status);
+  if (result.error?.status === 'PARSING_ERROR') {
+    return {
+      error: {
+        ...result.error,
+        data: '',
+        error: createTranslator(getCurrentLanguage()).t('common.error_unreadable_response'),
+      },
+      ...(result.meta ? { meta: result.meta } : {}),
+    };
+  }
+  return result;
+}
 // Participant forms are reachable only under the public prefix: a self-host participant
 // listener refuses /chronicle/api/web. Endpoints opt in with extraOptions.participantPublic.
 const participantBaseQuery = fetchBaseQuery({ ...baseQueryOptions, baseUrl: PARTICIPANT_PUBLIC_API_BASE });
 type StudyOperationsExtraOptions = { participantPublic?: boolean };
 
 export const studyOperationsApi = createApi({
+  refetchOnReconnect: true,
   baseQuery: async (args: string | FetchArgs, api: BaseQueryApi, extraOptions: StudyOperationsExtraOptions = {}) => {
     if (extraOptions.participantPublic) return participantBaseQuery(args, api, extraOptions);
-    const result = await researcherBaseQuery(args, api, extraOptions);
-    applyResponseIdleDeadline(result.meta?.response, api);
+    const result = await researcherRequest(args, api, extraOptions);
     if (await logoutExpiredSession(result.error?.status, api)) {
-      const retried = await researcherBaseQuery(args, api, extraOptions);
-      applyResponseIdleDeadline(retried.meta?.response, api);
+      const retried = await researcherRequest(args, api, extraOptions);
       if (retried.error?.status === 401) api.dispatch(expireSession());
       return retried;
     }
     return result;
   },
   endpoints: (builder) => ({
+    refreshSessionActivity: builder.mutation<null, void>({
+      queryFn: async (_arg, api) => {
+        const headers = new Headers();
+        const activitySignal = applyUserActivityHeader(headers, api);
+        if (!headers.has(USER_ACTIVITY_HEADER)) return { data: null };
+        try {
+          const response = await fetchWithCsrf(AUTH_SESSION_ENDPOINT, { headers });
+          if (response.status === 401) api.dispatch(expireSession());
+          if (!response.ok) {
+            restoreFailedActivity(api, activitySignal, response.status);
+            return httpError(response, await response.text());
+          }
+          const result = await readJsonResponse<{ authenticated?: boolean }>(response);
+          if ('error' in result) {
+            restoreFailedActivity(api, activitySignal);
+            return result;
+          }
+          if (result.data.authenticated !== true) api.dispatch(expireSession());
+          return { data: null };
+        } catch (error) {
+          restoreFailedActivity(api, activitySignal);
+          return networkError(error);
+        }
+      },
+    }),
+    // A mutation, not a cached query: the live code is a credential and is read only when the dialog opens.
+    lookupLiveEnrollmentCode: builder.mutation<
+      { accessCode?: unknown } | null,
+      { studyId: string; participantId: string }
+    >({
+      queryFn: async ({ studyId, participantId }, api) => {
+        try {
+          const response = await fetchWithCsrf(participantLiveEnrollmentCodeUrl(studyId, participantId), {}, api);
+          if (response.status === 404) return { data: null };
+          if (!response.ok) return httpError(response, '');
+          return await readJsonResponse<{ accessCode?: unknown }>(response);
+        } catch (err) {
+          return networkError(err);
+        }
+      },
+    }),
     issueParticipantAccessCode: builder.mutation<
       { accessCode?: unknown },
       { studyId: string; participantId: string; formKind: ParticipantFormKind; logicalDate?: string }
     >({
+      invalidatesTags: (_result, error, { studyId, formKind }) =>
+        !error && formKind === 'ENROLLMENT' ? [{ id: studyId, type: PENDING_ENROLLMENTS_TAG }] : [],
       queryFn: async ({ studyId, participantId, formKind, logicalDate }, api) => {
         try {
           const response = await fetchWithCsrf(
@@ -814,13 +865,13 @@ export const studyOperationsApi = createApi({
             api,
           );
           if (!response.ok) return httpError(response, '');
-          return { data: (await response.json()) as { accessCode?: unknown } };
+          return await readJsonResponse<{ accessCode?: unknown }>(response);
         } catch (err) {
           return networkError(err);
         }
       },
     }),
-    createStudy: builder.mutation<string, { study: Record<string, unknown>; idempotencyKey: string }>({
+    createStudy: builder.mutation<string, { study: components['schemas']['Study']; idempotencyKey: string }>({
       invalidatesTags: ['Study'],
       query: ({ study, idempotencyKey }) => ({
         body: study,
@@ -901,7 +952,10 @@ export const studyOperationsApi = createApi({
       }),
     }),
     deleteStudyParticipants: builder.mutation<string[], { participantIds: string[]; studyId: string }>({
-      invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Participants' }],
+      invalidatesTags: (_result, _error, { studyId }) => [
+        { id: studyId, type: 'Participants' },
+        { id: studyId, type: STUDY_DELETIONS_TAG },
+      ],
       query: ({ participantIds, studyId }) => ({
         body: participantIds,
         method: 'DELETE',
@@ -910,7 +964,8 @@ export const studyOperationsApi = createApi({
     }),
     listStudyApiKeys: builder.query<ApiKeyInfo[], string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ApiKeys' }],
-      query: (studyId) => `/study/${encodeURIComponent(studyId)}/api-keys`,
+      queryFn: (studyId, _api, _extra, baseQuery) =>
+        readAllRows<ApiKeyInfo[]>(baseQuery, `/study/${encodeURIComponent(studyId)}/api-keys`, 500),
     }),
     createStudyApiKey: builder.mutation<
       ApiKeyCreateResponse,
@@ -949,53 +1004,65 @@ export const studyOperationsApi = createApi({
         return API_KEY_SCOPE_PERMISSIONS.filter(([, permissions]) => permissions.every(held)).map(([scope]) => scope);
       },
     }),
-    getDeletionOperation: builder.query<DataDeletionOperation, { operationId: string; studyId: string }>({
-      queryFn: async ({ operationId, studyId }, api, _options, baseQuery) => {
-        const statusQuery: BaseQueryFn<string, unknown, FetchBaseQueryError> = (url) => baseQuery(url);
-        const result = await retry(statusQuery, {
-          maxRetries: DELETION_STATUS_RETRIES,
-        })(`/study/${encodeURIComponent(studyId)}/deletions/${encodeURIComponent(operationId)}`, api, {});
-        return result.error ? { error: result.error } : { data: result.data as DataDeletionOperation };
-      },
+    getStudyExportAvailability: builder.query<StudyExportAvailability, string>({
+      query: (studyId) => `/study/${encodeURIComponent(studyId)}/export/availability`,
+      providesTags: (_r, _e, studyId) => [{ type: 'Study', id: studyId }],
+    }),
+    getStudyDeletions: builder.query<DataDeletionOperation[], string>({
+      queryFn: (studyId, _api, _extra, baseQuery) =>
+        readAllRows<DataDeletionOperation[]>(baseQuery, `/study/${encodeURIComponent(studyId)}/deletions`, 500),
+      providesTags: (_r, _e, studyId) => [{ type: STUDY_DELETIONS_TAG, id: studyId }],
+    }),
+    getStudySettingLocks: builder.query<StudySettingType[], string>({
+      query: (studyId) => `/study/${encodeURIComponent(studyId)}/settings/locks`,
+      providesTags: (_r, _e, studyId) => [{ type: 'Study', id: studyId }],
+    }),
+    eraseDeletion: builder.mutation<DataDeletionOperation, { studyId: string; operationId: string }>({
+      query: ({ studyId, operationId }) => ({
+        url: `/study/${encodeURIComponent(studyId)}/deletions/${encodeURIComponent(operationId)}/erase`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_result, _error, { studyId }) => [{ type: STUDY_DELETIONS_TAG, id: studyId }],
     }),
     getComplianceViolations: builder.query<ComplianceViolationsMap, string>({
+      ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Compliance' }],
-      queryFn: async (studyId, api) => {
-        try {
-          const response = await fetchWithCsrf(
-            `/chronicle/api/web/compliance/study/${encodeURIComponent(studyId)}`,
-            undefined,
-            api,
-          );
-          if (!response.ok) return httpError(response, await response.text());
-          return { data: (await response.json()) as ComplianceViolationsMap };
-        } catch (err) {
-          return networkError(err);
+      queryFn: async (studyId, _api, _extra, baseQuery) => {
+        const result = await readAllPages(baseQuery, `/compliance/study/${encodeURIComponent(studyId)}`, 500);
+        if ('error' in result) return result;
+        const merged = Object.create(null) as ComplianceViolationsMap;
+        for (const page of result.data as ComplianceViolationsMap[]) {
+          for (const [study, violations] of Object.entries(page)) {
+            merged[study] = normalizeParticipantMap(merged[study] ?? {}, violations);
+          }
         }
+        return { data: merged };
       },
     }),
     getParticipantStats: builder.query<ParticipantStatsMap, string>({
       ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
-      queryFn: async (studyId, _api, _extra, baseQuery) => {
-        const result = await readAllPages(baseQuery, `/study/${encodeURIComponent(studyId)}/participants/stats`, 500);
-        return 'error' in result
-          ? result
-          : { data: normalizeParticipantMap(...(result.data as ParticipantStatsMap[])) };
-      },
+      queryFn: (studyId, _api, _extra, baseQuery) =>
+        readParticipantPages<ParticipantStatsMap[string]>(
+          baseQuery,
+          `/study/${encodeURIComponent(studyId)}/participants/stats`,
+        ),
     }),
     getIosUploadStatus: builder.query<IosUploadStatusMap, string>({
       ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'ParticipantStats' }],
-      query: (studyId) => `/study/${encodeURIComponent(studyId)}/participants/ios/upload-status`,
-      transformResponse: (body: IosUploadStatusMap) => normalizeParticipantMap(body),
+      queryFn: (studyId, _api, _extra, baseQuery) =>
+        readParticipantPages<IosUploadStatusMap[string]>(
+          baseQuery,
+          `/study/${encodeURIComponent(studyId)}/participants/ios/upload-status`,
+        ),
     }),
     getAndroidDiagnostics: builder.query<
       AndroidDiagnosticsPage,
       {
         studyId: string;
         participantId?: string;
-        deviceId?: string;
+        randomDeviceId?: string;
         fromDay?: string;
         toDay?: string;
         moduleFamily?: string;
@@ -1012,8 +1079,29 @@ export const studyOperationsApi = createApi({
     getStudyDevices: builder.query<StudyDeviceInstancesMap, string>({
       ...PARTICIPANT_MAP_QUERY_OPTIONS,
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Devices' }],
-      query: (studyId) => `/study/${encodeURIComponent(studyId)}/devices`,
-      transformResponse: (body: StudyDeviceInstancesMap) => normalizeParticipantMap(body),
+      queryFn: async (studyId, _api, _extra, baseQuery) => {
+        const result = await readAllPages(baseQuery, `/study/${encodeURIComponent(studyId)}/devices`, 500);
+        if ('error' in result) return result;
+        const merged = normalizeParticipantMap<StudyDeviceInstancesMap[string]>();
+        for (const page of result.data as StudyDeviceInstancesMap[]) {
+          for (const [participant, devices] of Object.entries(page)) {
+            merged[participant] = merged[participant] ? merged[participant].concat(devices) : devices;
+          }
+        }
+        return { data: merged };
+      },
+    }),
+    getPendingEnrollments: builder.query<string[], string>({
+      providesTags: (_result, _error, studyId) => [{ id: studyId, type: PENDING_ENROLLMENTS_TAG }],
+      queryFn: (studyId, _api, _extra, baseQuery) =>
+        readAllRows<string[]>(baseQuery, `/study/${encodeURIComponent(studyId)}/pending-enrollments`, 500),
+    }),
+    cancelPendingEnrollment: builder.mutation<void, { studyId: string; participantId: string }>({
+      invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: PENDING_ENROLLMENTS_TAG }],
+      query: ({ studyId, participantId }) => ({
+        method: 'POST',
+        url: `/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/pending-enrollment/cancel`,
+      }),
     }),
     getStudyParticipants: builder.query<Participant[], string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Participants' }],
@@ -1042,6 +1130,10 @@ export const studyOperationsApi = createApi({
     getStudySummary: builder.query<StudySummary, string>({
       providesTags: (_result, _error, studyId) => [{ id: studyId, type: 'Study' }],
       query: (studyId) => `/study/${encodeURIComponent(studyId)}`,
+      transformResponse: (body: StudySummary, meta) => ({
+        ...body,
+        settingsRevision: meta?.response?.headers.get('etag') ?? undefined,
+      }),
     }),
     getAllStudies: builder.query<StudySummary[], void>({
       providesTags: (result) =>
@@ -1057,14 +1149,10 @@ export const studyOperationsApi = createApi({
     }),
     getStudyTudSubmissionGroups: builder.query<
       StudySubmissionGroup[],
-      { endDate: string; startDate: string; studyId: string; timeZone?: string }
+      { endDate: string; startDate: string; studyId: string; timeZone: string }
     >({
       query: ({ endDate, startDate, studyId, timeZone }) => {
-        const params = new URLSearchParams({
-          endDate,
-          startDate,
-          ...(timeZone ? { timeZone } : {}),
-        });
+        const params = new URLSearchParams({ endDate, startDate, timeZone });
 
         return `/time-use-diary/${encodeURIComponent(studyId)}/ids?${params.toString()}`;
       },
@@ -1076,7 +1164,7 @@ export const studyOperationsApi = createApi({
         body: {
           candidate: { id: '00000000-0000-0000-0000-000000000000' },
           participantId,
-          participationStatus: 'ENROLLED',
+          participationStatus: PARTICIPATION_STATUS.ENROLLED,
         },
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/participant`,
@@ -1123,12 +1211,27 @@ export const studyOperationsApi = createApi({
     }),
     updateParticipationStatus: builder.mutation<
       unknown,
-      { participantId: string; status: ParticipationStatus; studyId: string }
+      { participantId: string; status: ParticipationStatus; statusRevision: number; studyId: string }
     >({
+      // Also on 412: the refetch shows the status another window set.
       invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Participants' }],
-      query: ({ participantId, status, studyId }) => ({
+      query: ({ participantId, status, statusRevision, studyId }) => ({
+        headers: { 'If-Match': `"${statusRevision}"` },
         method: 'PATCH',
         url: `/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/status?participationStatus=${status}`,
+      }),
+    }),
+    setParticipantProcessingBlock: builder.mutation<
+      unknown,
+      { studyId: string; participantId: string; blocked: boolean; reason?: string; statusRevision: number }
+    >({
+      // Participants refetch on 412 too, so the dialog's next try starts from the state another window set.
+      invalidatesTags: (_result, _error, { studyId }) => [{ id: studyId, type: 'Participants' }],
+      query: ({ studyId, participantId, blocked, reason, statusRevision }) => ({
+        headers: { 'If-Match': `"${statusRevision}"` },
+        method: blocked ? 'POST' : 'DELETE',
+        ...(blocked && { body: { reason } }),
+        url: `/study/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/processing-block`,
       }),
     }),
     updateQuestionnaire: builder.mutation<
@@ -1162,9 +1265,10 @@ export const studyOperationsApi = createApi({
         return { data: body, settingsRevision: meta?.response?.headers.get('etag') ?? undefined };
       },
     }),
-    archiveStudy: builder.mutation<unknown, string>({
-      invalidatesTags: (_r, _e, studyId) => lifecycleTags(studyId),
-      query: (studyId) => ({
+    archiveStudy: builder.mutation<unknown, LifecycleTransition>({
+      invalidatesTags: (_r, _e, { studyId }) => lifecycleTags(studyId),
+      query: ({ studyId, ifMatch }) => ({
+        headers: ifMatchHeader(ifMatch),
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/archive`,
       }),
@@ -1176,66 +1280,37 @@ export const studyOperationsApi = createApi({
         url: `/study/${encodeURIComponent(studyId)}/schedule-delete`,
       }),
     }),
-    unarchiveStudy: builder.mutation<unknown, string>({
-      invalidatesTags: (_r, _e, studyId) => lifecycleTags(studyId),
-      query: (studyId) => ({
+    unarchiveStudy: builder.mutation<unknown, LifecycleTransition>({
+      invalidatesTags: (_r, _e, { studyId }) => lifecycleTags(studyId),
+      query: ({ studyId, ifMatch }) => ({
+        headers: ifMatchHeader(ifMatch),
         method: 'POST',
         url: `/study/${encodeURIComponent(studyId)}/unarchive`,
       }),
     }),
-    scheduleStudyDeletion: builder.mutation<unknown, { deleteAfter: string; studyId: string }>({
-      invalidatesTags: (_r, _e, { studyId }) => lifecycleTags(studyId),
-      query: ({ deleteAfter, studyId }) => ({
+    scheduleStudyDeletion: builder.mutation<unknown, string>({
+      invalidatesTags: (_r, _e, studyId) => lifecycleTags(studyId),
+      query: (studyId) => ({
         method: 'DELETE',
-        url: `/study/${encodeURIComponent(studyId)}/schedule-delete?deleteAfter=${encodeURIComponent(deleteAfter)}`,
+        url: `/study/${encodeURIComponent(studyId)}/schedule-delete`,
       }),
     }),
     downloadParticipantData: builder.mutation<
       null,
       {
         dataType: string;
-        participantIds: string[];
+        participantIds: SyncExportSelection;
         studyId: string;
         startDate?: string;
         endDate?: string;
+        timeZone: string;
         filename?: string;
       }
     >({
-      queryFn: ({ dataType, participantIds, studyId, startDate, endDate, filename }, api) => {
+      queryFn: ({ dataType, participantIds, studyId, startDate, endDate, filename, timeZone }) => {
         return downloadResource(
-          `/chronicle/api/web/study/${encodeURIComponent(studyId)}/participants/data?${participantDataQuery({ dataType, participantIds, startDate, endDate })}`,
-          filename || `${studyId}-${dataType}.csv`,
-          api,
-        );
-      },
-    }),
-    createStudyExport: builder.mutation<
-      StudyExportJobInfo,
-      { request: CreateStudyExportRequest; studyId: string; idempotencyKey: string }
-    >({
-      invalidatesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Exports' }],
-      query: ({ request, studyId, idempotencyKey }) => ({
-        body: request,
-        headers: idempotencyHeaders(idempotencyKey),
-        method: 'POST',
-        url: `/study/${encodeURIComponent(studyId)}/export/async`,
-      }),
-    }),
-    listStudyExports: builder.query<StudyExportJobInfo[], { studyId: string }>({
-      providesTags: (_r, _e, { studyId }) => [{ id: studyId, type: 'Exports' }],
-      queryFn: ({ studyId }, _api, _extra, baseQuery) =>
-        readAllRows<StudyExportJobInfo[]>(baseQuery, `/study/${encodeURIComponent(studyId)}/export`, 500),
-    }),
-    downloadStudyExport: builder.mutation<
-      null,
-      { exportId: string; filename?: string; format: StudyExportFormat; studyId: string }
-    >({
-      queryFn: ({ exportId, filename, format, studyId }, api) => {
-        const extension = format === 'EXCEL' ? 'xlsx' : format.toLowerCase();
-        return downloadResource(
-          `/chronicle/api/web/study/${encodeURIComponent(studyId)}/export/${encodeURIComponent(exportId)}/download`,
-          filename || `chronicle-${studyId}-export-${exportId}.${extension}`,
-          api,
+          `/chronicle/api/web/study/${encodeURIComponent(studyId)}/participants/data?${participantDataQuery({ dataType, participantIds, startDate, endDate, timeZone })}`,
+          filename,
         );
       },
     }),
@@ -1247,33 +1322,31 @@ export const studyOperationsApi = createApi({
       null,
       {
         dataType: TimeUseDiaryDataType;
-        participantIds: string[];
+        participantIds: SyncExportSelection;
         studyId: string;
         startDate?: string;
         endDate?: string;
+        timeZone: string;
         filename?: string;
       }
     >({
-      queryFn: ({ dataType, participantIds, studyId, startDate, endDate, filename }, api) => {
+      queryFn: ({ dataType, participantIds, studyId, startDate, endDate, filename, timeZone }) => {
         return downloadResource(
-          `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/participants/data?${participantDataQuery({ dataType, participantIds, startDate, endDate })}`,
-          filename || `${studyId}-time-use-diary-${dataType}.csv`,
-          api,
+          `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/participants/data?${participantDataQuery({ dataType, participantIds, startDate, endDate, timeZone })}`,
+          filename,
         );
       },
     }),
-    // Whole-study Time Use Diary (every participant). The bulk counterpart of
-    // downloadParticipantTudData; previously this lived as a bare fetch() inside
-    // StudyTimeUseDiaryPage, which is why the Bulk Downloads tab had no TUD option.
+    // Whole-study Time Use Diary (every participant), the bulk counterpart of
+    // downloadParticipantTudData; shared by the Time Use Diary and Bulk downloads tabs.
     downloadStudyTudData: builder.mutation<
       null,
       { dataType: TimeUseDiaryDataType; studyId: string; startDate: string; endDate: string; filename?: string }
     >({
-      queryFn: ({ dataType, studyId, startDate, endDate, filename }, api) => {
+      queryFn: ({ dataType, studyId, startDate, endDate, filename }) => {
         return downloadResource(
           `/chronicle/v3/time-use-diary/${encodeURIComponent(studyId)}/data?${new URLSearchParams({ dataType, endDate, startDate }).toString()}`,
-          filename || `tud-${studyId}-${dataType}.csv`,
-          api,
+          filename,
         );
       },
     }),
@@ -1281,11 +1354,10 @@ export const studyOperationsApi = createApi({
       null,
       { questionnaireId: string; studyId: string; filename?: string }
     >({
-      queryFn: ({ questionnaireId, studyId, filename }, api) => {
+      queryFn: ({ questionnaireId, studyId, filename }) => {
         return downloadResource(
           `/chronicle/v3/survey/${encodeURIComponent(studyId)}/questionnaire/${encodeURIComponent(questionnaireId)}/data?type=csv`,
-          filename || `${studyId}-questionnaire-${questionnaireId}.csv`,
-          api,
+          filename,
         );
       },
     }),
@@ -1325,9 +1397,7 @@ export const studyOperationsApi = createApi({
             api,
           );
           if (!response.ok) return httpError(response, await response.text());
-          const text = await response.text();
-          const data = text ? (JSON.parse(text) as StudyLimits) : {};
-          return { data };
+          return await readJsonResponse<StudyLimits>(response, {});
         } catch (err) {
           return networkError(err);
         }
@@ -1353,28 +1423,37 @@ export const studyOperationsApi = createApi({
         return body;
       },
     }),
-    getAppUsageSurveyData: builder.query<
-      AppUsageEntry[],
-      { studyId: string; participantId: string; startDate: string; endDate: string }
-    >({
+    getAppUsageSurveyDays: builder.query<AppUsageSurveyDays, { studyId: string; participantId: string }>({
       extraOptions: { participantPublic: true },
-      query: ({ studyId, participantId, startDate, endDate }) => {
-        const params = new URLSearchParams({ startDate, endDate });
-        return `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage?${params.toString()}`;
-      },
-      transformResponse: (payload: unknown): AppUsageEntry[] =>
-        Array.isArray(payload) ? (payload as AppUsageEntry[]) : [],
+      providesTags: (_result, _error, { studyId, participantId }) => [
+        { id: `${studyId}/${participantId}`, type: 'AppUsageSurvey' },
+      ],
+      query: ({ studyId, participantId }) =>
+        `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage/days`,
+    }),
+    getAppUsageDaySurvey: builder.query<AppUsageDaySurvey, { studyId: string; participantId: string; date: string }>({
+      extraOptions: { participantPublic: true },
+      providesTags: (_result, _error, { studyId, participantId }) => [
+        { id: `${studyId}/${participantId}`, type: 'AppUsageSurvey' },
+      ],
+      query: ({ studyId, participantId, date }) =>
+        `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage?${new URLSearchParams({ date }).toString()}`,
     }),
     submitAppUsageSurvey: builder.mutation<
       unknown,
-      { studyId: string; participantId: string; data: AppUsageEntry[]; idempotencyKey?: string }
+      { studyId: string; participantId: string; date: string; answers: AppUsageAnswer[]; idempotencyKey?: string }
     >({
       extraOptions: { participantPublic: true },
-      query: ({ studyId, participantId, data, idempotencyKey }) => ({
-        body: data,
+      // A stored answer, or a day that changed under the page (409), refreshes the day and the calendar.
+      invalidatesTags: (_result, error, { studyId, participantId }) =>
+        !error || (error as { status?: unknown }).status === 409
+          ? [{ id: `${studyId}/${participantId}`, type: 'AppUsageSurvey' }]
+          : [],
+      query: ({ studyId, participantId, date, answers, idempotencyKey }) => ({
+        body: answers,
         headers: idempotencyHeaders(idempotencyKey),
         method: 'POST',
-        url: `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage`,
+        url: `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/app-usage?${new URLSearchParams({ date }).toString()}`,
       }),
     }),
     // Participant-facing app-usage-frequency fetch (DAILY vs HOURLY). The backend GET is
@@ -1386,12 +1465,18 @@ export const studyOperationsApi = createApi({
     }),
     submitTimeUseDiary: builder.mutation<
       unknown,
-      { studyId: string; participantId: string; data: ParticipantTimeUseDiaryResponse[]; idempotencyKey?: string }
+      {
+        studyId: string;
+        participantId: string;
+        data: ParticipantTimeUseDiaryResponse[];
+        idempotencyKey?: string;
+        logicalDate: string;
+      }
     >({
       extraOptions: { participantPublic: true },
-      query: ({ studyId, participantId, data, idempotencyKey }) => ({
+      query: ({ studyId, participantId, data, idempotencyKey, logicalDate }) => ({
         body: data,
-        headers: idempotencyHeaders(idempotencyKey),
+        headers: participantSubmissionHeaders(idempotencyKey, logicalDate),
         method: 'POST',
         url: `/time-use-diary/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}`,
       }),
@@ -1421,12 +1506,13 @@ export const studyOperationsApi = createApi({
         questionnaireId: string;
         responses: ParticipantQuestionnaireResponse[];
         idempotencyKey?: string;
+        logicalDate: string;
       }
     >({
       extraOptions: { participantPublic: true },
-      query: ({ studyId, participantId, questionnaireId, responses, idempotencyKey }) => ({
+      query: ({ studyId, participantId, questionnaireId, responses, idempotencyKey, logicalDate }) => ({
         body: responses,
-        headers: idempotencyHeaders(idempotencyKey),
+        headers: participantSubmissionHeaders(idempotencyKey, logicalDate),
         method: 'POST',
         url: `/survey/${encodeURIComponent(studyId)}/participant/${encodeURIComponent(participantId)}/questionnaire/${encodeURIComponent(questionnaireId)}`,
       }),
@@ -1434,9 +1520,11 @@ export const studyOperationsApi = createApi({
   }),
   reducerPath: 'studyOperationsApi',
   tagTypes: [
+    STUDY_DELETIONS_TAG,
     'Questionnaires',
     'Study',
     'Participants',
+    PENDING_ENROLLMENTS_TAG,
     'ParticipantStats',
     'Devices',
     'Compliance',
@@ -1445,14 +1533,21 @@ export const studyOperationsApi = createApi({
     'Events',
     'Lifecycle',
     'Organizations',
-    'Exports',
     'ApiKeys',
+    'AppUsageSurvey',
   ],
 });
 
 /** @public Hooks generated by RTK Query for the study API. */
 export const {
+  useGetStudyDeletionsQuery,
+  useEraseDeletionMutation,
+  useGetStudyExportAvailabilityQuery,
+  useGetStudySettingLocksQuery,
+  useGetPendingEnrollmentsQuery,
+  useCancelPendingEnrollmentMutation,
   useIssueParticipantAccessCodeMutation,
+  useLookupLiveEnrollmentCodeMutation,
   useArchiveStudyMutation,
   useCancelScheduledDeletionMutation,
   useUnarchiveStudyMutation,
@@ -1469,14 +1564,10 @@ export const {
   useRevokeStudyApiKeyMutation,
   useDeleteQuestionnaireMutation,
   useDeleteStudyParticipantsMutation,
-  useLazyGetDeletionOperationQuery,
   useDownloadParticipantDataMutation,
-  useCreateStudyExportMutation,
-  useDownloadStudyExportMutation,
   useDownloadParticipantTudDataMutation,
   useDownloadStudyTudDataMutation,
   useDownloadQuestionnaireResponsesMutation,
-  useListStudyExportsQuery,
   useGetAllStudiesQuery,
   useGetComplianceViolationsQuery,
   useGetAndroidDiagnosticsQuery,
@@ -1493,7 +1584,9 @@ export const {
   useGetStudyCollectionAcknowledgmentsQuery,
   useGetStudySettingsQuery,
   useGetStudySummaryQuery,
-  useGetAppUsageSurveyDataQuery,
+  useLazyGetStudySummaryQuery,
+  useGetAppUsageSurveyDaysQuery,
+  useGetAppUsageDaySurveyQuery,
   useGetAppUsageFrequencyQuery,
   useSubmitAppUsageSurveyMutation,
   useSubmitTimeUseDiaryMutation,
@@ -1504,6 +1597,7 @@ export const {
   useRegisterParticipantMutation,
   useUpdateParticipantAnnotationsMutation,
   useUpdateParticipationStatusMutation,
+  useSetParticipantProcessingBlockMutation,
   useUpdateQuestionnaireMutation,
   useUpdateStudyMutation,
 } = studyOperationsApi;

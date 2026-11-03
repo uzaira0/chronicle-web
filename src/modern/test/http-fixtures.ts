@@ -13,3 +13,16 @@ export function installRelativeRequest(): () => void {
     else Reflect.deleteProperty(globalThis, 'Request');
   };
 }
+
+export type FetchRoutes = Record<string, (request: Request) => Response | Promise<Response>>;
+
+/** Every expected path and method is declared; handlers own state and response creation. */
+export function routeFetch(routes: FetchRoutes): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const key = `${request.method} ${new URL(request.url).pathname}`;
+    const handler = routes[key];
+    if (!handler) throw new Error(`Unexpected request: ${key}`);
+    return handler(request);
+  }) as typeof fetch;
+}

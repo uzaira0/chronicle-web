@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
+import { PARTICIPATION_STATUSES } from '@/generated/chronicle-contracts';
 
 // ---------------------------------------------------------------------------
 // Zod schemas mirroring TypeScript types in study-operations-api.ts
@@ -15,7 +16,7 @@ const CandidateSchema = z.object({
   phoneNumber: z.string().nullable().optional(),
 });
 
-const ParticipationStatusSchema = z.enum(['ENROLLED', 'NOT_ENROLLED', 'PAUSED', 'COLLECTION_COMPLETED', 'UNKNOWN']);
+const ParticipationStatusSchema = z.enum(PARTICIPATION_STATUSES);
 
 const ParticipantSchema = z.object({
   candidate: CandidateSchema.passthrough(),
@@ -55,7 +56,6 @@ const StudySummarySchema = z.object({
   group: z.string().optional(),
   id: z.string().optional(),
   modules: z.record(z.string(), z.unknown()).optional(),
-  notificationsEnabled: z.boolean().optional(),
   phoneNumber: z.string().optional(),
   settings: z.record(z.string(), z.any()).optional(),
   startedAt: z.string().optional(),
@@ -69,7 +69,6 @@ const StudyUpdatePayloadSchema = z.object({
   description: z.string().optional(),
   group: z.string().optional(),
   modules: z.record(z.string(), z.unknown()).optional(),
-  notificationsEnabled: z.boolean().optional(),
   title: z.string().optional(),
   version: z.string().optional(),
 });
@@ -102,11 +101,11 @@ const DeviceEnrollmentEventSchema = z.object({
 
 const StudyDeviceInstanceSchema = z
   .object({
-    deviceId: z.string().optional(),
+    randomDeviceId: z.string().optional(),
     deviceType: z.string().optional(),
     enrollments: z.array(DeviceEnrollmentEventSchema).optional(),
     sourceDevice: z.unknown().optional(),
-    sourceDeviceId: z.string().nullable().optional(),
+    sourceRandomDeviceId: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -126,30 +125,11 @@ const StudySettingsAuditEntrySchema = z.object({
   studyId: z.string(),
 });
 
-const StudyRealtimeStatsSchema = z.object({
-  activeParticipants24h: z.number(),
-  dataSubmissions24h: z.number(),
-  lastDataReceived: z.string().nullable(),
-  studyId: z.string(),
-  submissionsByType: z.record(z.string(), z.number()),
-  timestamp: z.string(),
-  totalParticipants: z.number(),
-});
-
-const StudyEventSchema = z.object({
-  createdAt: z.string(),
-  eventId: z.string(),
-  eventType: z.string(),
-  metadata: z.record(z.string(), z.any()).optional(),
-  participantId: z.string().nullable().optional(),
-  studyId: z.string(),
-});
-
 const StudyLifecycleStatusSchema = z.enum(['ACTIVE', 'ARCHIVED', 'SCHEDULED_FOR_DELETION']);
 
 const AndroidDeviceSensorAvailabilitySchema = z.object({
   availableSensors: z.array(z.string()),
-  deviceId: z.string(),
+  randomDeviceId: z.string(),
   displayRotation: z.number().nullable().optional(),
   interactionPointerCaptureCapability: z
     .enum(['PLATFORM_API_UNAVAILABLE', 'REQUIRES_INPUT_INTERCEPTION'])
@@ -160,7 +140,6 @@ const AndroidDeviceSensorAvailabilitySchema = z.object({
   screenDensityDpi: z.number().nullable().optional(),
   screenHeightPixels: z.number().nullable().optional(),
   screenWidthPixels: z.number().nullable().optional(),
-  unavailableSensors: z.array(z.string()),
 });
 
 const StudyDurationSchema = z.object({
@@ -171,7 +150,6 @@ const StudyDurationSchema = z.object({
 
 const StudyLimitsSchema = z.object({
   dataRetentionDuration: StudyDurationSchema.optional(),
-  participantLimit: z.number().optional(),
   studyDuration: StudyDurationSchema.optional(),
 });
 
@@ -437,8 +415,7 @@ describe('Zod schema validation — API response contracts', () => {
           updatedAt: '2024-01-02',
           startedAt: '2024-01-01',
           endedAt: '2025-01-01',
-          modules: { ANDROID_SENSOR: {} },
-          notificationsEnabled: true,
+          modules: { CHRONICLE_DATA_COLLECTION: {} },
           phoneNumber: '555-1234',
           settings: {},
         }),
@@ -447,10 +424,6 @@ describe('Zod schema validation — API response contracts', () => {
 
     it('rejects non-string title', () => {
       expect(() => StudySummarySchema.parse({ title: 42 })).toThrow();
-    });
-
-    it('rejects non-boolean notificationsEnabled', () => {
-      expect(() => StudySummarySchema.parse({ notificationsEnabled: 'yes' })).toThrow();
     });
   });
 
@@ -629,100 +602,6 @@ describe('Zod schema validation — API response contracts', () => {
     });
   });
 
-  // ---- StudyRealtimeStatsSchema ----
-  describe('StudyRealtimeStatsSchema', () => {
-    it('accepts valid realtime stats', () => {
-      expect(
-        StudyRealtimeStatsSchema.parse({
-          activeParticipants24h: 5,
-          dataSubmissions24h: 14,
-          lastDataReceived: null,
-          studyId: 's-1',
-          submissionsByType: {},
-          timestamp: '2024-01-15T10:00:00Z',
-          totalParticipants: 20,
-        }),
-      ).toBeTruthy();
-    });
-
-    it('accepts with lastDataReceived', () => {
-      expect(
-        StudyRealtimeStatsSchema.parse({
-          activeParticipants24h: 0,
-          dataSubmissions24h: 0,
-          studyId: 's-1',
-          submissionsByType: {},
-          timestamp: '2024-01-15T10:00:00Z',
-          totalParticipants: 0,
-          lastDataReceived: '2024-01-15T10:00:00Z',
-        }),
-      ).toBeTruthy();
-    });
-
-    it('rejects non-number activeParticipants24h', () => {
-      expect(() =>
-        StudyRealtimeStatsSchema.parse({
-          activeParticipants24h: '5',
-          dataSubmissions24h: 0,
-          lastDataReceived: null,
-          studyId: 's-1',
-          submissionsByType: {},
-          timestamp: '2024-01-15T10:00:00Z',
-          totalParticipants: 20,
-        }),
-      ).toThrow();
-    });
-  });
-
-  // ---- StudyEventSchema ----
-  describe('StudyEventSchema', () => {
-    it('accepts valid event', () => {
-      expect(
-        StudyEventSchema.parse({
-          createdAt: '2024-01-15',
-          eventId: 'e-1',
-          eventType: 'ENROLLMENT',
-          studyId: 's-1',
-        }),
-      ).toBeTruthy();
-    });
-
-    it('accepts event with optional fields', () => {
-      expect(
-        StudyEventSchema.parse({
-          createdAt: '2024-01-15',
-          eventId: 'e-1',
-          eventType: 'DATA_UPLOAD',
-          studyId: 's-1',
-          participantId: 'p-1',
-          metadata: { count: 42 },
-        }),
-      ).toBeTruthy();
-    });
-
-    it('accepts null participantId', () => {
-      expect(
-        StudyEventSchema.parse({
-          createdAt: '2024-01-15',
-          eventId: 'e-1',
-          eventType: 'SYSTEM',
-          studyId: 's-1',
-          participantId: null,
-        }),
-      ).toBeTruthy();
-    });
-
-    it('rejects missing eventType', () => {
-      expect(() =>
-        StudyEventSchema.parse({
-          createdAt: '2024-01-15',
-          eventId: 'e-1',
-          studyId: 's-1',
-        }),
-      ).toThrow();
-    });
-  });
-
   // ---- StudyLifecycleStatusSchema ----
   describe('StudyLifecycleStatusSchema', () => {
     it('accepts ACTIVE', () => {
@@ -748,9 +627,8 @@ describe('Zod schema validation — API response contracts', () => {
       expect(
         AndroidDeviceSensorAvailabilitySchema.parse({
           availableSensors: ['ACCELEROMETER', 'GYROSCOPE'],
-          deviceId: 'dev-1',
+          randomDeviceId: 'dev-1',
           participantId: 'p-1',
-          unavailableSensors: ['BAROMETER'],
         }),
       ).toBeTruthy();
     });
@@ -759,19 +637,17 @@ describe('Zod schema validation — API response contracts', () => {
       expect(
         AndroidDeviceSensorAvailabilitySchema.parse({
           availableSensors: [],
-          deviceId: 'dev-1',
+          randomDeviceId: 'dev-1',
           participantId: 'p-1',
-          unavailableSensors: [],
         }),
       ).toBeTruthy();
     });
 
-    it('rejects missing deviceId', () => {
+    it('rejects missing randomDeviceId', () => {
       expect(() =>
         AndroidDeviceSensorAvailabilitySchema.parse({
           availableSensors: [],
           participantId: 'p-1',
-          unavailableSensors: [],
         }),
       ).toThrow();
     });
@@ -786,19 +662,10 @@ describe('Zod schema validation — API response contracts', () => {
     it('accepts full limits', () => {
       expect(
         StudyLimitsSchema.parse({
-          participantLimit: 100,
           studyDuration: { years: 1, months: 0, days: 0 },
           dataRetentionDuration: { years: 0, months: 3, days: 0 },
         }),
       ).toBeTruthy();
-    });
-
-    it('accepts participantLimit only', () => {
-      expect(StudyLimitsSchema.parse({ participantLimit: 50 })).toBeTruthy();
-    });
-
-    it('rejects non-number participantLimit', () => {
-      expect(() => StudyLimitsSchema.parse({ participantLimit: '100' })).toThrow();
     });
 
     it('rejects incomplete duration object', () => {
@@ -841,7 +708,7 @@ describe('Zod schema validation — API response contracts', () => {
         StudyDeviceInstancesMapSchema.parse({
           'p-1': [
             {
-              deviceId: 'device-1',
+              randomDeviceId: 'device-1',
               deviceType: 'ANDROID',
               enrollments: [
                 {
@@ -922,7 +789,7 @@ describe('Zod schema validation — API response contracts', () => {
     it('validates StudySummary[] response', () => {
       const data = [
         { id: 's-1', title: 'Study A' },
-        { id: 's-2', title: 'Study B', notificationsEnabled: false },
+        { id: 's-2', title: 'Study B' },
       ];
       expect(z.array(StudySummarySchema).parse(data)).toHaveLength(2);
     });
@@ -933,7 +800,7 @@ describe('Zod schema validation — API response contracts', () => {
     });
 
     it('validates AndroidDeviceSensorAvailability[] response', () => {
-      const data = [{ availableSensors: ['ACC'], deviceId: 'd-1', participantId: 'p-1', unavailableSensors: [] }];
+      const data = [{ availableSensors: ['ACC'], randomDeviceId: 'd-1', participantId: 'p-1' }];
       expect(z.array(AndroidDeviceSensorAvailabilitySchema).parse(data)).toHaveLength(1);
     });
   });

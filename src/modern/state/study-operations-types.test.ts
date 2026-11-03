@@ -8,6 +8,24 @@ import {
   normalizeStudySubmissionGroups,
 } from './study-operations-api';
 
+it('normalizes consent modules from the generated catalog and ignores unknown values', () => {
+  const [participant] = normalizeParticipantList([
+    {
+      participantId: 'p-1',
+      candidate: { id: 'c-1' },
+      participationStatus: 'ENROLLED',
+      consentState: {
+        declinedRequiredModules: ['usage_events', 'unknown_module', null],
+        modulesAwaitingDecision: ['sensor_availability', 12, {}, 'unknown_module'],
+      },
+    },
+  ]);
+  expect(participant?.consentState).toEqual({
+    declinedRequiredModules: ['usage_events'],
+    modulesAwaitingDecision: ['sensor_availability'],
+  });
+});
+
 function expectThrownMessage(action: () => void, message: string): void {
   try {
     action();
@@ -533,9 +551,8 @@ describe('normalizeParticipantList — edge cases', () => {
     expect(result[0]?.participantTags).toEqual([]);
   });
 
-  it('non-array participantTags defaults to []', () => {
-    const result = normalizeParticipantList([{ participantId: 'p-1', participantTags: 'not-array' }]);
-    expect(result[0]?.participantTags).toEqual([]);
+  it('rejects non-array participantTags', () => {
+    expect(() => normalizeParticipantList([{ participantId: 'p-1', participantTags: 'not-array' }])).toThrow();
   });
 
   it('missing participationStatus defaults to UNKNOWN', () => {
