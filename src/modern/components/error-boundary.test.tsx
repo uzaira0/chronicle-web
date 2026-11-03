@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router';
+
+import { AppShell } from '@/app/app-shell';
+import { ParticipantShell } from '@/app/participant-shell';
+import { StudyLayout } from '@/routes/study-layout';
+import { store } from '@/state/store';
 
 import { contrast } from '@/test/contrast';
 
@@ -39,7 +45,7 @@ function renderLayoutWithFailingPage(message: string) {
   );
 }
 
-// production-readiness U1: one page's render error must not take down the shell and its
+// One page's render error must not take down the shell and its
 // navigation, and retrying a failed route chunk must fetch it again.
 describe('RouteOutlet', () => {
   afterEach(() => {
@@ -65,13 +71,34 @@ describe('RouteOutlet', () => {
   });
 
   test.each([
-    '../app/app-shell.tsx',
-    '../app/participant-shell.tsx',
-    '../routes/study-layout.tsx',
-  ])('%s renders routed pages behind a route error boundary', (path) => {
-    const source = readFileSync(new URL(path, import.meta.url), 'utf-8');
-    expect(source).toContain('<RouteOutlet />');
-    expect(source).not.toContain('<Outlet />');
+    ['AppShell', <AppShell key="app" />, '/'],
+    ['ParticipantShell', <ParticipantShell key="participant" />, '/'],
+    ['StudyLayout', <StudyLayout key="study" />, '/studies/:studyId'],
+  ] as const)('%s renders routed pages behind a route error boundary', async (_name, shell, parentPath) => {
+    const respond = (path: string) => {
+      if (path.endsWith('/lifecycle')) return Response.json('ACTIVE');
+      if (path.startsWith('/chronicle/api/web/limits/')) return Response.json({ studyDataExpires: null });
+      if (path === '/chronicle/api/web/study/s1') return Response.json({ id: 's1', modules: {}, title: 'Study' });
+      return new Response(null, { status: 204 });
+    };
+    globalThis.fetch = mock((input: RequestInfo | URL) =>
+      Promise.resolve(
+        respond(new URL(input instanceof Request ? input.url : String(input), 'http://localhost').pathname),
+      ),
+    ) as unknown as typeof fetch;
+    spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={[parentPath === '/' ? '/broken' : '/studies/s1/broken']}>
+          <Routes>
+            <Route element={shell} path={parentPath}>
+              <Route element={<Boom message="render bug" />} path="broken" />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </Provider>,
+    );
+    expect(await screen.findByText('Something went wrong')).toBeTruthy();
   });
 
   test('crash fallback text and retry button keep normal-text contrast in light and dark themes', () => {

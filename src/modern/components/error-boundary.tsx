@@ -12,7 +12,7 @@
  *   </ObservabilityErrorBoundary>
  */
 
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, type ReactNode } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import { createTranslator, getCurrentLanguage } from '@/i18n';
 import { reportError } from '@/lib/observability';
@@ -23,9 +23,7 @@ interface Props {
 }
 
 interface State {
-  // Only `hasError` drives rendering. The error object itself is intentionally
-  // NOT stored/shown — raw error detail could leak PHI in a HIPAA UI; it is
-  // captured out-of-band via componentDidCatch -> reportError (telemetry).
+  // Exception content is neither displayed nor sent to telemetry.
   hasError: boolean;
   // A lazy route chunk that failed to download fails again on a re-render; only a reload
   // fetches it afresh (after a deploy the old chunk name may be gone too).
@@ -46,9 +44,8 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
     return { chunkLoadFailed: CHUNK_LOAD_FAILURE.test(message), hasError: true };
   }
 
-  override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // Report to telemetry endpoint (fire-and-forget)
-    reportError(error, errorInfo.componentStack ?? undefined);
+  override componentDidCatch(): void {
+    reportError();
   }
 
   handleRetry = (): void => {
@@ -74,7 +71,7 @@ export class ObservabilityErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={this.handleRetry}
-            className="rounded-md border border-foreground bg-foreground px-5 py-2 text-sm font-medium text-background pointer-coarse:min-h-11 pointer-coarse:min-w-11 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="rounded-md border border-foreground bg-foreground px-5 py-2 text-sm font-medium text-background hover:underline pointer-coarse:min-h-11 pointer-coarse:min-w-11 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             {t('common.try_again')}
           </button>

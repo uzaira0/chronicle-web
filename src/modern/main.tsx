@@ -4,11 +4,9 @@ import ReactDOM from 'react-dom/client';
 import '@/styles/index.css';
 import { ModernApp } from '@/app/modern-app';
 import { ObservabilityErrorBoundary } from '@/components/error-boundary';
-import { initGlobalErrorHandlers, initWebVitals } from '@/lib/observability';
+import { initGlobalErrorHandlers } from '@/lib/observability';
 
-// Initialize frontend observability (error handlers + Web Vitals)
 initGlobalErrorHandlers();
-initWebVitals();
 
 const rootElement = document.getElementById('app');
 
