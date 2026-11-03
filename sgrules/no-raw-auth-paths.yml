@@ -1,5 +1,7 @@
 id: no-raw-auth-paths
 language: typescript
+note: |
+  Blind spots: Only listed auth/admin literal path fragments match; concatenated segments and new paths need contract tests.
 severity: error
 message: |
   Raw auth/admin path literals drift from the constants module. Use

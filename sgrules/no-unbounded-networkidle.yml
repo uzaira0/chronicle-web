@@ -1,5 +1,7 @@
 id: no-unbounded-networkidle
 language: typescript
+note: |
+  Blind spots: Only the single-argument networkidle call matches; the rule does not validate timeout values or caller error handling.
 severity: error
 message: |
   `waitForLoadState('networkidle')` with no timeout option can burn the full

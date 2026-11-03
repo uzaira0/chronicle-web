@@ -4,6 +4,7 @@ severity: error
 # Plain-.ts twin of object-label.yml: ast-grep applies a rule only to its own language's files.
 message: Prose in a `label`/`title`/`description`/`message` property. Resolve it at the render site with `t('...')` (or `translateCatalog` for catalog data) instead of storing English in the object.
 note: |
+  Blind spots: Only unquoted listed property names with multiword literal values match; quoted keys, single words and computed values are not traced.
   lib/study-constants.ts and lib/participant-data-types.ts are the catalog source of truth and
   are excluded; their labels are overridden at render time via `translateCatalog`.
 ignores:
@@ -26,3 +27,9 @@ rule:
         any:
           - { kind: string, regex: '[A-Za-z]+\s+[A-Za-z]+' }
           - { kind: template_string, regex: '[A-Za-z]+\s+[A-Za-z]+' }
+
+files:
+  - "**/src/modern/**"
+  - "src/modern/**"
+  - "**/lint/i18n/cases/**"
+  - "lint/i18n/cases/**"

@@ -1,0 +1,17 @@
+id: web-i18n-error-message-ts
+valid:
+- const title = translated;
+invalid:
+- "// Cases for web-i18n-error-message-ts. error-message.tsx holds the .tsx twin.\nexport function cases(t: (k:\
+  \ string) => string, id: string, msg: string) {\n  const errors = [\n    new Error('No exports are configured'),\
+  \ // FIRE: web-i18n-error-message-ts\n    new Error(`Study ${id} was not found`), // FIRE: web-i18n-error-message-ts\n\
+  \    new Error(\"Double quoted prose here\"), // FIRE: web-i18n-error-message-ts\n    new Error('[study-constants]\
+  \ Expected array here'),\n    new Error(`[normalize] Expected object, received ${id}`),\n    new Error(msg),\n\
+  \    new Error(t('errors.generic')),\n    new Error('unreachable'),\n    new Error(''),\n    new TypeError('Bad\
+  \ input value here'),\n    new Error(`${id}`),\n  ];\n  if (!id) {\n    // developer invariant: a suppression\
+  \ on the line above is honored\n    // ast-grep-ignore: web-i18n-error-message-ts\n    throw new Error('Identifier\
+  \ must be present here');\n  }\n  if (!msg) {\n    // ast-grep-ignore\n    throw new Error('A blanket ignore also\
+  \ suppresses this line');\n  }\n  // ast-grep-ignore: web-i18n-error-message-ts -- a note after the rule id is\
+  \ allowed since ast-grep 0.45.2\n  if (errors.length > 3) throw new Error('A suppression with a note still applies');\n\
+  \  throw new Error('Same-line ignore is checked below'); // ast-grep-ignore: web-i18n-error-message-ts\n}\n//\
+  \ Documented hole: only `new Error(...)` is matched; TypeError/RangeError are developer errors.\n"

@@ -1,5 +1,7 @@
 id: no-hardcoded-test-host
 language: typescript
+note: |
+  Blind spots: Only the exact loopback host and port literal matches; computed URLs and equivalent host spellings are not resolved.
 severity: error
 message: |
   Hardcoded http://127.0.0.1:4173 (the bun preview proxy) silently breaks when
@@ -11,7 +13,7 @@ rule:
     - kind: string_fragment
     - kind: string
     - kind: template_string
-  regex: 'http://127\.0\.0\.1:4173'
+  regex: 'http://127\.0\.0\.1:4173([^0-9]|$)'
 files:
   - e2e/**/*.ts
   - e2e/**/*.tsx

@@ -1,0 +1,6 @@
+id: no-unbounded-networkidle
+valid:
+  - "await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => undefined);"
+  - "await page.waitForLoadState('domcontentloaded');"
+invalid:
+  - "await page.waitForLoadState('networkidle');"

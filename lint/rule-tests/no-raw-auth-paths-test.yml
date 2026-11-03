@@ -1,0 +1,8 @@
+id: no-raw-auth-paths
+valid:
+  - "await page.request.get(SESSION_PATH);"
+  - "const studies = '/chronicle/v3/study';"
+invalid:
+  - "await page.request.get('/chronicle/v3/auth/session');"
+  - "await page.request.post(`${base}/chronicle/v3/auth/testing-login`);"
+  - "await flush('/chronicle/v3/admin/test-only/flush-pipeline');"

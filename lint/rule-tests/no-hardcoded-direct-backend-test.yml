@@ -1,0 +1,7 @@
+id: no-hardcoded-direct-backend
+valid:
+  - "const other = 'http://localhost:403201';"
+  - "const url = `${persona.directBackendUrl}/chronicle/v3/health`;"
+invalid:
+  - "const url = 'http://localhost:40320/chronicle/v3/health';"
+  - "const url = `http://localhost:40320/${path}`;"

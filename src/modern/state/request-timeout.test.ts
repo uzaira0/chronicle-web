@@ -11,7 +11,7 @@ import { createApiStore } from '@/test/study-operations-store';
 
 import { fetchWithCsrf, studyOperationsApi } from './study-operations-api';
 
-// production-readiness U5 / ai-built-code B6: a backend that accepts the connection and never
+// A backend that accepts the connection and never
 // answers must not leave a spinner up forever. Every call gives up after REQUEST_TIMEOUT_MS.
 
 let savedFetch: typeof globalThis.fetch;

@@ -1,0 +1,6 @@
+id: no-bearer-in-dsl
+valid:
+  - "const headers = { 'X-CSRF-Token': csrf.value };"
+  - "const label = 'Bearer tokens are not used here';"
+invalid:
+  - "const headers = { Authorization: `Bearer ${token}` };"

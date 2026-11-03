@@ -1,0 +1,12 @@
+id: conditional-error-needs-live-region
+valid:
+  - '<>{downloadError && <p className="text-sm text-destructive" role="alert">{downloadError}</p>}</>'
+  - '<>{serverCaError && <p aria-live="assertive" className="text-destructive">{serverCaError}</p>}</>'
+  - '<>{error && <div role="status" className="text-destructive">{error}</div>}</>'
+  - '<>{error && <p className="text-muted-foreground">{error}</p>}</>'
+invalid:
+  - '<>{downloadError && <p className="text-sm text-destructive">{downloadError}</p>}</>'
+  - '<>{serverCaError && <p className="text-sm font-medium text-destructive">{serverCaError}</p>}</>'
+  - '<>{error && <div className="text-destructive" aria-live="off">{error}</div>}</>'
+  - '<>{downloadError && (<p className="text-sm text-destructive">{downloadError}</p>)}</>'
+  - '<>{error && (<div className="text-destructive">{error}</div>)}</>'

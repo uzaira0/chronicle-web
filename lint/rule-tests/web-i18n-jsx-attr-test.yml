@@ -1,0 +1,23 @@
+id: web-i18n-jsx-attr
+valid:
+- const title = translated;
+invalid:
+- "// Cases for web-i18n-jsx-attr. Marked lines must fire; unmarked lines must be clean.\nimport type { ReactNode\
+  \ } from 'react';\n\nfunction Dialog(props: { title: string; children?: ReactNode }) {\n  return <div title={props.title}>{props.children}</div>;\n\
+  }\n\nexport function Cases({ t, label }: { t: (k: string) => string; label: string }) {\n  return (\n    <div>\n\
+  \      <button title=\"Delete study\" type=\"button\" />{/* FIRE: web-i18n-jsx-attr */}\n      <button title='Delete'\
+  \ type=\"button\" />{/* FIRE: web-i18n-jsx-attr */}\n      <button aria-label=\"Close\" type=\"button\" />{/*\
+  \ FIRE: web-i18n-jsx-attr */}\n      <img alt=\"Study logo\" src=\"x.png\" />{/* FIRE: web-i18n-jsx-attr */}\n\
+  \      <Dialog title=\"Edit study\" />{/* FIRE: web-i18n-jsx-attr */}\n      <input aria-description=\"Your participant\
+  \ id\" />{/* FIRE: web-i18n-jsx-attr */}\n      <section aria-roledescription=\"Study card\" />{/* FIRE: web-i18n-jsx-attr\
+  \ */}\n      <div aria-valuetext=\"Half done\" />{/* FIRE: web-i18n-jsx-attr */}\n      <div title=\"Multi-line\
+  \ tag\" {/* FIRE: web-i18n-jsx-attr */}\n        role=\"note\"\n      />\n      <button title={'Close dialog'}\
+  \ type=\"button\" />{/* FIRE: web-i18n-jsx-attr */}\n      <button title={`Close ${label}`} type=\"button\" />{/*\
+  \ FIRE: web-i18n-jsx-attr */}\n      <button title={t('actions.delete')} type=\"button\" />\n      <div className={`flex\
+  \ ${label ? 'border-t border-border' : ''}`} />\n      <label htmlFor={`participant-policy-${label}`} />\n   \
+  \   <div id={`health-connect-${label}`} />\n      <button title={`${label}`} type=\"button\" />\n      <button\
+  \ title={label} type=\"button\" />\n      <div className=\"flex items-center\" />\n      <div data-testid=\"submit\
+  \ button\" />\n      <nav id=\"main-nav\" />\n      <a href=\"/withdrawal\">{t('x')}</a>\n      <div aria-hidden=\"\
+  true\" />\n      <div aria-live=\"polite\" />\n      <img alt=\"\" src=\"x.png\" />\n      <div title=\"\" />\n\
+  \      <div role=\"button\" />\n      <input name=\"email\" type=\"email\" />\n      <div title=\"42\" />\n  \
+  \  </div>\n  );\n}\n"

@@ -1,0 +1,6 @@
+id: no-hardcoded-test-host
+valid:
+  - "await page.goto(`${providers.baseUrl}/chronicle/`);"
+  - "const other = 'http://127.0.0.1:41730';"
+invalid:
+  - "await page.goto('http://127.0.0.1:4173/chronicle/');"

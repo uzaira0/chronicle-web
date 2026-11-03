@@ -1,0 +1,11 @@
+id: fetch-without-deadline-tsx
+valid:
+  - "void fetch(path, { method: 'POST', keepalive: true, signal: timeoutSignal() });"
+  - "const signal = timeoutSignal(); await fetch(url, { signal });"
+  - "await fetch(url, { ...init, headers, signal: init.signal });"
+  - "await fetchWithCsrf(url, { method: 'POST' });"
+invalid:
+  - "void fetch(path, { method: 'POST', keepalive: true });"
+  - "await fetch(url);"
+  - "await fetch(url, { ...init, headers });"
+  - "await globalThis.fetch(url, { method: 'GET' });"

@@ -1,5 +1,7 @@
 id: no-hardcoded-direct-backend
 language: typescript
+note: |
+  Blind spots: Only the exact localhost port literal matches; computed URLs and equivalent host spellings are not resolved.
 severity: error
 message: |
   Hardcoded http://localhost:40320 (the test backend port) silently breaks when
@@ -11,7 +13,7 @@ rule:
     - kind: string_fragment
     - kind: string
     - kind: template_string
-  regex: 'http://localhost:40320'
+  regex: 'http://localhost:40320([^0-9]|$)'
 files:
   - e2e/**/*.ts
   - e2e/**/*.tsx

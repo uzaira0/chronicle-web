@@ -1,0 +1,7 @@
+id: no-raw-cookie-names
+valid:
+  - "const csrf = cookies.find((c) => c.name === CSRF_COOKIE_NAME);"
+  - "const note = 'set ol_csrf_token first';"
+invalid:
+  - "const csrf = cookies.find((c) => c.name === 'ol_csrf_token');"
+  - "const auth = cookies.find((c) => c.name === 'chronicle_auth');"

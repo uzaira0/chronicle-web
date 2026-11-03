@@ -1,0 +1,31 @@
+id: conditional-error-needs-live-region
+language: tsx
+severity: error
+message: Announce conditional error feedback with role="alert" or an aria-live region.
+note: |
+  Blind spots: Matches direct conditional Error/error variables displayed verbatim in p/div with literal destructive classes; data flow, aliases, complex child templates and computed classes are not resolved.
+files:
+  - src/modern/**/*.tsx
+ignores:
+  - src/modern/**/*.test.tsx
+  - src/modern/test/**
+rule:
+  all:
+    - any:
+        - pattern: '$ERROR && <p $$$ATTRS>{$ERROR}</p>'
+        - pattern: '$ERROR && <div $$$ATTRS>{$ERROR}</div>'
+        - pattern: '$ERROR && (<p $$$ATTRS>{$ERROR}</p>)'
+        - pattern: '$ERROR && (<div $$$ATTRS>{$ERROR}</div>)'
+    - has:
+        kind: jsx_attribute
+        regex: '^className=.*text-destructive'
+        stopBy: end
+    - not:
+        has:
+          kind: jsx_attribute
+          regex: >-
+            ^(role=['"](alert|status)['"]|aria-live=['"](assertive|polite)['"])$
+          stopBy: end
+constraints:
+  ERROR:
+    regex: '(?i)error$'

@@ -1,5 +1,7 @@
 id: web-i18n-error-message-ts
 language: typescript
+note: |
+  Blind spots: Only new Error with multiword literal prose matches; Error subclasses, single words and computed messages are not resolved.
 severity: error
 # Plain-.ts twin of error-message.yml: ast-grep applies a rule only to its own language's files.
 message: >-
@@ -22,3 +24,9 @@ constraints:
           - { kind: template_string, regex: '[A-Za-z]+\s+[A-Za-z]+' }
       # Developer invariants carry a bracketed module tag: new Error(`[normalizeX] Expected array`)
       - not: { regex: '^[`"'']\[' }
+
+files:
+  - "**/src/modern/**"
+  - "src/modern/**"
+  - "**/lint/i18n/cases/**"
+  - "lint/i18n/cases/**"

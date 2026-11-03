@@ -1,5 +1,7 @@
 id: no-inline-client-request-in-scopes
 language: typescript
+note: |
+  Blind spots: Only direct request.method calls in scope files match; request aliases and helper implementations are not followed.
 severity: error
 message: |
   Inline `client.request.get/post/delete` calls in DSL scopes bypass the central

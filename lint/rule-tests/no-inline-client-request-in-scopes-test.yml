@@ -1,0 +1,6 @@
+id: no-inline-client-request-in-scopes
+valid:
+  - "await apiPost(client, '/study', body);"
+invalid:
+  - "await client.request.post('/study', { data: body });"
+  - "await persona.client.request.delete(`/study/${id}`);"

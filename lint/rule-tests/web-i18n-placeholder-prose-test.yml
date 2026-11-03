@@ -1,0 +1,18 @@
+id: web-i18n-placeholder-prose
+valid:
+- const title = translated;
+invalid:
+- "// Cases for web-i18n-placeholder-prose. Prose fires; identifier-shaped examples are allowed.\nexport function\
+  \ Cases({ t }: { t: (k: string) => string }) {\n  return (\n    <div>\n      <input placeholder=\"Enter your name\"\
+  \ />{/* FIRE: web-i18n-placeholder-prose */}\n      <input placeholder=\"Search studies\u2026\" />{/* FIRE: web-i18n-placeholder-prose\
+  \ */}\n      <input placeholder='Type a message here' />{/* FIRE: web-i18n-placeholder-prose */}\n      <textarea\
+  \ placeholder=\"Describe the study in a sentence\" />{/* FIRE: web-i18n-placeholder-prose */}\n      <input placeholder={'Enter\
+  \ a name here'} />{/* FIRE: web-i18n-placeholder-prose */}\n      <input placeholder={`Search ${t('x')} by name`}\
+  \ />{/* FIRE: web-i18n-placeholder-prose */}\n      <input placeholder={t('participants.id_placeholder')} />\n\
+  \      <input placeholder={`${t('x')}`} />\n      <input placeholder=\"researcher@university.edu\" />\n      <input\
+  \ placeholder=\"https://research.example.org/consent/study.pdf\" />\n      <input placeholder=\"custom-filename.csv\"\
+  \ />\n      <input placeholder=\"2026-08-17T09:30:00-05:00\" />\n      <input placeholder=\"1.0\" />\n      <input\
+  \ placeholder=\"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\" />\n      <input placeholder=\"e.g. 100\" />\n\
+  \      <input placeholder=\"Search\" />\n    </div>\n  );\n}\n// Documented hole: a single-word placeholder such\
+  \ as \"Search\" is not matched, because the rule\n// cannot tell a word from an identifier-shaped example. Use\
+  \ `{t('...')}` for those.\n"

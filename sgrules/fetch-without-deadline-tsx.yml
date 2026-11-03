@@ -1,0 +1,33 @@
+id: fetch-without-deadline-tsx
+language: tsx
+note: |
+  Blind spots: Checks signal presence on a direct fetch options object; signal lifetime, spreads, aliases and wrapper implementations are not resolved.
+severity: error
+message: |
+  A fetch with no AbortSignal waits forever on a backend that accepts the connection and never answers.
+  Pass `signal: timeoutSignal()` from '@/lib/request-timeout' (or anySignal with it), or call fetchWithCsrf,
+  which adds the deadline.
+files:
+  - src/**/*.tsx
+ignores:
+  - src/**/*.test.tsx
+  - src/modern/test/**
+rule:
+  all:
+    - kind: call_expression
+    - has:
+        field: function
+        regex: '^(globalThis\.|window\.|self\.)?fetch$'
+    - not:
+        has:
+          field: arguments
+          has:
+            kind: object
+            has:
+              any:
+                - kind: pair
+                  has:
+                    field: key
+                    regex: '^signal$'
+                - kind: shorthand_property_identifier
+                  regex: '^signal$'

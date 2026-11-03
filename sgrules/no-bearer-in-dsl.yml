@@ -7,6 +7,7 @@ message: |
   to subsequent page loads. Use apiPost/apiGet/apiDelete from `dsl/di/api-client.ts`
   — they read `X-CSRF-Token` dynamically from `context.cookies()`.
 note: |
+  Blind spots: Only literal Bearer interpolation matches; header values assembled by concatenation or helpers are not traced.
   See chronicle_e2e_dsl_auth.md for the full incident write-up. The DSL-seeded
   studies returning 403 to the browser is the canonical failure mode.
 rule:

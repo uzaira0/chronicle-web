@@ -1,5 +1,7 @@
 id: no-raw-cookie-names
 language: typescript
+note: |
+  Blind spots: Only the two exact cookie-name literals match; computed names and cookie values passed through helpers are not resolved.
 severity: error
 message: |
   Raw cookie name strings drift between code paths (we previously had
