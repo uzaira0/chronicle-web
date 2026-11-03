@@ -13,7 +13,7 @@ const studySettings = (over: Partial<TudStudySettings> = {}): TudStudySettings =
   ...over,
 });
 
-describe('resolveTudSettings — study settings are authoritative (R2 parity)', () => {
+describe('resolveTudSettings — study settings are authoritative', () => {
   test('OSU comes from study settings when no URL param is present', () => {
     const s = resolveTudSettings(sp(''), studySettings({ enableChangesForOhioStateUniversity: true }));
     expect(s.enableOsu).toBe(true);

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { ResponseRequired } from '@/components/response-required';
 import { useTranslator } from '@/i18n';
 
 import type { FieldDef } from './tud-schema';
@@ -15,6 +16,7 @@ export type FieldValue = string | string[] | undefined;
 
 interface ControlProps {
   controlId?: string;
+  describedBy?: string | undefined;
   field: FieldDef;
   labelledBy?: string;
   value: FieldValue;
@@ -31,17 +33,23 @@ function freeTextOf(values: string[], known: Set<string>): string | undefined {
   return values.find((v) => !known.has(v) && v !== OTHER_VALUE);
 }
 
-export function RadioControl({ field, invalid, labelledBy, onChange, value }: ControlProps) {
+export function RadioControl({ controlId, describedBy, field, invalid, labelledBy, onChange, value }: ControlProps) {
   const selected = typeof value === 'string' ? value : '';
   const known = optionValues(field);
   const otherActive = field.withOther === true && selected !== '' && !known.has(selected);
   return (
-    <fieldset aria-invalid={invalid} aria-labelledby={labelledBy} className="space-y-2">
+    <fieldset
+      aria-describedby={describedBy}
+      aria-invalid={invalid}
+      aria-labelledby={labelledBy}
+      className="space-y-2"
+      id={controlId}
+    >
       {(field.options ?? []).map((option) => (
         <label className={optionClass(selected === option.value)} key={option.value}>
           <input
             checked={selected === option.value}
-            className="h-4 w-4 border-border text-primary focus:ring-primary"
+            className="h-4 w-4 border-border text-primary"
             name={field.code}
             onChange={() => onChange(field.code, option.value)}
             type="radio"
@@ -61,7 +69,7 @@ export function RadioControl({ field, invalid, labelledBy, onChange, value }: Co
   );
 }
 
-export function CheckboxControl({ field, invalid, labelledBy, onChange, value }: ControlProps) {
+export function CheckboxControl({ controlId, describedBy, field, invalid, labelledBy, onChange, value }: ControlProps) {
   const values = Array.isArray(value) ? value : [];
   const known = optionValues(field);
   const otherText = freeTextOf(values, known);
@@ -78,12 +86,18 @@ export function CheckboxControl({ field, invalid, labelledBy, onChange, value }:
   };
 
   return (
-    <fieldset aria-invalid={invalid} aria-labelledby={labelledBy} className="space-y-2">
+    <fieldset
+      aria-describedby={describedBy}
+      aria-invalid={invalid}
+      aria-labelledby={labelledBy}
+      className="space-y-2"
+      id={controlId}
+    >
       {(field.options ?? []).map((option) => (
         <label className={optionClass(values.includes(option.value))} key={option.value}>
           <input
             checked={values.includes(option.value)}
-            className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            className="h-4 w-4 rounded border-border text-primary"
             onChange={(event) => toggle(option.value, event.currentTarget.checked)}
             type="checkbox"
           />
@@ -102,13 +116,15 @@ export function CheckboxControl({ field, invalid, labelledBy, onChange, value }:
   );
 }
 
-function TextControl({ controlId, field, invalid, labelledBy, onChange, value }: ControlProps) {
+function TextControl({ controlId, describedBy, field, invalid, labelledBy, onChange, value }: ControlProps) {
   return (
     <input
+      aria-describedby={describedBy}
       aria-invalid={invalid}
       aria-labelledby={labelledBy}
       className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
       id={controlId}
+      name={controlId}
       onChange={(event) => onChange(field.code, event.currentTarget.value)}
       type="text"
       value={typeof value === 'string' ? value : ''}
@@ -116,7 +132,7 @@ function TextControl({ controlId, field, invalid, labelledBy, onChange, value }:
   );
 }
 
-export function TimeControl({ controlId, field, invalid, labelledBy, onChange, value }: ControlProps) {
+export function TimeControl({ controlId, describedBy, field, invalid, labelledBy, onChange, value }: ControlProps) {
   const current = typeof value === 'string' && value !== '' ? value : (field.defaultTime ?? '');
   // Commit the displayed default into state on mount. Without this, a participant who
   // accepts the shown time (e.g. 07:00) without editing leaves the answer undefined, so
@@ -128,10 +144,12 @@ export function TimeControl({ controlId, field, invalid, labelledBy, onChange, v
   }, [field.code, field.defaultTime, value, onChange]);
   return (
     <input
+      aria-describedby={describedBy}
       aria-invalid={invalid}
       aria-labelledby={labelledBy}
       className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
       id={controlId}
+      name={controlId}
       onChange={(event) => onChange(field.code, event.currentTarget.value)}
       type="time"
       value={current}
@@ -156,7 +174,7 @@ function OtherRow({
       <label className={optionClass(active)}>
         <input
           checked={active}
-          className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+          className="h-4 w-4 rounded border-border text-primary"
           onChange={(event) => onToggle(event.currentTarget.checked)}
           type="checkbox"
         />
@@ -165,6 +183,7 @@ function OtherRow({
       {active && (
         <input
           aria-label={t('common.other_specify')}
+          name="other-specify"
           className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
           onChange={(event) => onText(event.currentTarget.value)}
           placeholder={t('common.please_specify')}
@@ -189,19 +208,26 @@ const CONTROLS = {
   time: TimeControl,
 } as const;
 
+export const tudFieldId = (code: string) => `tud-field-${code}`;
+
 export function FieldControl(props: ControlProps) {
-  const { t } = useTranslator();
   const Control = CONTROLS[props.field.widget];
-  const controlId = `tud-field-${props.field.code}`;
+  const controlId = tudFieldId(props.field.code);
   const labelId = `${controlId}-label`;
+  const errorId = `${controlId}-error`;
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium text-foreground" id={labelId}>
         {props.field.title}
       </p>
       {props.field.description && <p className="text-xs text-muted-foreground">{props.field.description}</p>}
-      <Control {...props} controlId={controlId} labelledBy={labelId} />
-      {props.invalid && <p className="text-xs text-destructive">{t('common.response_required')}</p>}
+      <Control
+        {...props}
+        controlId={controlId}
+        describedBy={props.invalid ? errorId : undefined}
+        labelledBy={labelId}
+      />
+      {props.invalid && <ResponseRequired id={errorId} />}
     </div>
   );
 }
@@ -224,7 +250,7 @@ export function ClockFormatSelect({
         <label className={optionClass(value === format)} key={format}>
           <input
             checked={value === format}
-            className="h-4 w-4 border-border text-primary focus:ring-primary"
+            className="h-4 w-4 border-border text-primary"
             name="clockFormat"
             onChange={() => onChange(format)}
             type="radio"

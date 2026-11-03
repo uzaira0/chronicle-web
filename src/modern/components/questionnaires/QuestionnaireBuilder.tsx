@@ -1,5 +1,6 @@
 import { Eye, Plus } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { AsyncConfirmDialog } from '@/components/async-confirm-dialog';
 import { QuestionEditor } from '@/components/questionnaires/QuestionEditor';
 import { QuestionnairePreviewModal } from '@/components/questionnaires/QuestionnairePreviewModal';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
 import { REQUEST_STATES, type RequestState } from '@/lib/request-state';
+import { useConfirmLeave } from '@/lib/use-confirm-leave';
 import { moveItem, useDragReorder } from '@/lib/use-drag-reorder';
+import { cn } from '@/lib/utils';
 import type { QuestionnaireDraft, QuestionnaireQuestion } from '@/state/study-operations-api';
 
 type IdentifiedQuestion = QuestionnaireQuestion & { _id: number };
@@ -40,6 +43,7 @@ export function QuestionnaireBuilder({
   const [title, setTitle] = useState(initialQuestionnaire?.title ?? '');
   const [description, setDescription] = useState(initialQuestionnaire?.description ?? '');
   const [active, setActive] = useState(initialQuestionnaire?.active ?? true);
+  const [recurrenceRule, setRecurrenceRule] = useState(initialQuestionnaire?.recurrenceRule ?? '');
 
   const seededQuestions = Array.isArray(initialQuestionnaire?.questions)
     ? initialQuestionnaire.questions.map((q) => makeQuestion(q))
@@ -47,10 +51,15 @@ export function QuestionnaireBuilder({
 
   const [questions, setQuestions] = useState<IdentifiedQuestion[]>(seededQuestions ?? [makeQuestion()]);
   const [showPreview, setShowPreview] = useState(false);
+  const [questionToRemove, setQuestionToRemove] = useState<number | null>(null);
   const saveInFlightRef = useRef(false);
 
   const isPending = requestState === REQUEST_STATES.PENDING;
 
+  // A question with choices but no text is refused, never dropped: saving it away would delete it silently.
+  const untitledQuestionNumbers = questions.flatMap((question, index) =>
+    !question.title.trim() && question.choices.some((choice) => choice.trim()) ? [index + 1] : [],
+  );
   const preparedQuestionnaire = useMemo(
     () =>
       questions
@@ -73,9 +82,15 @@ export function QuestionnaireBuilder({
     });
   }, []);
 
-  const handleRemoveQuestion = useCallback((index: number) => {
-    setQuestions((prev) => prev.filter((_, i) => i !== index));
+  const removeQuestion = useCallback((id: number) => {
+    setQuestions((prev) => prev.filter((question) => question._id !== id));
   }, []);
+  const handleRemoveQuestion = (index: number) => {
+    const question = questions[index];
+    if (!question) return;
+    if (question.title.trim() || question.choices.some((choice) => choice.trim())) setQuestionToRemove(question._id);
+    else removeQuestion(question._id);
+  };
 
   const handleAddQuestion = () => {
     setQuestions((prev) => [...prev, makeQuestion()]);
@@ -84,8 +99,18 @@ export function QuestionnaireBuilder({
   const moveQuestionTo = useCallback((source: number, target: number) => {
     setQuestions((prev) => moveItem(prev, source, target));
   }, []);
-  const { handleDragStart, handleDragOver, handleDragEnd } = useDragReorder(moveQuestionTo);
-  const canSave = !isPending && !!title.trim() && preparedQuestionnaire.length > 0;
+  const { handleDragStart, handleDragOver, handleDragEnd, isDragging } = useDragReorder(moveQuestionTo);
+  const draft = JSON.stringify([
+    title,
+    description,
+    active,
+    recurrenceRule,
+    questions.map((q) => [q.title, q.choices]),
+  ]);
+  const [initialDraft] = useState(draft);
+  useConfirmLeave(draft !== initialDraft);
+  const canSave =
+    !isPending && !!title.trim() && preparedQuestionnaire.length > 0 && untitledQuestionNumbers.length === 0;
 
   const handleSave = async () => {
     if (!canSave || saveInFlightRef.current) return;
@@ -96,6 +121,7 @@ export function QuestionnaireBuilder({
         description: description.trim(),
         active,
         questions: preparedQuestionnaire,
+        recurrenceRule: recurrenceRule.trim() || null,
       });
     } finally {
       saveInFlightRef.current = false;
@@ -111,7 +137,7 @@ export function QuestionnaireBuilder({
           </CardTitle>
           <p className="text-sm leading-6 text-muted-foreground">{t('questionnaire_builder.description')}</p>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent spacing={5}>
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
               {t('questionnaire_builder.title')}
@@ -119,6 +145,7 @@ export function QuestionnaireBuilder({
             <Input
               aria-label={t('questionnaire_builder.title_aria')}
               id="questionnaire-title"
+              name="questionnaire-title"
               onChange={(event) => setTitle(event.currentTarget.value)}
               value={title}
             />
@@ -130,9 +157,28 @@ export function QuestionnaireBuilder({
             <Textarea
               aria-label={t('questionnaire_builder.description_aria')}
               id="questionnaire-description"
+              name="questionnaire-description"
               onChange={(event) => setDescription(event.currentTarget.value)}
               value={description}
             />
+          </div>
+          <div className="space-y-2">
+            <label
+              className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground"
+              htmlFor="questionnaire-recurrence"
+            >
+              {t('questionnaire_builder.recurrence_rule')}
+            </label>
+            <Input
+              aria-describedby="questionnaire-recurrence-hint"
+              id="questionnaire-recurrence"
+              name="questionnaire-recurrence"
+              onChange={(event) => setRecurrenceRule(event.currentTarget.value)}
+              value={recurrenceRule}
+            />
+            <p className="text-sm text-muted-foreground" id="questionnaire-recurrence-hint">
+              {t('questionnaire_builder.recurrence_hint')}
+            </p>
           </div>
           <label
             className={
@@ -142,7 +188,7 @@ export function QuestionnaireBuilder({
           >
             <input
               checked={active}
-              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              className="h-4 w-4 rounded border-border text-primary"
               onChange={(event) => setActive(event.currentTarget.checked)}
               type="checkbox"
             />
@@ -159,7 +205,7 @@ export function QuestionnaireBuilder({
             {t('questionnaire_builder.add_question')}
           </Button>
         </div>
-        <div className="flex flex-col gap-3">
+        <div className={cn('flex flex-col gap-3', isDragging && 'select-none')}>
           {questions.map((question, index) => (
             <QuestionEditor
               key={question._id}
@@ -170,6 +216,8 @@ export function QuestionnaireBuilder({
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               onRemove={handleRemoveQuestion}
+              onMove={moveQuestionTo}
+              questionCount={questions.length}
             />
           ))}
         </div>
@@ -180,6 +228,11 @@ export function QuestionnaireBuilder({
         )}
       </div>
 
+      {untitledQuestionNumbers.length > 0 && (
+        <p className="mt-4 text-sm text-destructive" role="alert">
+          {t('questionnaire_builder.question_text_required', { numbers: untitledQuestionNumbers.join(', ') })}
+        </p>
+      )}
       <div className="mt-6 flex flex-wrap justify-end gap-3">
         <Button onClick={() => setShowPreview(true)} type="button">
           <Eye className="h-4 w-4" />
@@ -189,16 +242,36 @@ export function QuestionnaireBuilder({
           {t('common.cancel')}
         </Button>
         <Button
+          aria-busy={isPending}
           disabled={!canSave}
           onClick={() => {
             void handleSave();
           }}
           type="button"
         >
-          {initialQuestionnaire ? t('questionnaire_builder.save_changes') : t('questionnaire_builder.create_title')}
+          {isPending
+            ? t('study_form.saving')
+            : initialQuestionnaire
+              ? t('questionnaire_builder.save_changes')
+              : t('questionnaire_builder.create_title')}
         </Button>
       </div>
 
+      <AsyncConfirmDialog
+        allowed={questionToRemove !== null}
+        confirmLabel={t('questionnaire_builder.remove_question_confirm')}
+        description={t('questionnaire_builder.delete_note')}
+        failureMessage={t('questionnaire_builder.remove_question_failed')}
+        onClose={() => setQuestionToRemove(null)}
+        onConfirm={() => {
+          if (questionToRemove !== null) removeQuestion(questionToRemove);
+          return Promise.resolve();
+        }}
+        open={questionToRemove !== null}
+        pendingLabel={t('common.deleting')}
+        title={t('questionnaire_builder.remove_question_confirm')}
+        destructive
+      />
       {showPreview && (
         <QuestionnairePreviewModal
           description={description}

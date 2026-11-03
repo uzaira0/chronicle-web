@@ -1,11 +1,13 @@
 import { CheckCircle2, ClipboardList } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { ParticipantSessionBanner } from '@/components/participant-session-banner';
+import { focusAnswer } from '@/components/response-required';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { isRtlLanguage, resolveLanguageCode } from '@/i18n/language-codes';
 import { LanguageSwitcher } from '@/i18n/language-switcher';
 import { createTranslator } from '@/i18n/translator';
+import { getParticipantSubmissionErrorMessage } from '@/lib/errors';
 import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { useSubmissionKey } from '@/lib/use-submission-key';
@@ -25,7 +27,7 @@ import {
 import { activityLabel, type OptionContext } from './tud-options';
 import { buildLiveSubmission, livePrunedAnswers } from './tud-prune';
 import { buildPage, type FieldDef, type PageParams } from './tud-schema';
-import { ClockFormatSelect, FieldControl, type FieldValue } from './tud-widgets';
+import { ClockFormatSelect, FieldControl, type FieldValue, tudFieldId } from './tud-widgets';
 
 export interface TimeUseDiaryFormProps {
   studyId: string;
@@ -142,6 +144,8 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
       ]);
       if (invalid.size > 0) {
         setErrors(invalid);
+        const first = view.fields.find((field) => invalid.has(field.code));
+        if (first) focusAnswer(tudFieldId(first.code));
         return;
       }
     }
@@ -166,7 +170,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
       settings,
       waveId: props.waveId ?? null,
     });
-    submit({ data, idempotencyKey: currentKey(), participantId, studyId })
+    submit({ data, logicalDate: activityDate, idempotencyKey: currentKey(), participantId, studyId })
       .unwrap()
       .then(rotateKey)
       .catch(() => {
@@ -201,7 +205,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
     <Card className="max-w-2xl" dir={isRtlLanguage(effectiveCode) ? 'rtl' : 'ltr'}>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle as="h2" className="flex items-center gap-2">
+          <CardTitle as="h2" layout="icon">
             <ClipboardList className="h-5 w-5 text-primary" />
             {ctx.translator.t('tud_route.title')}
           </CardTitle>
@@ -212,7 +216,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
         </div>
         {view.title && <CardDescription>{view.title}</CardDescription>}
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent spacing={6}>
         <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={ctx.translator.t} />
         {kind === 'intro' && (
           <IntroStep
@@ -247,7 +251,7 @@ export function TimeUseDiaryForm(props: TimeUseDiaryFormProps) {
 
         {submitState === REQUEST_STATES.FAILURE && (
           <p className="text-sm text-destructive" role="alert">
-            {ctx.translator.t('error_submit')}
+            {getParticipantSubmissionErrorMessage(submitResult.error, ctx.translator.t)}
           </p>
         )}
 
@@ -358,7 +362,7 @@ function DiaryCard({ description, icon, title }: { description: string; icon: Re
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle as="h2" className="flex items-center gap-2">
+        <CardTitle as="h2" layout="icon">
           {icon}
           {title}
         </CardTitle>

@@ -1,18 +1,22 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-
 import { LanguageProvider } from '@/i18n';
 import { storeParticipantSessionContext } from '@/lib/participant-access';
 import { PARTICIPANT_KEEP_ALIVE_MS } from '@/lib/participant-access-guard';
+import { routeFetch } from '@/test/http-fixtures';
 
 let submitFailed = false;
+let submitError: unknown;
 
 // Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
 const realStudyOperationsApi = await import('@/state/study-operations-api');
 
 await mock.module('@/state/study-operations-api', () => ({
   ...realStudyOperationsApi,
-  useSubmitTimeUseDiaryMutation: () => [() => {}, { isError: submitFailed, isLoading: false, isSuccess: false }],
+  useSubmitTimeUseDiaryMutation: () => [
+    () => {},
+    { error: submitError, isError: submitFailed, isLoading: false, isSuccess: false },
+  ],
 }));
 
 const { TimeUseDiaryForm } = await import('./tud-form');
@@ -23,12 +27,21 @@ const savedFetch = globalThis.fetch;
 afterEach(() => {
   cleanup();
   submitFailed = false;
+  submitError = undefined;
   window.sessionStorage.clear();
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
 });
 
 describe('TimeUseDiaryForm session keep-alive', () => {
-  test('announces a failed submission once and retains the selected clock format', async () => {
+  test.each([
+    [401, /Ask your study team to check your participation or provide a fresh link/],
+    [403, /Ask your study team to check your participation or provide a fresh link/],
+    [422, /Review the diary answers/],
+    [429, /server is temporarily busy or unavailable/],
+    [503, /server is temporarily busy or unavailable/],
+    ['FETCH_ERROR', /could not reach the server; check your connection and try again/],
+    ['PARSING_ERROR', /unreadable submission response/],
+  ])('announces submission cause %s once and retains the selected clock format', async (status, message) => {
     spyOn(window, 'scrollTo').mockImplementation(() => {});
     const makePage = () => (
       <LanguageProvider initialSearch="">
@@ -45,10 +58,11 @@ describe('TimeUseDiaryForm session keep-alive', () => {
     const view = render(makePage());
     fireEvent.click(screen.getByLabelText('24-hour clock format'));
     submitFailed = true;
+    submitError = { status, data: { message: 'Review the diary answers.' } };
     view.rerender(makePage());
 
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toBe('An error occurred while trying to submit survey. Please try again later.');
+    expect(alert.textContent).toMatch(message);
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(screen.getByLabelText<HTMLInputElement>('24-hour clock format').checked).toBe(true);
   });
@@ -64,10 +78,12 @@ describe('TimeUseDiaryForm session keep-alive', () => {
     const requests: Request[] = [];
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
-      value: (input: RequestInfo | URL, init?: RequestInit) => {
-        requests.push(input instanceof Request ? input : new Request(new URL(input, 'http://localhost/'), init));
-        return Promise.resolve(new Response('{}'));
-      },
+      value: routeFetch({
+        'GET /chronicle/v3/time-use-diary/s1/settings': (request) => {
+          requests.push(request);
+          return Response.json({});
+        },
+      }),
       writable: true,
     });
     const timers: Array<{ callback: () => void; delay: number | undefined }> = [];

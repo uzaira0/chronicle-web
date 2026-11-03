@@ -139,7 +139,7 @@ export function carriedActivity(answers: TudAnswers, page: number): string | und
  * instead of every key in `answers` is what keeps those orphans (and the stale
  * activity carriers on a page since demoted to night) out of the submission.
  * Incomplete answers never reach summary, so the walk also stops at the highest page
- * that holds answers; there is no fixed page cap, which used to drop a long day's tail.
+ * that holds answers; there is no fixed page cap, so a long day keeps its tail.
  */
 export function livePages(
   answers: TudAnswers,

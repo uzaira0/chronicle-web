@@ -32,7 +32,7 @@ export function QuestionnaireListItem({
   const { t } = useTranslator();
   return (
     <Card>
-      <CardContent className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+      <CardContent gap={5} className="flex flex-col md:flex-row md:items-start md:justify-between">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <h3 className="text-lg font-semibold text-foreground">{title || t('questionnaire_builder.untitled')}</h3>

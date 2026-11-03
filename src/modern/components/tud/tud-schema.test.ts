@@ -143,6 +143,61 @@ describe('night page', () => {
 
 describe('page title', () => {
   test('night page carries the Nighttime Activity heading', () => {
-    expect(buildPage('night', params()).title).toBe('Nighttime Activity');
+    expect(buildPage('night', params()).title).toBe('Nighttime activity');
+  });
+});
+
+// Ohio State studies ask which language a book or show was in; only a "Yes, not English" answer asks which, and the
+// secondary activity's followups never ask it. Exported answers depend on these exact field codes.
+describe('OSU language and device followups', () => {
+  const media = 'Using screen media (videos, apps, chat, etc.)';
+  const reading = 'Reading or listening to a story (paper book, eBook, audiobook, etc.)';
+  const osu = settings({ enableOsu: true });
+
+  test.each([
+    [reading, ['primaryBookType', 'primaryBookTitle', 'primaryBookLanguageNonEnglish'], 'primaryBookLanguage'],
+    [
+      media,
+      ['primaryMediaActivity', 'primaryMediaName', 'primaryDeviceType', 'primaryMediaLanguageNonEnglish'],
+      'primaryMediaLanguage',
+    ],
+  ])('%s asks the language only after a non-English Yes', (activity, followups, languageList) => {
+    const page = (pageAnswers: Record<string, unknown>) =>
+      codes(buildPage('contextual', params({ carriedActivity: activity, pageAnswers, settings: osu })).fields);
+    const branch = followups.at(-1) as string;
+    expect(followups.filter((code) => !page({}).includes(code))).toEqual([]);
+    expect(page({})).not.toContain('primaryMediaAge');
+    expect(page({})).not.toContain(languageList);
+    expect(page({ [branch]: 'No' })).not.toContain(languageList);
+    const withList = page({ [branch]: 'Yes' });
+    expect(withList.indexOf(languageList)).toBe(withList.indexOf(branch) + 1);
+  });
+
+  test('a secondary reading and media activity get their own followups without the language questions', () => {
+    const fields = codes(
+      buildPage(
+        'contextual',
+        params({
+          carriedActivity: 'Playing indoors',
+          pageAnswers: { otherActivity: 'Yes', secondaryActivity: [reading, media] },
+          settings: osu,
+        }),
+      ).fields,
+    );
+    expect(
+      ['secondaryBookType', 'secondaryBookTitle', 'secondaryMediaActivity', 'secondaryMediaName'].filter(
+        (code) => !fields.includes(code),
+      ),
+    ).toEqual([]);
+    expect(fields.filter((code) => code.includes('Language'))).toEqual([]);
+    expect(fields).not.toContain('secondaryMediaAge');
+  });
+});
+
+describe('wake-up page', () => {
+  test('asks only the wake-up time after the activity day, as night-time data', () => {
+    const page = buildPage('wakeup', params());
+    expect(codes(page.fields)).toEqual(['wakeUpTimeAfterActivityDay']);
+    expect(page.dataType).toBe('NightTime');
   });
 });

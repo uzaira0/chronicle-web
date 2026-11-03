@@ -2,6 +2,7 @@ import { describe, expect, mock, spyOn, test } from 'bun:test';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { LanguageProvider } from '@/i18n';
+import { leaveIsBlocked } from '@/test/browser-env';
 
 // Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
 const realStudyOperationsApi = await import('@/state/study-operations-api');
@@ -13,12 +14,6 @@ await mock.module('@/state/study-operations-api', () => ({
 
 const { TimeUseDiaryForm } = await import('./tud-form');
 const { resolveTudSettings } = await import('./tud-page-settings');
-
-function leaveIsBlocked() {
-  const event = new Event('beforeunload', { cancelable: true });
-  window.dispatchEvent(event);
-  return event.defaultPrevented;
-}
 
 describe('TimeUseDiaryForm leave guard', () => {
   test('asks before a reload once started, and opens each page at its top', () => {

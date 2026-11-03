@@ -27,10 +27,11 @@ await mock.module('@/state/study-operations-api', () => ({
     },
   }),
 }));
+const TimeUseDiaryForm = ({ settings }: { settings: TudSettings }) => (
+  <output data-testid="instrument">{JSON.stringify(settings)}</output>
+);
 await mock.module('@/components/tud/tud-form', () => ({
-  TimeUseDiaryForm: ({ settings }: { settings: TudSettings }) => (
-    <output data-testid="instrument">{JSON.stringify(settings)}</output>
-  ),
+  TimeUseDiaryForm,
 }));
 
 afterAll(async () => {
@@ -58,7 +59,7 @@ beforeEach(() => {
   retries = 0;
   query = { isError: true, isSuccess: false };
 });
-test('W07 first settings failure blocks OSU/Sherbrooke diary, retry resolves it and refresh retains it', () => {
+test('first settings failure blocks OSU/Sherbrooke diary, retry resolves it and refresh retains it', () => {
   const view = render(route());
   expect(screen.queryByTestId('instrument')).toBeNull();
   expect(screen.getByRole('alert')).toBeTruthy();

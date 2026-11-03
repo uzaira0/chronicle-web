@@ -43,7 +43,7 @@ export function QuestionnairePreviewModal({
               <ListChecks className="h-5 w-5" />
               <Badge variant="outline">{t('questionnaire_builder.preview_badge')}</Badge>
             </div>
-            <DialogTitle className="text-2xl">{title || t('questionnaire_builder.untitled')}</DialogTitle>
+            <DialogTitle size="large">{title || t('questionnaire_builder.untitled')}</DialogTitle>
             <DialogDescription>{t('questionnaire_builder.preview_description')}</DialogDescription>
           </div>
 
@@ -54,7 +54,7 @@ export function QuestionnairePreviewModal({
               const questionKey = questionPreviewKey(question);
               return (
                 <Card key={questionKey}>
-                  <CardContent className="space-y-4">
+                  <CardContent spacing={4}>
                     <div className="space-y-1">
                       <p className="text-base font-semibold text-foreground">
                         {`${idx + 1}. ${question.title || t('questionnaire_builder.no_question_text')}`}

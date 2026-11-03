@@ -18,7 +18,6 @@ import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
 import { isConditionalWriteFailure } from '@/state/settings-revision';
 import {
   type QuestionnaireDraft,
-  type QuestionnaireRecord,
   useCreateQuestionnaireMutation,
   useDeleteQuestionnaireMutation,
   useDownloadQuestionnaireResponsesMutation,
@@ -29,12 +28,17 @@ import {
 } from '@/state/study-operations-api';
 
 type ViewMode = 'create' | 'edit' | 'list';
+type QuestionnaireEditDraft = { id: string; revision: string; draft: QuestionnaireDraft };
 
 export function StudyQuestionnairesPage() {
   const { studyId = '' } = useParams<{ studyId: string }>();
+  return <QuestionnairesWorkspace key={studyId} studyId={studyId} />;
+}
+
+function QuestionnairesWorkspace({ studyId }: { studyId: string }) {
   const { t } = useTranslator();
   const {
-    data: questionnaires = [],
+    currentData: questionnaires = [],
     error: questionnairesError,
     isError,
     refetch: refetchQuestionnaires,
@@ -45,12 +49,14 @@ export function StudyQuestionnairesPage() {
   const { data: study } = useGetStudySummaryQuery(studyId, { skip: !studyId });
 
   const [view, setView] = useState<ViewMode>('list');
-  const [editingQuestionnaire, setEditingQuestionnaire] = useState<QuestionnaireRecord | null>(null);
-  const [revision, setRevision] = useState<string>();
+  const [editingQuestionnaire, setEditingQuestionnaire] = useState<QuestionnaireEditDraft | null>(null);
+  const revision = editingQuestionnaire?.revision;
   const [conflict, setConflict] = useState(false);
   const [loadSnapshot] = useLoadQuestionnaireMutation();
-  const [previewTarget, setPreviewTarget] = useState<QuestionnaireRecord | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<QuestionnaireRecord | null>(null);
+  const [previewTargetId, setPreviewTargetId] = useState<string | null>(null);
+  const previewTarget = questionnaires.find(({ id }) => id === previewTargetId);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const deleteTarget = questionnaires.find(({ id }) => id === deleteTargetId);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const createIntent = useResearcherCreateIntent(`/survey/${studyId}/questionnaire`);
@@ -92,8 +98,8 @@ export function StudyQuestionnairesPage() {
     setActionError(null);
     try {
       const snapshot = await loadSnapshot({ studyId, questionnaireId }).unwrap();
-      setEditingQuestionnaire(snapshot.data);
-      setRevision(snapshot.revision);
+      const { id, dateCreated: _dateCreated, ...draft } = snapshot.data;
+      setEditingQuestionnaire({ id, revision: snapshot.revision, draft });
       setConflict(false);
       setView('edit');
     } catch (error) {
@@ -137,7 +143,7 @@ export function StudyQuestionnairesPage() {
     })
       .unwrap()
       .then(() => {
-        setDeleteTarget(null);
+        setDeleteTargetId(null);
       })
       .catch((error) => {
         setActionError(getErrorMessage(error, t('questionnaires.delete_failed')));
@@ -222,7 +228,7 @@ export function StudyQuestionnairesPage() {
               onDelete={() => {
                 setActionError(null);
                 deleteState.reset();
-                setDeleteTarget(questionnaire);
+                setDeleteTargetId(questionnaire.id);
               }}
               onDownloadResponses={() => {
                 setActionError(null);
@@ -235,7 +241,7 @@ export function StudyQuestionnairesPage() {
               onEdit={() => {
                 void openEditor(questionnaire.id);
               }}
-              onPreview={() => setPreviewTarget(questionnaire)}
+              onPreview={() => setPreviewTargetId(questionnaire.id)}
               questionCount={questionnaire.questions.length}
               title={questionnaire.title}
             />
@@ -257,12 +263,7 @@ export function StudyQuestionnairesPage() {
       {view === 'edit' && editingQuestionnaire && (
         <QuestionnaireBuilder
           key={revision}
-          initialQuestionnaire={{
-            active: editingQuestionnaire.active,
-            description: editingQuestionnaire.description,
-            questions: editingQuestionnaire.questions,
-            title: editingQuestionnaire.title,
-          }}
+          initialQuestionnaire={editingQuestionnaire.draft}
           onCancel={() => {
             setActionError(null);
             setEditingQuestionnaire(null);
@@ -276,7 +277,7 @@ export function StudyQuestionnairesPage() {
       {deleteTarget && (
         <DeleteQuestionnaireModal
           onClose={() => {
-            setDeleteTarget(null);
+            setDeleteTargetId(null);
           }}
           onDelete={handleDelete}
           questionnaireTitle={deleteTarget.title}
@@ -287,7 +288,7 @@ export function StudyQuestionnairesPage() {
       {previewTarget && (
         <QuestionnairePreviewModal
           description={previewTarget.description}
-          onClose={() => setPreviewTarget(null)}
+          onClose={() => setPreviewTargetId(null)}
           questions={previewTarget.questions}
           title={previewTarget.title}
         />
