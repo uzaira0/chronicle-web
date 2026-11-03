@@ -7,8 +7,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
 import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { REQUEST_STATES } from '@/lib/request-state';
-import type { AppUsageEntry } from '@/state/study-operations-api';
-import { AppUsageSurveyFeedback, type AppUsageSurveyProps, useAppUsageSurvey } from './app-usage-survey';
+import type { AppUsageAnswer } from '@/state/study-operations-api';
+import {
+  AnsweredApps,
+  AppUsageAnswerFields,
+  AppUsageDayDone,
+  AppUsageSubmissionAlert,
+  AppUsageSurveyDate,
+  AppUsageSurveyFeedback,
+  type AppUsageSurveyProps,
+  useAppUsageSurvey,
+} from './app-usage-survey';
 import {
   buildHourlySubmission,
   groupByHourly,
@@ -97,7 +106,7 @@ function reducer(state: State, action: Action): State {
 }
 
 /** Child-only apps (all buckets) + each shared app's merged (primary ∪ remaining) selected buckets. */
-function buildPayload(state: State, grouped: HourlyGrouped): AppUsageEntry[] {
+function buildPayload(state: State, grouped: HourlyGrouped): AppUsageAnswer[] {
   const merged = mergeSelections(state.initialSelections, state.otherSelections);
   const sharedSelections: Record<string, Set<string>> = {};
   for (const pkg of state.sharedApps) {
@@ -112,28 +121,38 @@ function buildPayload(state: State, grouped: HourlyGrouped): AppUsageEntry[] {
 export function ParticipantHourlySurveyForm(props: AppUsageSurveyProps) {
   const t = useTranslator();
   const dir = isRtlLanguage(t.effectiveCode) ? 'rtl' : 'ltr';
-  const { data: apps, isLoading, isError, submit, submitState } = useAppUsageSurvey(props);
+  const {
+    data: day,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    submit,
+    submitError,
+    submitState,
+    hasSubmitted,
+  } = useAppUsageSurvey(props);
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   // Bucket answers exist only for shared apps, so these two sets cover every answer.
   const keepAlive = useUnsavedParticipantAnswers(
     submitState !== REQUEST_STATES.SUCCESS && (state.childOnlyApps.size > 0 || state.sharedApps.size > 0),
   );
 
-  const grouped: HourlyGrouped = useMemo(() => groupByHourly(apps ?? []), [apps]);
+  const grouped: HourlyGrouped = useMemo(() => groupByHourly(day?.apps ?? [], day?.timeZone ?? 'UTC'), [day]);
   const allApps = useMemo(() => Object.keys(grouped).sort(), [grouped]);
   const sharedCandidates = useMemo(
     () => allApps.filter((pkg) => !state.childOnlyApps.has(pkg)),
     [allApps, state.childOnlyApps],
   );
-  const sharedAppEntries = useMemo<Array<[string, HourlyApp]>>(
+  const sharedAppEntries = useMemo<SharedApp[]>(
     () =>
       Object.entries(grouped)
         .filter(([pkg]) => state.sharedApps.has(pkg))
-        .sort(([a], [b]) => a.localeCompare(b)),
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([pkg, app]) => ({ app, pkg })),
     [grouped, state.sharedApps],
   );
 
-  const hasApps = allApps.length > 0;
   const isFinal = isHourlyFinalStep(state.step, state.sharedApps.size > 0);
   const isPending = submitState === REQUEST_STATES.PENDING;
   const handleSubmit = () => {
@@ -141,14 +160,29 @@ export function ParticipantHourlySurveyForm(props: AppUsageSurveyProps) {
     submit(data);
   };
 
-  if (isLoading || isError || submitState === REQUEST_STATES.SUCCESS) {
+  if (!day || isError || submitState === REQUEST_STATES.SUCCESS) {
     return (
       <AppUsageSurveyFeedback
         dir={dir}
-        icon={Clock}
         isError={isError}
-        isLoading={isLoading}
-        submitState={submitState}
+        isLoading={isLoading || !day}
+        error={error}
+        onRetry={refetch}
+      />
+    );
+  }
+
+  const failure = submitState === REQUEST_STATES.FAILURE && <AppUsageSubmissionAlert error={submitError} />;
+
+  if (allApps.length === 0) {
+    return (
+      <AppUsageDayDone
+        day={day}
+        dir={dir}
+        failure={failure}
+        label={(user) => user}
+        onConfirm={() => submit([])}
+        pending={isPending}
       />
     );
   }
@@ -157,17 +191,19 @@ export function ParticipantHourlySurveyForm(props: AppUsageSurveyProps) {
     <Card className="max-w-2xl" dir={dir}>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle as="h2" className="flex items-center gap-2">
+          <CardTitle as="h2" layout="icon">
             <Clock className="h-5 w-5 text-primary" />
             {t.t('app_usage_survey.title')}
           </CardTitle>
           <LanguageSwitcher />
         </div>
+        <AppUsageSurveyDate date={props.date} />
         <CardDescription>{t.t(INSTRUCTION_KEYS[state.step])}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent spacing={6}>
         <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={t.t} />
-        {hasApps ? (
+        <AnsweredApps apps={day.apps} label={(user) => user} />
+        <AppUsageAnswerFields submitted={hasSubmitted}>
           <HourlyStepBody
             allApps={allApps}
             dispatch={dispatch}
@@ -177,19 +213,13 @@ export function ParticipantHourlySurveyForm(props: AppUsageSurveyProps) {
             state={state}
             translator={t}
           />
-        ) : (
-          <p className="text-sm text-muted-foreground">{t.t('app_usage_survey.no_apps_today')}</p>
-        )}
+        </AppUsageAnswerFields>
 
-        {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive" role="alert">
-            {t.t('app_usage_survey.error_submit')}
-          </p>
-        )}
+        {failure}
 
         <div className="flex justify-between">
           <Button
-            disabled={state.step === 'intro' || isPending}
+            disabled={state.step === 'intro' || hasSubmitted}
             onClick={() => dispatch({ type: 'back' })}
             type="button"
             variant="outline"
@@ -197,11 +227,11 @@ export function ParticipantHourlySurveyForm(props: AppUsageSurveyProps) {
             {t.t('button_back')}
           </Button>
           {isFinal ? (
-            <Button disabled={!hasApps || isPending} onClick={handleSubmit} type="button">
+            <Button disabled={isPending} onClick={handleSubmit} type="button">
               {isPending ? t.t('app_usage_survey.submitting') : t.t('app_usage_survey.submit_survey')}
             </Button>
           ) : (
-            <Button disabled={!hasApps} onClick={() => dispatch({ type: 'next' })} type="button">
+            <Button onClick={() => dispatch({ type: 'next' })} type="button">
               {state.step === 'intro' ? t.t('app_usage_survey.begin_survey') : t.t('button_next')}
             </Button>
           )}
@@ -215,7 +245,7 @@ type StepBodyProps = {
   allApps: string[];
   dispatch: Dispatch<Action>;
   grouped: HourlyGrouped;
-  sharedAppEntries: Array<[string, HourlyApp]>;
+  sharedAppEntries: SharedApp[];
   sharedCandidates: string[];
   state: State;
   translator: Translator;
@@ -290,7 +320,7 @@ function AppChecklist({ apps, grouped, onToggle, selected, translator }: AppChec
         >
           <input
             checked={selected.has(pkg)}
-            className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            className="h-4 w-4 rounded border-border text-primary"
             onChange={() => onToggle(pkg)}
             type="checkbox"
           />
@@ -301,8 +331,11 @@ function AppChecklist({ apps, grouped, onToggle, selected, translator }: AppChec
   );
 }
 
+/** An app the participant used together with the child, keyed by its package name. */
+type SharedApp = { app: HourlyApp; pkg: string };
+
 type BucketChecklistsProps = {
-  entries: Array<[string, HourlyApp]>;
+  entries: SharedApp[];
   onToggle: (pkg: string, range: string) => void;
   rangesFor: (pkg: string, app: HourlyApp) => string[];
   selections: Record<string, Set<string>>;
@@ -315,7 +348,7 @@ function BucketChecklists({ entries, onToggle, rangesFor, selections, translator
   }
   return (
     <div className="space-y-5">
-      {entries.map(([pkg, app]) => {
+      {entries.map(({ app, pkg }) => {
         const ranges = rangesFor(pkg, app);
         return (
           <fieldset className="min-w-0 space-y-2" key={pkg}>
@@ -335,7 +368,7 @@ function BucketChecklists({ entries, onToggle, rangesFor, selections, translator
                   >
                     <input
                       checked={selections[pkg]?.has(range) ?? false}
-                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                      className="h-4 w-4 rounded border-border text-primary"
                       onChange={() => onToggle(pkg, range)}
                       type="checkbox"
                     />

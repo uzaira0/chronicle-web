@@ -6,7 +6,7 @@ import { Provider } from 'react-redux';
 
 import { LanguageProvider } from '@/i18n';
 import { studyOperationsApi } from '@/state/study-operations-api';
-
+import { leaveIsBlocked } from '@/test/browser-env';
 import { ParticipantHourlySurveyForm } from './participant-hourly-survey-form';
 import { ParticipantQuestionnaireForm } from './participant-questionnaire-form';
 import { ParticipantSurveyForm } from './participant-survey-form';
@@ -40,19 +40,17 @@ function renderForm(form: ReactNode) {
   );
 }
 
-function leaveIsBlocked() {
-  const event = new Event('beforeunload', { cancelable: true });
-  window.dispatchEvent(event);
-  return event.defaultPrevented;
-}
-
-const youtube = {
-  appLabel: 'YouTube',
-  appPackageName: 'com.google.android.youtube',
-  eventType: 1,
-  timestamp: '2026-06-01T10:00:00.000Z',
-  timezone: 'UTC',
-  users: [],
+const day = {
+  apps: [
+    {
+      appLabel: 'YouTube',
+      appPackageName: 'com.google.android.youtube',
+      blocks: [{ end: '2026-06-01T11:00:00.000Z', start: '2026-06-01T10:00:00.000Z' }],
+    },
+  ],
+  date: '2026-06-01',
+  state: 'UNANSWERED',
+  timeZone: 'UTC',
 };
 
 describe('participant forms ask before a reload drops entered answers', () => {
@@ -64,7 +62,7 @@ describe('participant forms ask before a reload drops entered answers', () => {
   });
 
   test('daily app-usage survey', async () => {
-    serve([youtube]);
+    serve(day);
     renderForm(<ParticipantSurveyForm date="2026-06-01" participantId="p1" studyId="s1" />);
     expect(leaveIsBlocked()).toBe(false);
     fireEvent.click(await screen.findByLabelText('Child alone'));
@@ -72,9 +70,9 @@ describe('participant forms ask before a reload drops entered answers', () => {
   });
 
   test('hourly app-usage survey', async () => {
-    serve([youtube]);
+    serve(day);
     renderForm(<ParticipantHourlySurveyForm date="2026-06-01" participantId="p1" studyId="s1" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Begin Survey' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Begin survey' }));
     expect(leaveIsBlocked()).toBe(false);
     fireEvent.click(screen.getByLabelText('YouTube'));
     expect(leaveIsBlocked()).toBe(true);

@@ -1,9 +1,9 @@
-import type { AppUsageEntry } from '@/state/study-operations-api';
+import type { AppUsageAnswer, AppUsageDayApp } from '@/state/study-operations-api';
 
 /**
  * Pure core for the HOURLY app-usage survey (parity with upstream methodic-labs
- * `HourlyAppUsageSurvey`). The participant marks, per app, the hour-of-day buckets their child
- * used it; the submission stamps every selected bucket's usage records with `users: ['Target Child']`.
+ * `HourlyAppUsageSurvey`). The participant marks, per app, the study-zone hours their child used it;
+ * every asked hour is answered: `users: ['Target Child']` when marked, else no one (`[]`).
  *
  * All wizard correctness (bucketing, step transitions, submission shape) lives here so it can be
  * unit-tested without rendering — mirroring the TUD feature's pure-core discipline.
@@ -14,8 +14,8 @@ export const HOURLY_SURVEY_USER = 'Target Child';
 
 export type HourlyApp = {
   appLabel: string;
-  /** hour-range label (e.g. "9am - 10am") -> the usage records that fall in that bucket */
-  buckets: Record<string, AppUsageEntry[]>;
+  /** hour-range label (e.g. "9am - 10am") -> the start of the server block it asks about */
+  buckets: Record<string, string>;
 };
 /** keyed by appPackageName */
 export type HourlyGrouped = Record<string, HourlyApp>;
@@ -49,32 +49,42 @@ export function getTimeRange(timestamp: string, timezone: string): string {
   return `${formatHour(start)} - ${formatHour(start + 1)}`;
 }
 
-/** Group flat usage records into `appPackageName -> { appLabel, buckets: { timeRange -> records } }`. */
-export function groupByHourly(entries: AppUsageEntry[]): HourlyGrouped {
+function utcOffset(timestamp: string, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' }).formatToParts(
+      new Date(timestamp),
+    );
+    return parts.find((part) => part.type === 'timeZoneName')?.value ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The unanswered blocks of each app, by hour label in the study zone. The hour repeated when daylight saving ends
+ * gets its UTC offset appended, so both hours are asked.
+ */
+export function groupByHourly(apps: AppUsageDayApp[], timeZone: string): HourlyGrouped {
   const grouped: HourlyGrouped = {};
-  for (const entry of entries) {
-    const pkg = entry.appPackageName;
-    const range = getTimeRange(entry.timestamp, entry.timezone || 'UTC');
-    const app = grouped[pkg] ?? { appLabel: entry.appLabel || pkg, buckets: {} };
-    if (entry.appLabel) {
-      app.appLabel = entry.appLabel;
+  for (const app of apps) {
+    const buckets: Record<string, string> = {};
+    for (const block of app.blocks) {
+      if (block.users != null) continue;
+      const range = getTimeRange(block.start, timeZone);
+      buckets[range in buckets ? `${range} (${utcOffset(block.start, timeZone)})` : range] = block.start;
     }
-    const bucket = app.buckets[range] ?? [];
-    bucket.push(entry);
-    app.buckets[range] = bucket;
-    grouped[pkg] = app;
+    if (Object.keys(buckets).length > 0)
+      grouped[app.appPackageName] = { appLabel: app.appLabel || app.appPackageName, buckets };
   }
   return grouped;
 }
 
 function rangeStartHour(range: string): number {
   const startLabel = range.split(' - ')[0] ?? '';
+  // Every bucket key starts with formatHour(hourInZone(...)), an integer hour, so the label always matches.
   const match = startLabel.match(/^(\d+)(am|pm)$/);
-  if (!match) {
-    return 0;
-  }
-  const base = Number.parseInt(match[1] ?? '0', 10) % 12;
-  return match[2] === 'pm' ? base + 12 : base;
+  const base = Number.parseInt(match?.[1] ?? '0', 10) % 12;
+  return match?.[2] === 'pm' ? base + 12 : base;
 }
 
 /** Bucket labels for an app, sorted chronologically (upstream sorted lexically — "10am" < "9am" — a bug). */
@@ -146,37 +156,21 @@ export function mergeSelections(
 }
 
 /**
- * Build the HOURLY submission: every child-only app's records (all buckets) plus the selected
- * buckets of each shared app, each record stamped `users: ['Target Child']`. `sharedSelections`
- * is the merged primary+remaining selection. Matches upstream `createHourlySurveySubmissionData`.
+ * Build the HOURLY submission: an answer for every asked block, `users: ['Target Child']` for a child-only app and
+ * for each selected hour of a shared app, else `[]`. `sharedSelections` is the merged primary+remaining selection.
+ * Upstream `createHourlySurveySubmissionData` sent only the child's hours; here every hour is answered, so the day
+ * is complete.
  */
-/** Append every record of `app` in `ranges`, stamped `users: ['Target Child']`, to `out`. */
-function emitBuckets(app: HourlyApp, ranges: Iterable<string>, out: AppUsageEntry[]): void {
-  for (const range of ranges) {
-    for (const entry of app.buckets[range] ?? []) {
-      out.push({ ...entry, users: [HOURLY_SURVEY_USER] });
-    }
-  }
-}
-
 export function buildHourlySubmission(
   grouped: HourlyGrouped,
   childOnlyApps: ReadonlySet<string>,
   sharedSelections: Readonly<Record<string, ReadonlySet<string>>>,
-): AppUsageEntry[] {
-  const out: AppUsageEntry[] = [];
-  for (const pkg of childOnlyApps) {
-    const app = grouped[pkg];
-    if (app) {
-      emitBuckets(app, Object.keys(app.buckets), out);
-    }
-  }
-  for (const [pkg, ranges] of Object.entries(sharedSelections)) {
-    const app = grouped[pkg];
-    // A child-only app already emitted all of its buckets above; never emit it twice.
-    if (app && !childOnlyApps.has(pkg)) {
-      emitBuckets(app, ranges, out);
-    }
-  }
-  return out;
+): AppUsageAnswer[] {
+  return Object.entries(grouped).flatMap(([pkg, app]) =>
+    Object.entries(app.buckets).map(([range, blockStart]) => ({
+      appPackageName: pkg,
+      blockStart,
+      users: childOnlyApps.has(pkg) || sharedSelections[pkg]?.has(range) ? [HOURLY_SURVEY_USER] : [],
+    })),
+  );
 }

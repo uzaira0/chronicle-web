@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { AppUsageEntry } from '@/state/study-operations-api';
+import type { AppUsageDayApp } from '@/state/study-operations-api';
 import {
   buildHourlySubmission,
   getTimeRange,
@@ -14,14 +14,11 @@ import {
   sortedBucketRanges,
 } from './hourly-survey-core';
 
-const entry = (pkg: string, label: string, isoUtc: string): AppUsageEntry => ({
+/** One app with a one-hour block starting at each of [starts] (UTC). */
+const app = (pkg: string, label: string, ...starts: string[]): AppUsageDayApp => ({
   appLabel: label,
   appPackageName: pkg,
-  eventType: 1,
-  timestamp: isoUtc,
-  timezone: 'UTC',
-  uploadedAt: null,
-  users: [],
+  blocks: starts.map((start) => ({ end: new Date(Date.parse(start) + 3_600_000).toISOString(), start })),
 });
 
 function must<T>(value: T | undefined): T {
@@ -50,17 +47,59 @@ describe('getTimeRange — hour-aligned, tz-aware bucket labels', () => {
 });
 
 describe('groupByHourly + sortedBucketRanges', () => {
-  test('groups by package, hoists the label, buckets by hour, and sorts chronologically', () => {
-    const grouped = groupByHourly([
-      entry('com.a', 'A', '2024-01-15T10:00:00.000Z'),
-      entry('com.a', 'A', '2024-01-15T09:00:00.000Z'),
-      entry('com.b', 'B', '2024-01-15T21:00:00.000Z'),
-    ]);
+  test('groups by package, keeps the label, buckets by study-zone hour, and sorts chronologically', () => {
+    const grouped = groupByHourly(
+      [
+        app('com.a', 'A', '2024-01-15T10:00:00.000Z', '2024-01-15T09:00:00.000Z'),
+        app('com.b', 'B', '2024-01-15T21:00:00.000Z'),
+      ],
+      'UTC',
+    );
     expect(Object.keys(grouped).sort()).toEqual(['com.a', 'com.b']);
     expect(grouped['com.a']?.appLabel).toBe('A');
     // chronological, not lexical ("10am" must not sort before "9am")
     expect(sortedBucketRanges(must(grouped['com.a']))).toEqual(['9am - 10am', '10am - 11am']);
     expect(sortedBucketRanges(must(grouped['com.b']))).toEqual(['9pm - 10pm']);
+  });
+
+  test('asks only unanswered blocks, and leaves out an app whose blocks are all answered', () => {
+    const answered = app('com.a', 'A', '2024-01-15T09:00:00.000Z', '2024-01-15T10:00:00.000Z');
+    const [first, second] = answered.blocks;
+    const grouped = groupByHourly(
+      [
+        { ...answered, blocks: [{ ...must(first), users: [] }, must(second)] },
+        {
+          ...app('com.b', 'B', '2024-01-15T09:00:00.000Z'),
+          blocks: [{ ...must(app('', '', '2024-01-15T09:00:00.000Z').blocks[0]), users: ['Target Child'] }],
+        },
+      ],
+      'UTC',
+    );
+    expect(Object.keys(grouped)).toEqual(['com.a']);
+    expect(sortedBucketRanges(must(grouped['com.a']))).toEqual(['10am - 11am']);
+  });
+
+  // America/Santiago leaves DST at 24:00 on 2026-04-04: 23:00-24:00 happens twice, and both hours are asked.
+  test('a repeated hour on the DST day gets two distinguishable buckets', () => {
+    const grouped = groupByHourly(
+      [app('com.a', 'A', '2026-04-05T02:00:00.000Z', '2026-04-05T03:00:00.000Z')],
+      'America/Santiago',
+    );
+    const ranges = sortedBucketRanges(must(grouped['com.a']));
+    expect(ranges).toHaveLength(2);
+    expect(new Set(ranges).size).toBe(2);
+  });
+
+  // A zone this browser's Intl does not know falls back to UTC hours; two blocks in one UTC hour are still both asked.
+  test('an unknown zone still asks every block when two share an hour label', () => {
+    const grouped = groupByHourly(
+      [app('com.a', 'A', '2026-04-05T02:00:00.000Z', '2026-04-05T02:30:00.000Z')],
+      'Not/AZone',
+    );
+    expect(Object.values(must(grouped['com.a']).buckets).sort()).toEqual([
+      '2026-04-05T02:00:00.000Z',
+      '2026-04-05T02:30:00.000Z',
+    ]);
   });
 });
 
@@ -90,11 +129,10 @@ describe('wizard step machine', () => {
 
 describe('mergeSelections + remainingRanges (primary + remaining passes)', () => {
   test('remainingRanges excludes buckets already chosen in the primary pass', () => {
-    const grouped = groupByHourly([
-      entry('com.a', 'A', '2024-01-15T09:00:00.000Z'),
-      entry('com.a', 'A', '2024-01-15T10:00:00.000Z'),
-      entry('com.a', 'A', '2024-01-15T11:00:00.000Z'),
-    ]);
+    const grouped = groupByHourly(
+      [app('com.a', 'A', '2024-01-15T09:00:00.000Z', '2024-01-15T10:00:00.000Z', '2024-01-15T11:00:00.000Z')],
+      'UTC',
+    );
     expect(remainingRanges(must(grouped['com.a']), new Set(['9am - 10am']))).toEqual(['10am - 11am', '11am - 12pm']);
   });
 
@@ -108,48 +146,37 @@ describe('mergeSelections + remainingRanges (primary + remaining passes)', () =>
   });
 });
 
-describe('buildHourlySubmission — child-only all buckets + shared selected buckets', () => {
-  test('emits every child-only record and only selected shared buckets, stamped Target Child', () => {
-    const grouped = groupByHourly([
-      entry('com.child', 'Child', '2024-01-15T09:30:00.000Z'),
-      entry('com.child', 'Child', '2024-01-15T14:30:00.000Z'),
-      entry('com.shared', 'Shared', '2024-01-15T09:30:00.000Z'),
-      entry('com.shared', 'Shared', '2024-01-15T10:30:00.000Z'),
-      entry('com.untouched', 'Untouched', '2024-01-15T11:30:00.000Z'),
-    ]);
+describe('buildHourlySubmission — every asked block gets an answer', () => {
+  test('child-only apps and selected shared hours are the child; every other asked hour is no one', () => {
+    const grouped = groupByHourly(
+      [
+        app('com.child', 'Child', '2024-01-15T09:00:00.000Z', '2024-01-15T14:00:00.000Z'),
+        app('com.shared', 'Shared', '2024-01-15T09:00:00.000Z', '2024-01-15T10:00:00.000Z'),
+        app('com.untouched', 'Untouched', '2024-01-15T11:00:00.000Z'),
+      ],
+      'UTC',
+    );
 
     const submission = buildHourlySubmission(grouped, new Set(['com.child']), {
       'com.shared': new Set(['9am - 10am']),
     });
 
-    // child-only: both records; shared: only the 9am bucket; untouched + shared 10am excluded.
-    expect(submission).toHaveLength(3);
-    expect(submission.every((e) => e.users.length === 1 && e.users[0] === HOURLY_SURVEY_USER)).toBe(true);
-    const stamped = submission.map((e) => `${e.appPackageName}@${e.timestamp}`).sort();
-    expect(stamped).toEqual([
-      'com.child@2024-01-15T09:30:00.000Z',
-      'com.child@2024-01-15T14:30:00.000Z',
-      'com.shared@2024-01-15T09:30:00.000Z',
+    const rows = submission.map((row) => `${row.appPackageName}@${row.blockStart}=${row.users.join('|')}`).sort();
+    expect(rows).toEqual([
+      `com.child@2024-01-15T09:00:00.000Z=${HOURLY_SURVEY_USER}`,
+      `com.child@2024-01-15T14:00:00.000Z=${HOURLY_SURVEY_USER}`,
+      `com.shared@2024-01-15T09:00:00.000Z=${HOURLY_SURVEY_USER}`,
+      'com.shared@2024-01-15T10:00:00.000Z=',
+      'com.untouched@2024-01-15T11:00:00.000Z=',
     ]);
-    // the orphaned app and the unselected shared bucket never appear
-    expect(submission.some((e) => e.appPackageName === 'com.untouched')).toBe(false);
-    expect(submission.some((e) => e.timestamp === '2024-01-15T10:30:00.000Z')).toBe(false);
   });
 
-  test('an app that is both child-only and present in shared selections is emitted once', () => {
-    const grouped = groupByHourly([
-      entry('com.dup', 'Dup', '2024-01-15T09:30:00.000Z'),
-      entry('com.dup', 'Dup', '2024-01-15T10:30:00.000Z'),
-    ]);
-    const submission = buildHourlySubmission(grouped, new Set(['com.dup']), {
-      'com.dup': new Set(['9am - 10am']),
-    });
+  test('an app that is both child-only and in shared selections is answered once per hour', () => {
+    const grouped = groupByHourly(
+      [app('com.dup', 'Dup', '2024-01-15T09:00:00.000Z', '2024-01-15T10:00:00.000Z')],
+      'UTC',
+    );
+    const submission = buildHourlySubmission(grouped, new Set(['com.dup']), { 'com.dup': new Set(['9am - 10am']) });
     expect(submission).toHaveLength(2);
-  });
-
-  test('does not mutate the source entries', () => {
-    const grouped = groupByHourly([entry('com.child', 'Child', '2024-01-15T09:30:00.000Z')]);
-    buildHourlySubmission(grouped, new Set(['com.child']), {});
-    expect(grouped['com.child']?.buckets['9am - 10am']?.[0]?.users).toEqual([]);
   });
 });

@@ -1,17 +1,23 @@
 import { MessageSquareCode } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { ParticipantSessionBanner } from '@/components/participant-session-banner';
+import { focusAnswer, ResponseRequired } from '@/components/response-required';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { isRtlLanguage, LanguageSwitcher, type Translator, useTranslator } from '@/i18n';
 import { useUnsavedParticipantAnswers } from '@/lib/participant-access-guard';
 import { REQUEST_STATES } from '@/lib/request-state';
-import type { AppUsageEntry } from '@/state/study-operations-api';
+import type { AppUsageAnswer, AppUsageDayApp } from '@/state/study-operations-api';
 import {
-  AppUsageStatusCard,
+  AnsweredApps,
+  AppUsageAnswerFields,
+  AppUsageDayDone,
+  AppUsageSubmissionAlert,
+  AppUsageSurveyDate,
   AppUsageSurveyFeedback,
   type AppUsageSurveyProps,
+  isUnanswered,
   useAppUsageSurvey,
 } from './app-usage-survey';
 
@@ -23,7 +29,7 @@ export const APP_USAGE_USER_OPTIONS = [
   'Other family member',
 ] as const;
 
-/** "None of the above / don't know" — exclusive; apps tagged with it are dropped on submit. */
+/** "None of the above / don't know" — exclusive; stored as the app's answer like any other. */
 export const APP_USAGE_NONE_OPTION = "I don't know";
 
 // Submitted `users` values stay the canonical English strings above; only the labels are
@@ -36,83 +42,90 @@ const USER_OPTION_KEYS: Record<string, string> = {
   [APP_USAGE_NONE_OPTION]: 'app_usage_survey.user_options.dont_know',
 };
 
-type SelectionMap = Record<number, string[]>;
-
-/** One question per app, as upstream: Android reports every foreground session separately. */
-type AppGroup = [AppUsageEntry, ...AppUsageEntry[]];
-
-export function groupByApp(entries: AppUsageEntry[]): AppGroup[] {
-  const groups = new Map<string, AppGroup>();
-  for (const entry of entries) {
-    const group = groups.get(entry.appPackageName);
-    if (group) group.push(entry);
-    else groups.set(entry.appPackageName, [entry]);
-  }
-  return [...groups.values()];
-}
+/** Keyed by app package: a refresh can reorder the apps, and an answer must stay with its app. */
+type SelectionMap = Record<string, string[]>;
 
 /**
- * The app-usage survey: the participant reviews each app they used in the window
- * and indicates who used it. Selecting "I don't know" (the exclusive none option)
- * drops that app from the submission; every other app is echoed back unchanged with
- * its chosen `users`. Faithful to upstream `methodic-labs/chronicle-web`.
+ * The daily app-usage survey, as upstream `methodic-labs/chronicle-web`: one question per app used on the
+ * day, asking who used it. Apps already answered (before a late upload added more) are shown, not asked.
  */
 export function ParticipantSurveyForm(props: AppUsageSurveyProps) {
   const t = useTranslator();
   const dir = isRtlLanguage(t.effectiveCode) ? 'rtl' : 'ltr';
-  const { data: apps, isLoading, isError, submit, submitState } = useAppUsageSurvey(props);
+  const {
+    data: day,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    submit,
+    submitError,
+    submitState,
+    hasSubmitted,
+  } = useAppUsageSurvey(props);
   const [selections, setSelections] = useState<SelectionMap>({});
+  const [showMissing, setShowMissing] = useState(false);
+  const rowId = useId();
   const keepAlive = useUnsavedParticipantAnswers(
     submitState !== REQUEST_STATES.SUCCESS && Object.values(selections).some((selected) => selected.length > 0),
   );
 
-  const toggleOption = useCallback((index: number, option: string, checked: boolean) => {
+  const toggleOption = useCallback((app: string, option: string, checked: boolean) => {
     setSelections((prev) => {
-      const current = prev[index] ?? [];
+      const current = prev[app] ?? [];
       if (option === APP_USAGE_NONE_OPTION) {
-        return { ...prev, [index]: checked ? [APP_USAGE_NONE_OPTION] : [] };
+        return { ...prev, [app]: checked ? [APP_USAGE_NONE_OPTION] : [] };
       }
       const withoutNone = current.filter((value) => value !== APP_USAGE_NONE_OPTION);
       const next = checked ? [...new Set([...withoutNone, option])] : withoutNone.filter((value) => value !== option);
-      return { ...prev, [index]: next };
+      return { ...prev, [app]: next };
     });
   }, []);
 
-  const groups = useMemo(() => groupByApp(apps ?? []), [apps]);
-  const allAnswered = useMemo(
-    () => groups.length > 0 && groups.every((_group, index) => (selections[index]?.length ?? 0) > 0),
-    [groups, selections],
-  );
+  const asked = useMemo(() => (day?.apps ?? []).filter(isUnanswered), [day]);
+  const label = (user: string) => t.t(USER_OPTION_KEYS[user] ?? user);
 
+  // As upstream: the answered apps are submitted and the rest stay asked. The server refuses an empty answer.
   const handleSubmit = useCallback(() => {
-    if (!allAnswered) return;
-    const payload: AppUsageEntry[] = groups.flatMap((group, index) => {
-      const selected = selections[index] ?? [];
-      if (selected.includes(APP_USAGE_NONE_OPTION)) return [];
-      return group.map((entry) => ({ ...entry, users: selected }));
+    const answers: AppUsageAnswer[] = asked.flatMap((app) => {
+      const users = selections[app.appPackageName] ?? [];
+      return users.length === 0
+        ? []
+        : app.blocks
+            .filter((block) => block.users == null)
+            .map((block) => ({ appPackageName: app.appPackageName, blockStart: block.start, users }));
     });
-    submit(payload);
-  }, [allAnswered, groups, selections, submit]);
+    if (answers.length === 0) {
+      setShowMissing(true);
+      focusAnswer(`${rowId}-0`);
+      return;
+    }
+    submit(answers);
+  }, [asked, rowId, selections, submit]);
 
-  if (isLoading || isError || submitState === REQUEST_STATES.SUCCESS) {
+  if (!day || isError || submitState === REQUEST_STATES.SUCCESS) {
     return (
       <AppUsageSurveyFeedback
         dir={dir}
-        icon={MessageSquareCode}
         isError={isError}
-        isLoading={isLoading}
-        submitState={submitState}
+        isLoading={isLoading || !day}
+        error={error}
+        onRetry={refetch}
       />
     );
   }
 
-  if (groups.length === 0) {
+  const failure = submitState === REQUEST_STATES.FAILURE && <AppUsageSubmissionAlert error={submitError} />;
+
+  if (asked.length === 0) {
     return (
-      <AppUsageStatusCard
-        icon={MessageSquareCode}
-        description={t.t('app_usage_survey.nothing_to_review')}
+      <AppUsageDayDone
+        day={day}
         dir={dir}
-        title={t.t('app_usage_survey.nothing_to_review_title')}
+        failure={failure}
+        label={label}
+        onConfirm={() => submit([])}
+        pending={submitState === REQUEST_STATES.PENDING}
       />
     );
   }
@@ -121,39 +134,37 @@ export function ParticipantSurveyForm(props: AppUsageSurveyProps) {
     <Card className="max-w-2xl" dir={dir}>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle as="h2" className="flex items-center gap-2">
+          <CardTitle as="h2" layout="icon">
             <MessageSquareCode className="h-5 w-5 text-primary" />
             {t.t('app_usage_survey.title')}
           </CardTitle>
           <LanguageSwitcher />
         </div>
+        <AppUsageSurveyDate date={props.date} />
         <CardDescription>{t.t('app_usage_survey.daily_instructions')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent spacing={6}>
         <ParticipantSessionBanner onRetry={keepAlive.retry} status={keepAlive.status} translate={t.t} />
-        {groups.map(([entry], index) => (
-          <AppUsageRow
-            index={index}
-            key={entry.appPackageName}
-            onToggle={toggleOption}
-            selection={selections[index] ?? []}
-            entry={entry}
-            translator={t}
-          />
-        ))}
+        <AnsweredApps apps={day.apps} label={label} />
+        <AppUsageAnswerFields submitted={hasSubmitted}>
+          {asked.map((app, index) => (
+            <AppUsageRow
+              app={app}
+              id={`${rowId}-${index}`}
+              index={index}
+              invalid={showMissing && (selections[app.appPackageName]?.length ?? 0) === 0}
+              key={app.appPackageName}
+              onToggle={toggleOption}
+              selection={selections[app.appPackageName] ?? []}
+              translator={t}
+            />
+          ))}
+        </AppUsageAnswerFields>
 
-        {submitState === REQUEST_STATES.FAILURE && (
-          <p className="text-sm text-destructive" role="alert">
-            {t.t('app_usage_survey.error_submit')}
-          </p>
-        )}
+        {failure}
 
         <div className="flex justify-end">
-          <Button
-            disabled={!allAnswered || submitState === REQUEST_STATES.PENDING}
-            onClick={handleSubmit}
-            type="button"
-          >
+          <Button disabled={submitState === REQUEST_STATES.PENDING} onClick={handleSubmit} type="button">
             {submitState === REQUEST_STATES.PENDING
               ? t.t('app_usage_survey.submitting')
               : t.t('app_usage_survey.submit_survey')}
@@ -165,22 +176,30 @@ export function ParticipantSurveyForm(props: AppUsageSurveyProps) {
 }
 
 type AppUsageRowProps = {
-  entry: AppUsageEntry;
+  app: AppUsageDayApp;
+  id?: string;
   index: number;
-  onToggle: (index: number, option: string, checked: boolean) => void;
+  invalid?: boolean;
+  onToggle: (appPackageName: string, option: string, checked: boolean) => void;
   selection: string[];
   translator?: Translator;
 };
 
-export function AppUsageRow({ entry, index, onToggle, selection, translator }: AppUsageRowProps) {
+export function AppUsageRow({ app, id, index, invalid, onToggle, selection, translator }: AppUsageRowProps) {
   const context = useTranslator();
   const t = translator ?? context;
-  const label = entry.appLabel || entry.appPackageName;
+  const label = app.appLabel || app.appPackageName;
   const options = [...APP_USAGE_USER_OPTIONS, APP_USAGE_NONE_OPTION];
+  const errorId = `${id}-error`;
   return (
     // min-w-0 + break-all: a fieldset is min-content wide by default, so an unlabelled package
     // name (one unbreakable word) would push the row past the card on a phone.
-    <fieldset className="min-w-0 space-y-3">
+    <fieldset
+      aria-describedby={invalid ? errorId : undefined}
+      aria-invalid={invalid}
+      className="min-w-0 space-y-3"
+      id={id}
+    >
       <legend className="flex items-baseline gap-2">
         <Badge variant="outline">{index + 1}</Badge>
         <span className="min-w-0 break-all text-base font-semibold text-foreground">{label}</span>
@@ -194,13 +213,14 @@ export function AppUsageRow({ entry, index, onToggle, selection, translator }: A
             <input
               checked={selection.includes(option)}
               className="h-4 w-4 rounded border-border text-primary focus-visible:ring-primary"
-              onChange={(event) => onToggle(index, option, event.currentTarget.checked)}
+              onChange={(event) => onToggle(app.appPackageName, option, event.currentTarget.checked)}
               type="checkbox"
             />
             <span>{t.t(USER_OPTION_KEYS[option] ?? option)}</span>
           </label>
         ))}
       </div>
+      {invalid && <ResponseRequired id={errorId} />}
     </fieldset>
   );
 }
