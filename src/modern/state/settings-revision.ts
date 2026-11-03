@@ -27,17 +27,23 @@ export function forgetSettingsRevision(studyId: string): void {
 const SETTINGS_CONFLICT_STATUS = 412;
 const PRECONDITION_REQUIRED_STATUS = 428;
 
-/** Thrown by the study save when a settings PATCH hit 412; the edit form reloads on it. */
+/** A revision conflict keeps the draft until the researcher explicitly discards it. */
 export class StudySettingsConflictError extends Error {
   override name = 'StudySettingsConflictError';
 }
 
+export function requireSettingsRevision(revision: string | undefined): string {
+  if (!revision) throw new StudySettingsConflictError();
+  return revision;
+}
+
 export function isSettingsConflict(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'status' in error &&
-    (error as { status?: unknown }).status === SETTINGS_CONFLICT_STATUS
+    error instanceof StudySettingsConflictError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'status' in error &&
+      (error as { status?: unknown }).status === SETTINGS_CONFLICT_STATUS)
   );
 }
 

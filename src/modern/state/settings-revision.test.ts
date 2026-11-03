@@ -6,9 +6,15 @@ import {
   isSettingsConflict,
   knownSettingsRevision,
   rememberSettingsRevision,
+  StudySettingsConflictError,
 } from './settings-revision';
 
 describe('settings revision', () => {
+  it('recognises the save pipeline conflict through the same predicate as HTTP conflicts', () => {
+    const error = new StudySettingsConflictError('revision unavailable');
+    expect(isSettingsConflict(error)).toBe(true);
+    expect(isConditionalWriteFailure(error)).toBe(true);
+  });
   it('remembers the ETag of the last settings response per study', () => {
     rememberSettingsRevision('s1', new Headers({ etag: '"7"' }));
     rememberSettingsRevision('s2', new Headers({ etag: '"3"' }));
@@ -40,13 +46,10 @@ describe('settings revision', () => {
     expect(isConditionalWriteFailure({ status })).toBe(true);
   });
 
-  it.each([
-    null,
-    undefined,
-    {},
-    { status: 409 },
-    { status: '412' },
-  ])('rejects other conditional-write failures: %j', (error) => {
-    expect(isConditionalWriteFailure(error)).toBe(false);
-  });
+  it.each([null, undefined, {}, { status: 409 }, { status: '412' }])(
+    'rejects other conditional-write failures: %j',
+    (error) => {
+      expect(isConditionalWriteFailure(error)).toBe(false);
+    },
+  );
 });

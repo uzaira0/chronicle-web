@@ -1,152 +1,147 @@
-import { AlertTriangle, Archive, ArchiveRestore, CircleAlert, MoreVertical, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
-
+import { CircleAlert } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { NavLink, useLocation, useParams } from 'react-router';
+import { DeletionStatusCard } from '@/components/deletion-status-card';
 import { RouteOutlet } from '@/components/error-boundary';
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
 import { RouteSkeleton, StatePanel } from '@/components/state-panel';
 import { type StudyFormData, StudyFormDialog } from '@/components/study-form-dialog';
+import { StudyNotices } from '@/components/study-notices';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { translateCatalog, useTranslator } from '@/i18n';
-import { getErrorMessage } from '@/lib/errors';
+import { getErrorMessage, isRetryableHttpStatus } from '@/lib/errors';
 import {
   buildStudyParticipantPolicy,
   EMPTY_PARTICIPANT_POLICY_FORM,
   participantPolicyUnchanged,
 } from '@/lib/participant-policy';
-import { STUDY_FEATURES } from '@/lib/study-constants';
 import {
+  buildAppUsageSurveySetting,
   buildDataCollectionSetting,
-  buildIosSensorSetting,
-  buildSensorSetting,
   buildStudyLimits,
-  buildStudyPayload,
+  buildStudyUpdatePayload,
   buildTimeUseDiarySetting,
   buildWithdrawalSetting,
-  iosSensorSettingUnchanged,
   studyLimitsUnchanged,
 } from '@/lib/study-form-helpers';
+import { studyFeatureLabel, studyNavigationActionError, studyNavigationFailedSteps } from '@/lib/study-navigation';
 import {
-  PARTIAL_STUDY_CONFIGURATION_ERROR,
+  STUDY_SAVE_STEP,
+  StudySaveError,
   type StudySaveFailure,
-  type StudySaveStep,
   saveStep,
   settingWrites,
-  studyNavigationActionError,
-  studyNavigationFailedSteps,
   writeSettingsInOrder,
-} from '@/lib/study-navigation';
+} from '@/lib/study-save';
 import { allStudyTabs } from '@/lib/study-tabs';
 import { cn } from '@/lib/utils';
 import { isSettingsConflict, StudySettingsConflictError } from '@/state/settings-revision';
 import {
   type StudyLifecycleStatus,
-  useArchiveStudyMutation,
-  useCancelScheduledDeletionMutation,
+  useGetStudyDeletionsQuery,
   useGetStudyLifecycleStatusQuery,
   useGetStudyLimitsQuery,
   useGetStudySummaryQuery,
-  useScheduleStudyDeletionMutation,
   useSetStudyLimitsMutation,
-  useUnarchiveStudyMutation,
   useUpdateStudyMutation,
   useUpdateStudySettingsMutation,
 } from '@/state/study-operations-api';
 
-const FEATURE_LABELS = new Map<string, string>(STUDY_FEATURES.map(({ label, value }) => [value, label]));
+import {
+  getAuthoritativeStudyLifecycleStatus,
+  getStudyLifecycleActionVisibility,
+  StudyLifecycleActions,
+} from './study-layout/lifecycle-actions';
 
-function moduleLabel(moduleId: string) {
-  return FEATURE_LABELS.get(moduleId) ?? moduleId.replace(/_/g, ' ');
-}
-
-function LifecycleBanner({ isPending, status }: { isPending: boolean; status: StudyLifecycleStatus | undefined }) {
+function useStudySave({ studyId, canEdit }: { studyId: string; canEdit: boolean }) {
   const { t } = useTranslator();
-  if (status === 'ACTIVE') return null;
+  const allowed = useRef(canEdit);
+  allowed.current = canEdit;
+  const [updateStudy] = useUpdateStudyMutation();
+  const [updateStudySettings] = useUpdateStudySettingsMutation();
+  const [setStudyLimits] = useSetStudyLimitsMutation();
+  return async (form: StudyFormData, context: { settingsRevision?: string | undefined }) => {
+    if (!allowed.current) {
+      throw new Error(t('study_layout.status_unavailable_reload'));
+    }
 
-  // An in-flight refetch also reports an undefined (non-authoritative) status. Staying
-  // quiet while the request is still outstanding keeps a routine background refresh from
-  // flashing the "status unavailable" alarm; a genuine failure still surfaces below.
-  if (status === undefined && isPending) return null;
+    const policyForm = form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM;
+    // Enrollment locks the participant policy server-side. Re-sending an identical copy
+    // would be rejected for no gain, so an untouched policy is simply not written.
+    const participantPolicy = participantPolicyUnchanged(policyForm, form.loadedParticipantPolicy)
+      ? null
+      : buildStudyParticipantPolicy(policyForm);
+    // Untouched limits are not re-sent: the PUT is admin-only and re-derives the study end
+    // date from "now", so a title edit would otherwise move it (and 403 for others). A cleared
+    // duration is sent without one, which means the study has no end.
+    const limits = studyLimitsUnchanged(form) ? null : buildStudyLimits(form);
 
-  if (status === 'ARCHIVED') {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-warning/50 bg-warning-bg px-4 py-3 text-sm text-warning">
-        <Archive className="h-4 w-4 shrink-0" />
-        {t('study_layout.banner_archived')}
-      </div>
+    // The settings PATCHes run in order (see writeSettingsInOrder); every failed step is
+    // named in the error so the user knows exactly what did not persist.
+    const writes = settingWrites({
+      AppUsageSurvey: buildAppUsageSurveySetting(form),
+      Withdrawal: buildWithdrawalSetting(form),
+      TimeUseDiary: buildTimeUseDiarySetting(form),
+      DataCollection: buildDataCollectionSetting(form),
+      ParticipantPolicy: participantPolicy,
+    });
+
+    // Each write follows the revision loaded by the form, then the preceding successful write.
+    const requireRevision = () => {
+      if (!context.settingsRevision) {
+        throw new StudySaveError({
+          failures: [
+            {
+              step: STUDY_SAVE_STEP.details,
+              error: new StudySettingsConflictError(t('study_layout.settings_conflict')),
+            },
+          ],
+          t,
+        });
+      }
+      return context.settingsRevision;
+    };
+    const assertSaved = (failures: StudySaveFailure[], unattempted: StudySaveFailure['step'][] = []) => {
+      if (!failures.length) return;
+      throw new StudySaveError({
+        failures: [...failures, ...unattempted.map((step) => ({ step, error: undefined }))],
+        t,
+      });
+    };
+    requireRevision();
+    const settings = await writeSettingsInOrder(
+      writes,
+      async (write) => {
+        const result = await updateStudySettings({ studyId, ifMatch: requireRevision(), ...write }).unwrap();
+        context.settingsRevision = result.settingsRevision;
+        return result;
+      },
+      isSettingsConflict,
     );
-  }
-
-  if (status === 'SCHEDULED_FOR_DELETION') {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        {t('study_layout.banner_scheduled')}
-      </div>
+    assertSaved(settings.failures, [STUDY_SAVE_STEP.details, ...(limits ? [STUDY_SAVE_STEP.limits] : [])]);
+    assertSaved(
+      await saveStep(
+        STUDY_SAVE_STEP.details,
+        updateStudy({ studyId, study: buildStudyUpdatePayload(form), ifMatch: requireRevision() })
+          .unwrap()
+          .then((result) => {
+            context.settingsRevision = result.settingsRevision;
+          }),
+      ),
+      limits ? [STUDY_SAVE_STEP.limits] : [],
     );
-  }
-
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-warning/50 bg-warning-bg px-4 py-3 text-sm text-warning">
-      <CircleAlert className="h-4 w-4 shrink-0" />
-      {t('study_layout.banner_unavailable')}
-    </div>
-  );
+    if (limits)
+      assertSaved(
+        await saveStep(
+          STUDY_SAVE_STEP.limits,
+          setStudyLimits({ studyId, limits, ifMatch: requireRevision() }).unwrap(),
+        ),
+      );
+  };
 }
 
-type StudyLifecycleActionVisibility = Readonly<{
-  showActions: boolean;
-  showArchive: boolean;
-  showDelete: boolean;
-  showEdit: boolean;
-  showRestore: boolean;
-}>;
-
-/** @internal Exported for focused action-visibility regression tests. */
-export function getStudyLifecycleActionVisibility(status: unknown): StudyLifecycleActionVisibility {
-  switch (status) {
-    case 'ACTIVE':
-      return { showActions: true, showArchive: true, showDelete: true, showEdit: true, showRestore: false };
-    case 'ARCHIVED':
-      return { showActions: true, showArchive: false, showDelete: true, showEdit: true, showRestore: true };
-    case 'SCHEDULED_FOR_DELETION':
-      return { showActions: true, showArchive: false, showDelete: false, showEdit: false, showRestore: true };
-    default:
-      return { showActions: false, showArchive: false, showDelete: false, showEdit: false, showRestore: false };
-  }
-}
-
-type StudyLifecycleQueryAuthority = Readonly<{
-  data: StudyLifecycleStatus | undefined;
-  isError: boolean;
-  isFetching: boolean;
-  isSuccess: boolean;
-}>;
-
-/** Cached RTK Query data is authoritative only after the current request succeeds and settles. */
-export function getAuthoritativeStudyLifecycleStatus({
-  data,
-  isError,
-  isFetching,
-  isSuccess,
-}: StudyLifecycleQueryAuthority): StudyLifecycleStatus | undefined {
-  return isSuccess && !isFetching && !isError ? data : undefined;
-}
-
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This layout owns route-level loading/error/action/dialog state; extraction would obscure the flow more than it reduces risk.
-export function StudyLayout() {
-  const { studyId = '' } = useParams<{ studyId: string }>();
-  const location = useLocation();
+function useStudyLayoutQueries(studyId: string) {
   const {
     data: study,
     error,
@@ -160,43 +155,12 @@ export function StudyLayout() {
     isFetching: isLifecycleFetching,
     isSuccess: isLifecycleSuccess,
   } = useGetStudyLifecycleStatusQuery(studyId, { skip: !studyId });
-  const [updateStudy] = useUpdateStudyMutation();
+
   const { data: limits } = useGetStudyLimitsQuery(studyId, {
     skip: !studyId,
     refetchOnFocus: true,
     refetchOnMountOrArgChange: true,
   });
-  const [updateStudySettings] = useUpdateStudySettingsMutation();
-  const [setStudyLimits] = useSetStudyLimitsMutation();
-  const [archiveStudy, { isLoading: isArchiving }] = useArchiveStudyMutation();
-  const [unarchiveStudy, { isLoading: isUnarchiving }] = useUnarchiveStudyMutation();
-  const [cancelScheduledDeletion, { isLoading: isCancellingDeletion }] = useCancelScheduledDeletionMutation();
-  const [scheduleStudyDeletion, { isLoading: isDeleting }] = useScheduleStudyDeletionMutation();
-  const navigate = useNavigate();
-  const { t } = useTranslator();
-
-  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
-  const [showRestoreDialog, setShowRestoreDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [actionError, setActionError] = useState<string | null>(() => studyNavigationActionError(location.state));
-  const [createFailedSteps] = useState(() => studyNavigationFailedSteps(location.state));
-  const stepList = (steps: readonly StudySaveStep[]) =>
-    steps
-      .map(
-        (step) =>
-          ({
-            details: t('study_layout.save_step_details'),
-            ParticipantPolicy: t('study_layout.save_step_participant_policy'),
-            Withdrawal: t('study_form.withdrawal_mode'),
-            TimeUseDiary: t('study_form.time_zone'),
-            AndroidSensor: t('study_layout.save_step_android_sensors'),
-            Sensor: t('study_layout.save_step_ios_sensors'),
-            DataCollection: t('study_layout.save_step_data_collection'),
-            limits: t('study_layout.save_step_limits'),
-          })[step],
-      )
-      .join(', ');
 
   const status = getAuthoritativeStudyLifecycleStatus({
     data: lifecycleStatus,
@@ -204,271 +168,91 @@ export function StudyLayout() {
     isFetching: isLifecycleFetching,
     isSuccess: isLifecycleSuccess,
   });
-  const lifecycleActions = getStudyLifecycleActionVisibility(status);
-  const lifecycleActionsRef = useRef(lifecycleActions);
-  lifecycleActionsRef.current = lifecycleActions;
-  const isScheduledForDeletion = status === 'SCHEDULED_FOR_DELETION';
-  const deleteConfirmMatch = deleteConfirmText.trim() === (study?.title ?? '').trim();
 
-  useEffect(() => {
-    if (!lifecycleActions.showArchive) setShowArchiveDialog(false);
-    if (!lifecycleActions.showRestore) setShowRestoreDialog(false);
-    if (!lifecycleActions.showDelete) {
-      setShowDeleteDialog(false);
-      setDeleteConfirmText('');
-    }
-  }, [lifecycleActions.showArchive, lifecycleActions.showDelete, lifecycleActions.showRestore]);
+  const errorStatus = (error as { status?: number | string } | undefined)?.status;
+  const canRetainStudy = !!study && (typeof errorStatus !== 'number' || isRetryableHttpStatus(errorStatus));
+  return { study, error, isError, isLoading, refetchStudy, isLifecycleFetching, limits, status, canRetainStudy };
+}
 
-  const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
-
-  const visibleTabs = useMemo(
-    () => allStudyTabs.filter((tab) => tab.module === null || modules.includes(tab.module)),
-    [modules],
-  );
-
-  if (!studyId) {
-    return <MissingStudyIdPanel section={t('study_layout.section')} />;
-  }
-
-  if (isLoading) {
-    return <RouteSkeleton />;
-  }
-
-  if (isError) {
-    const status = (error as { status?: number } | undefined)?.status;
-    const isNotFound = status === 404;
-    const isAuthError = status === 401 || status === 403;
-    return (
-      <StatePanel
-        description={
-          isNotFound
-            ? t('study_layout.not_found_description', { studyId })
-            : isAuthError
-              ? t('study_layout.access_denied_description')
-              : `${getErrorMessage(error, t('study_layout.load_error_fallback'))} ${t('study_layout.load_error_suffix')}`
-        }
-        eyebrow={isNotFound ? t('common.not_found') : isAuthError ? t('common.access_denied') : t('common.error')}
-        icon={<CircleAlert className="h-5 w-5" />}
-        onRetry={refetchStudy}
-        title={isNotFound ? t('study_layout.not_found_title') : t('study_layout.unavailable_title')}
-        tone="destructive"
-      />
-    );
-  }
-
-  const handleEditStudy = async (form: StudyFormData, context: { settingsRevision?: string | undefined }) => {
-    if (!lifecycleActionsRef.current.showEdit) {
-      throw new Error(t('study_layout.status_unavailable_reload'));
-    }
-
-    const policyForm = form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM;
-    // Enrollment locks the participant policy server-side. Re-sending an identical copy
-    // would be rejected for no gain, so an untouched policy is simply not written.
-    const participantPolicy = participantPolicyUnchanged(policyForm, form.loadedParticipantPolicy)
-      ? null
-      : buildStudyParticipantPolicy(policyForm);
-    // The dialog rejects clearing existing limits: the API has no "no limit" representation.
-    // Untouched limits are not re-sent either: the PUT is admin-only and re-derives the
-    // study end date from "now", so a title edit would otherwise move it (and 403 for others).
-    const limits = studyLimitsUnchanged(form) ? null : buildStudyLimits(form);
-
-    // The settings PATCHes run in order (see writeSettingsInOrder); every failed step is
-    // named in the error so the user knows exactly what did not persist.
-    const writes = settingWrites({
-      Withdrawal: buildWithdrawalSetting(form),
-      TimeUseDiary: buildTimeUseDiarySetting(form),
-      AndroidSensor: buildSensorSetting(form),
-      DataCollection: buildDataCollectionSetting(form),
-      ParticipantPolicy: participantPolicy,
-      Sensor: iosSensorSettingUnchanged(form) ? null : buildIosSensorSetting(form, true),
-    });
-
-    // Each write follows the revision loaded by the form, then the preceding successful write.
-    const requireRevision = () => {
-      if (!context.settingsRevision) throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-      return context.settingsRevision;
-    };
-    const assertSaved = (failures: StudySaveFailure[]) => {
-      if (!failures.length) return;
-      const first = failures[0]?.error;
-      if (isSettingsConflict(first) || first instanceof StudySettingsConflictError)
-        throw new StudySettingsConflictError(t('study_layout.settings_conflict'));
-      throw new Error(
-        `${t('study_layout.changes_not_saved', { steps: stepList(failures.map((failure) => failure.step)) })} ${getErrorMessage(first, '')}`.trim(),
-      );
-    };
-    requireRevision();
-    const settings = await writeSettingsInOrder(
-      writes,
-      async (write) => {
-        const result = await updateStudySettings({ studyId, ifMatch: requireRevision(), ...write }).unwrap();
-        context.settingsRevision = result.settingsRevision;
-        return result;
-      },
-      (error) => isSettingsConflict(error) || error instanceof StudySettingsConflictError,
-    );
-    assertSaved(settings.failures);
-    assertSaved(
-      await saveStep(
-        'details',
-        updateStudy({ studyId, study: buildStudyPayload(form), ifMatch: requireRevision() })
-          .unwrap()
-          .then((result) => {
-            context.settingsRevision = result.settingsRevision;
-          }),
-      ),
-    );
-    if (limits)
-      assertSaved(await saveStep('limits', setStudyLimits({ studyId, limits, ifMatch: requireRevision() }).unwrap()));
-  };
-
-  const handleArchive = async () => {
-    if (!lifecycleActionsRef.current.showArchive) {
-      setShowArchiveDialog(false);
-      return;
-    }
-    setActionError(null);
-    try {
-      await archiveStudy(studyId).unwrap();
-      setShowArchiveDialog(false);
-    } catch (err) {
-      setActionError(getErrorMessage(err, t('study_layout.archive_failed')));
-    }
-  };
-
-  const handleUnarchive = async () => {
-    if (!lifecycleActionsRef.current.showRestore) {
-      setShowRestoreDialog(false);
-      return;
-    }
-    setActionError(null);
-    try {
-      if (isScheduledForDeletion) {
-        await cancelScheduledDeletion(studyId).unwrap();
-      } else {
-        await unarchiveStudy(studyId).unwrap();
+function StudyLoadFailure({ error, studyId, onRetry }: { error: unknown; studyId: string; onRetry: () => unknown }) {
+  const { t } = useTranslator();
+  const status = (error as { status?: number } | undefined)?.status;
+  const isNotFound = status === 404;
+  const isAuthError = status === 401 || status === 403;
+  return (
+    <StatePanel
+      description={
+        isNotFound
+          ? t('study_layout.not_found_description', { studyId })
+          : isAuthError
+            ? t('study_layout.access_denied_description')
+            : `${getErrorMessage(error, t('study_layout.load_error_fallback'))} ${t('study_layout.load_error_suffix')}`
       }
-      setShowRestoreDialog(false);
-    } catch (err) {
-      setActionError(
-        getErrorMessage(
-          err,
-          isScheduledForDeletion ? t('study_layout.cancel_deletion_failed') : t('study_layout.restore_failed'),
-        ),
-      );
-    }
-  };
+      eyebrow={isNotFound ? t('common.not_found') : isAuthError ? t('common.access_denied') : t('common.error')}
+      icon={<CircleAlert className="h-5 w-5" />}
+      onRetry={onRetry}
+      title={isNotFound ? t('study_layout.not_found_title') : t('study_layout.unavailable_title')}
+      tone="destructive"
+    />
+  );
+}
 
-  const handleDelete = async () => {
-    if (!lifecycleActionsRef.current.showDelete) {
-      setShowDeleteDialog(false);
-      setDeleteConfirmText('');
-      return;
-    }
-    setActionError(null);
-    try {
-      await scheduleStudyDeletion({ deleteAfter: new Date().toISOString(), studyId }).unwrap();
-      setShowDeleteDialog(false);
-      await navigate('/studies');
-    } catch (err) {
-      setActionError(getErrorMessage(err, t('study_layout.schedule_deletion_failed')));
-    }
-  };
-
+/**
+ * A study erasure hides the study summary until it is erased or cancelled, so the owner's controls
+ * render from the lifecycle status and the deletion list instead.
+ */
+function HiddenStudyDeletionPanel({
+  studyId,
+  status,
+  isLifecycleFetching,
+}: {
+  studyId: string;
+  status: StudyLifecycleStatus;
+  isLifecycleFetching: boolean;
+}) {
+  const { t } = useTranslator();
+  const deletions = useGetStudyDeletionsQuery(studyId, { refetchOnMountOrArgChange: true });
   return (
     <div className="space-y-6">
-      {/* Study header */}
       <SectionHeader
-        actions={
-          lifecycleActions.showActions ? (
-            <div className="flex items-center gap-2">
-              {study && lifecycleActions.showEdit && (
-                <StudyFormDialog mode="edit" onSubmit={handleEditStudy} study={study} />
-              )}
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button aria-label={t('study_layout.actions_aria')} size="icon" variant="outline">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {lifecycleActions.showArchive && (
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setActionError(null);
-                        setShowArchiveDialog(true);
-                      }}
-                    >
-                      <Archive className="mr-2 h-4 w-4" />
-                      {t('study_layout.archive')}
-                    </DropdownMenuItem>
-                  )}
-                  {lifecycleActions.showRestore && (
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setActionError(null);
-                        setShowRestoreDialog(true);
-                      }}
-                    >
-                      <ArchiveRestore className="mr-2 h-4 w-4" />
-                      {isScheduledForDeletion ? t('study_layout.cancel_deletion') : t('study_layout.restore')}
-                    </DropdownMenuItem>
-                  )}
-                  {lifecycleActions.showDelete && (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => {
-                        setActionError(null);
-                        setDeleteConfirmText('');
-                        setShowDeleteDialog(true);
-                      }}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {t('study_layout.delete')}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ) : null
-        }
-        description={study?.description || t('common.no_description')}
-        eyebrow={
-          study?.version ? t('study_layout.version_eyebrow', { version: study.version }) : t('study_layout.section')
-        }
-        title={study?.title || studyId}
+        actions={<StudyLifecycleActions studyId={studyId} title={studyId} status={status} />}
+        description={t('study_layout.section')}
+        eyebrow={t('study_layout.section')}
+        title={studyId}
       />
+      <StudyNotices
+        isLifecycleFetching={isLifecycleFetching}
+        status={status}
+        studyDataExpires={undefined}
+        actionError={null}
+        createFailedSteps={[]}
+      />
+      <DeletionStatusCard
+        studyId={studyId}
+        operations={deletions.currentData ?? []}
+        error={deletions.isError ? getErrorMessage(deletions.error, t('participants.refresh_deletion_failed')) : null}
+        isFetching={deletions.isFetching}
+        onRefresh={() => void deletions.refetch()}
+      />
+    </div>
+  );
+}
 
-      {/* Lifecycle banner */}
-      <LifecycleBanner isPending={isLifecycleFetching} status={status} />
-      {limits?.studyDataExpires && Date.parse(limits.studyDataExpires) <= Date.now() && (
-        <div role="alert" className="rounded-lg border border-warning/50 bg-warning-bg px-4 py-3 text-sm text-warning">
-          {t('study_layout.banner_retention_ended')}
-        </div>
-      )}
-
-      {actionError && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {actionError !== PARTIAL_STUDY_CONFIGURATION_ERROR
-            ? actionError
-            : createFailedSteps.length > 0
-              ? t('study_layout.created_changes_not_saved', { steps: stepList(createFailedSteps) })
-              : t('study_layout.partial_configuration_error')}
-        </div>
-      )}
-
+function StudyNavigation({ modules }: { modules: string[] }) {
+  const { t } = useTranslator();
+  const visibleTabs = allStudyTabs.filter((tab) => tab.module === null || modules.includes(tab.module));
+  return (
+    <>
       {/* Module badges */}
       {modules.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {modules.map((mod) => (
-            <Badge className="normal-case tracking-normal" key={mod} variant="muted">
-              {translateCatalog(t, 'feature', mod, moduleLabel(mod))}
+            <Badge casing="natural" key={mod} variant="muted">
+              {translateCatalog(t, 'feature', mod, studyFeatureLabel(mod))}
             </Badge>
           ))}
         </div>
       )}
-
       {/* Tab navigation — conditional on study modules */}
       <nav className="flex gap-1 overflow-x-auto border-b border-border pb-px">
         {visibleTabs.map(({ icon: Icon, labelKey, to }) => (
@@ -490,135 +274,60 @@ export function StudyLayout() {
           </NavLink>
         ))}
       </nav>
+    </>
+  );
+}
 
-      {/* Tab content */}
-      <RouteOutlet />
-
-      {/* Archive confirmation dialog */}
-      <Dialog
-        onOpenChange={(open) => {
-          setShowArchiveDialog(open && lifecycleActions.showArchive);
-          if (!open) setActionError(null);
-        }}
-        open={showArchiveDialog && lifecycleActions.showArchive}
-      >
-        <DialogContent className="w-11/12 max-w-md">
-          <DialogTitle>{t('study_layout.archive')}</DialogTitle>
-          <DialogDescription>{t('study_layout.archive_description', { title: study?.title ?? '' })}</DialogDescription>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button onClick={() => setShowArchiveDialog(false)} variant="ghost">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              disabled={isArchiving || !lifecycleActions.showArchive}
-              onClick={() => {
-                handleArchive().catch((err) => {
-                  setActionError(getErrorMessage(err, t('study_layout.archive_failed')));
-                });
-              }}
-            >
-              {isArchiving ? t('study_layout.archiving') : t('study_layout.archive')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Restore / Cancel Deletion confirmation dialog */}
-      <Dialog
-        onOpenChange={(open) => {
-          setShowRestoreDialog(open && lifecycleActions.showRestore);
-          if (!open) setActionError(null);
-        }}
-        open={showRestoreDialog && lifecycleActions.showRestore}
-      >
-        <DialogContent className="w-11/12 max-w-md">
-          <DialogTitle>
-            {isScheduledForDeletion ? t('study_layout.cancel_deletion') : t('study_layout.restore')}
-          </DialogTitle>
-          <DialogDescription>
-            {t(
-              isScheduledForDeletion ? 'study_layout.cancel_deletion_description' : 'study_layout.restore_description',
-              {
-                title: study?.title ?? '',
-              },
+export function StudyLayout() {
+  const { studyId = '' } = useParams<{ studyId: string }>();
+  const location = useLocation();
+  const { t } = useTranslator();
+  const { study, error, isError, isLoading, refetchStudy, isLifecycleFetching, limits, status, canRetainStudy } =
+    useStudyLayoutQueries(studyId);
+  const [actionError] = useState<string | null>(() => studyNavigationActionError(location.state));
+  const [createFailedSteps] = useState(() => studyNavigationFailedSteps(location.state));
+  const lifecycleActions = getStudyLifecycleActionVisibility(status);
+  const canEdit = lifecycleActions.showEdit && !isError;
+  const handleEditStudy = useStudySave({ studyId, canEdit });
+  const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
+  if (!studyId) return <MissingStudyIdPanel section={t('study_layout.section')} />;
+  if (isLoading) return <RouteSkeleton />;
+  if (isError && status === 'SCHEDULED_FOR_DELETION')
+    return <HiddenStudyDeletionPanel studyId={studyId} status={status} isLifecycleFetching={isLifecycleFetching} />;
+  const failure = <StudyLoadFailure error={error} studyId={studyId} onRetry={refetchStudy} />;
+  if (isError && !canRetainStudy) return failure;
+  return (
+    <div className="space-y-6">
+      <SectionHeader
+        actions={
+          <div className="flex items-center gap-2">
+            {study && (
+              <StudyFormDialog key={studyId} canEdit={canEdit} mode="edit" onSubmit={handleEditStudy} study={study} />
             )}
-          </DialogDescription>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button onClick={() => setShowRestoreDialog(false)} variant="ghost">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              disabled={
-                (isScheduledForDeletion ? isCancellingDeletion : isUnarchiving) || !lifecycleActions.showRestore
-              }
-              onClick={() => {
-                handleUnarchive().catch((err) => {
-                  setActionError(
-                    getErrorMessage(
-                      err,
-                      isScheduledForDeletion
-                        ? t('study_layout.cancel_deletion_failed')
-                        : t('study_layout.restore_failed'),
-                    ),
-                  );
-                });
-              }}
-            >
-              {isScheduledForDeletion
-                ? isCancellingDeletion
-                  ? t('study_layout.cancelling')
-                  : t('study_layout.cancel_deletion')
-                : isUnarchiving
-                  ? t('study_layout.restoring')
-                  : t('study_layout.restore')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Type-to-confirm delete dialog */}
-      <Dialog
-        onOpenChange={(open) => {
-          setShowDeleteDialog(open && lifecycleActions.showDelete);
-          if (!open) setActionError(null);
-        }}
-        open={showDeleteDialog && lifecycleActions.showDelete}
-      >
-        <DialogContent className="w-11/12 max-w-md">
-          <DialogTitle className="text-destructive">{t('study_layout.delete')}</DialogTitle>
-          <DialogDescription>{t('study_layout.delete_description')}</DialogDescription>
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-muted-foreground">
-              {t('study_layout.type_to_confirm_before')} <strong className="text-foreground">{study?.title}</strong>{' '}
-              {t('study_layout.type_to_confirm_after')}
-            </p>
-            <Input
-              aria-label={t('study_layout.delete_confirmation')}
-              name="delete-study-confirmation"
-              spellCheck={false}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder={study?.title}
-              value={deleteConfirmText}
+            <StudyLifecycleActions
+              studyId={studyId}
+              title={study?.title ?? ''}
+              status={status}
+              settingsRevision={study?.settingsRevision}
             />
           </div>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button onClick={() => setShowDeleteDialog(false)} variant="ghost">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              disabled={isDeleting || !deleteConfirmMatch || !lifecycleActions.showDelete}
-              onClick={() => {
-                handleDelete().catch((err) => {
-                  setActionError(getErrorMessage(err, t('study_layout.schedule_deletion_failed')));
-                });
-              }}
-              variant="destructive"
-            >
-              {isDeleting ? t('study_layout.scheduling') : t('study_layout.schedule_deletion')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        }
+        description={study?.description || t('common.no_description')}
+        eyebrow={
+          study?.version ? t('study_layout.version_eyebrow', { version: study.version }) : t('study_layout.section')
+        }
+        title={study?.title || studyId}
+      />
+      {isError && failure}
+      <StudyNotices
+        isLifecycleFetching={isLifecycleFetching}
+        status={status}
+        studyDataExpires={limits?.studyDataExpires ?? undefined}
+        actionError={actionError}
+        createFailedSteps={createFailedSteps}
+      />
+      <StudyNavigation modules={modules} />
+      <RouteOutlet />
     </div>
   );
 }

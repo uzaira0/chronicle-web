@@ -1,24 +1,31 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, expect, mock, test } from 'bun:test';
 import { configureStore, type Middleware } from '@reduxjs/toolkit';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { SessionBootstrap } from '@/app/session-bootstrap';
 import { AUTH_DASHBOARD_LOGIN_ENDPOINT } from '@/lib/auth-endpoints';
-import { bootstrapSession, logoutSession, SESSION_STATUS } from '@/state/session-slice';
+import { STUDY_SAVE_STEPS } from '@/lib/study-save';
+import { UnsavedEditsGuard } from '@/lib/use-confirm-leave';
+import { bootstrapSession, expireSession, logoutSession, SESSION_STATUS } from '@/state/session-slice';
 import { forgetSettingsRevision, knownSettingsRevision } from '@/state/settings-revision';
 import { store as dashboardStore } from '@/state/store';
 import { studyOperationsApi } from '@/state/study-operations-api';
+import { leaveIsBlocked } from '@/test/browser-env';
+import type { FetchRoutes } from '@/test/http-fixtures';
+import { routeFetch } from '@/test/http-fixtures';
+import { StudyLayout } from './study-layout';
 
-// Other route tests replace hooks of this module with fixtures, and bun keeps module mocks
-// for the whole run. Put the real RTK Query hooks back so this test talks to its fetch fixture.
-const realModule = await import('@/state/study-operations-api');
-const realHooks = Object.fromEntries(Object.entries(studyOperationsApi).filter(([key]) => key.startsWith('use')));
-await mock.module('@/state/study-operations-api', () => ({ ...realModule, ...realHooks }));
-const { StudyLayout } = await import('./study-layout');
+async function confirmCancelPending(trigger: HTMLElement) {
+  fireEvent.click(trigger);
+  const [confirm] = (await screen.findAllByRole('button', { name: 'Revoke enrollment code' })).slice(-1);
+  fireEvent.click(confirm as HTMLElement);
+}
 
 const STUDY_ID = 'conflict-study';
+const PENDING_PARTICIPANTS = { first: 'pending-1', second: 'pending-2' } as const;
 const savedFetch = globalThis.fetch;
+const savedConfirmDescriptor = Object.getOwnPropertyDescriptor(window, 'confirm');
 
 const POLICY = {
   '@class': 'com.openlattice.chronicle.study.StudyParticipantPolicy',
@@ -40,8 +47,9 @@ const POLICY = {
 
 const LIMITS = {
   dataRetentionDuration: { days: 0, months: 3, years: 0 },
-  participantLimit: 10,
   studyDuration: { days: 0, months: 0, years: 1 },
+  studyEnds: '2026-10-20T09:00:00-05:00',
+  studyDataExpires: '2027-01-20T09:00:00-06:00',
 };
 
 function json(body: unknown, init: { etag?: string; status?: number } = {}): Response {
@@ -52,40 +60,91 @@ function json(body: unknown, init: { etag?: string; status?: number } = {}): Res
 
 afterEach(() => {
   cleanup();
+  if (savedConfirmDescriptor) Object.defineProperty(window, 'confirm', savedConfirmDescriptor);
+  else Reflect.deleteProperty(window, 'confirm');
   dashboardStore.dispatch(studyOperationsApi.util.resetApiState());
   dashboardStore.dispatch(logoutSession.fulfilled(undefined, 'test-reset', undefined));
   forgetSettingsRevision(STUDY_ID);
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: savedFetch, writable: true });
 });
 
-function serveRead(url: string, revision: number, failLimits = false, iosSensors?: string[]): Response {
-  const etag = `"${revision}"`;
-  if (url.endsWith(`/study/${STUDY_ID}/lifecycle`)) return json('ACTIVE');
-  // GET, and the limits PUT: the partial-failure test makes only that write fail.
-  if (url.endsWith(`/limits/study/${STUDY_ID}`)) {
-    return failLimits ? new Response('limits store down', { status: 500 }) : json(LIMITS);
-  }
-  if (url.endsWith(`/study/${STUDY_ID}/settings/type/DataCollection`)) {
-    const modules = revision >= 2 ? { future_module: { enabled: true, marker: 'from-revision-2' } } : {};
-    return json({ modules }, { etag });
-  }
-  if (url.endsWith(`/study/${STUDY_ID}/settings`)) {
-    return json({ ParticipantPolicy: { ...POLICY, version: `policy-v${revision}` } }, { etag });
-  }
-  if (url.endsWith(`/study/${STUDY_ID}`)) {
-    return json({
-      contact: 'study-team@example.org',
-      id: STUDY_ID,
-      modules: iosSensors ? { IOS_SENSOR: {} } : { CHRONICLE_DATA_COLLECTION: {} },
-      settings: iosSensors ? { Sensor: ['com.openlattice.chronicle.sensorkit.SensorSetting', iosSensors] } : {},
-      title: 'Conflict Study',
-    });
-  }
-  return new Response('not found', { status: 404 });
+function createStudyServer() {
+  const server = {
+    sessionExpired: false,
+    features: { CHRONICLE_DATA_COLLECTION: {} } as Record<string, unknown>,
+    storedCollection: undefined as Record<string, unknown> | undefined,
+    revision: 1,
+    readRevision: undefined as number | undefined,
+    afterWrite: null as (() => Promise<void>) | null,
+    limitsFails: false,
+    pendingEnrollment: false,
+    participantPolicyFails: false,
+    omitRevision: false,
+    blockingParticipantIds: [PENDING_PARTICIPANTS.first] as string[],
+    cancellations: [] as string[],
+    limitsPuts: [] as Record<string, unknown>[],
+    limitsIfMatch: [] as (string | null)[],
+    patches: [] as { ifMatch: string | null; settingType: string; body: Record<string, unknown> }[],
+    detailsPatches: [] as { ifMatch: string | null; revision: number; body: Record<string, unknown> }[],
+  };
+  return server;
 }
 
-function renderStudyWithServer(iosSensors?: string[], withSessionGate = false) {
-  const sessionPayload = {
+type StudyServer = ReturnType<typeof createStudyServer>;
+
+async function patchStudySettings(server: StudyServer, request: Request, settingType: string) {
+  const etag = `"${server.revision}"`;
+
+  const ifMatch = request.headers.get('If-Match');
+  server.patches.push({
+    body: (await request.json()) as Record<string, unknown>,
+    ifMatch,
+    settingType: settingType,
+  });
+  if (server.participantPolicyFails && settingType === 'ParticipantPolicy')
+    return new Response('Participant policy store unavailable', { status: 500 });
+  if (server.pendingEnrollment && settingType === 'DataCollection')
+    return json(
+      {
+        blockingParticipantIds: server.blockingParticipantIds,
+        message:
+          'Enrollment is pending for ' +
+          server.blockingParticipantIds.join(', ') +
+          '. Wait for the device to finish, or cancel the pending enrollment.',
+      },
+      { status: 409 },
+    );
+  if (ifMatch !== etag) return json({ title: 'settings_conflict' }, { status: 412 });
+  server.revision += 1;
+  return json({}, { etag: `"${server.revision}"` });
+}
+
+async function putStudyLimits(server: StudyServer, request: Request) {
+  const etag = `"${server.revision}"`;
+
+  server.limitsPuts.push((await request.clone().json()) as Record<string, unknown>);
+  server.limitsIfMatch.push(request.headers.get('If-Match'));
+  if (server.limitsFails) return new Response('limits store down', { status: 500 });
+  if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
+  server.revision += 1;
+  return json(LIMITS, { etag: `"${server.revision}"` });
+}
+
+async function patchStudyDetails(server: StudyServer, request: Request) {
+  const etag = `"${server.revision}"`;
+
+  server.detailsPatches.push({
+    ifMatch: request.headers.get('If-Match'),
+    revision: server.revision,
+    body: (await request.json()) as Record<string, unknown>,
+  });
+  if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
+  server.revision += 1;
+  return json({ id: STUDY_ID, title: 'Conflict Study' }, { etag: `"${server.revision}"` });
+}
+
+function studySessionPayload() {
+  return {
     ...dashboardStore.getState().session,
     csrfToken: 'test-csrf',
     expiresAt: null,
@@ -93,81 +152,71 @@ function renderStudyWithServer(iosSensors?: string[], withSessionGate = false) {
     tokenSource: 'dashboard-login' as const,
     user: { id: 'researcher', name: 'Researcher', email: null, roles: [] },
   };
-  const server = {
-    sessionExpired: false,
-    revision: 1,
-    readRevision: undefined as number | undefined,
-    afterWrite: null as (() => Promise<void>) | null,
-    sensorAdminOnly: false,
-    limitsFails: false,
-    limitsPuts: [] as Record<string, unknown>[],
-    limitsIfMatch: [] as (string | null)[],
-    patches: [] as { ifMatch: string | null; settingType: string; body: Record<string, unknown> }[],
-    detailsPatches: [] as { ifMatch: string | null; revision: number }[],
-  };
-  const patchSettings = async (request: Request, settingType: string) => {
-    const etag = `"${server.revision}"`;
+}
 
-    const ifMatch = request.headers.get('If-Match');
-    server.patches.push({
-      body: (await request.json()) as Record<string, unknown>,
-      ifMatch,
-      settingType: settingType,
-    });
-    if (server.sensorAdminOnly && settingType === 'Sensor') {
-      return new Response('admin only', { status: 403 });
-    }
-    if (ifMatch !== etag) return json({ title: 'settings_conflict' }, { status: 412 });
-    server.revision += 1;
-    return json({}, { etag: `"${server.revision}"` });
-  };
-  const putLimits = async (request: Request) => {
-    const etag = `"${server.revision}"`;
-
-    server.limitsPuts.push((await request.clone().json()) as Record<string, unknown>);
-    server.limitsIfMatch.push(request.headers.get('If-Match'));
-    if (server.limitsFails) return new Response('limits store down', { status: 500 });
-    if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
-    server.revision += 1;
-    return json(LIMITS, { etag: `"${server.revision}"` });
-  };
-  const patchDetails = (request: Request) => {
-    const etag = `"${server.revision}"`;
-
-    server.detailsPatches.push({ ifMatch: request.headers.get('If-Match'), revision: server.revision });
-    if (request.headers.get('If-Match') !== etag) return json({}, { status: 412 });
-    server.revision += 1;
-    return json({ id: STUDY_ID, title: 'Conflict Study' }, { etag: `"${server.revision}"` });
-  };
-  const serveWrite = (request: Request) => {
-    const url = request.url;
-    if (request.method === 'PUT' && url.endsWith(`/limits/study/${STUDY_ID}`)) return putLimits(request);
-    if (request.method !== 'PATCH') return undefined;
-    const settingsPatch = url.match(/\/settings\/type\/(\w+)$/);
-    if (settingsPatch?.[1]) return patchSettings(request, settingsPatch[1]);
-    if (url.includes(`/study/${STUDY_ID}?retrieve=true`)) return patchDetails(request);
-    return json({ id: STUDY_ID, title: 'Conflict Study' });
-  };
+function installStudyFetch(server: StudyServer, sessionPayload: ReturnType<typeof studySessionPayload>) {
   window.location.href = 'http://localhost/';
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : new Request(String(input), init);
-      const url = request.url;
-      const method = request.method;
-      if (url.endsWith(AUTH_DASHBOARD_LOGIN_ENDPOINT) && method === 'POST') {
-        server.sessionExpired = false;
-        return json({ ...sessionPayload, authenticated: true });
-      }
-      if (server.sessionExpired) return json({ message: 'Session expired' }, { status: 401 });
-      return (
-        serveWrite(request) ??
-        serveRead(url, server.readRevision ?? server.revision, method === 'PUT' && server.limitsFails, iosSensors)
-      );
-    },
-    writable: true,
+  const studyPath = `/chronicle/api/web/study/${STUDY_ID}`;
+  const revision = () => server.readRevision ?? server.revision;
+  const readEtag = () => (server.omitRevision ? {} : { etag: `"${revision()}"` });
+  const settingsResponse = (body: unknown) => json(body, readEtag());
+  const defaultCollectionSetting = () => ({
+    modules: revision() >= 2 ? { future_module: { enabled: true, marker: 'from-revision-2' } } : {},
   });
-  // Hold the save continuation while a real settings GET settles after the mutation.
+  const routes: FetchRoutes = {
+    [`GET ${studyPath}/settings/locks`]: () => json([]),
+    [`GET ${studyPath}/lifecycle`]: () => json('ACTIVE'),
+    [`GET /chronicle/api/web/limits/study/${STUDY_ID}`]: () => json(LIMITS),
+    [`PUT /chronicle/api/web/limits/study/${STUDY_ID}`]: (request) => putStudyLimits(server, request),
+    [`GET ${studyPath}/settings/type/DataCollection`]: () => settingsResponse(defaultCollectionSetting()),
+    [`GET ${studyPath}/settings`]: () =>
+      settingsResponse({ ParticipantPolicy: { ...POLICY, version: `policy-v${revision()}` } }),
+    [`GET ${studyPath}`]: () =>
+      json(
+        {
+          contact: 'study-team@example.org',
+          id: STUDY_ID,
+          modules: server.features,
+          settings: { DataCollection: server.storedCollection ?? defaultCollectionSetting() },
+          title: 'Conflict Study',
+        },
+        readEtag(),
+      ),
+    [`PATCH ${studyPath}`]: (request) => patchStudyDetails(server, request),
+    ...Object.fromEntries(
+      STUDY_SAVE_STEPS.filter((step) => !['details', 'limits'].includes(step)).map((settingType) => [
+        `PATCH ${studyPath}/settings/type/${settingType}`,
+        (request: Request) => patchStudySettings(server, request, settingType),
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.values(PENDING_PARTICIPANTS).map((participantId) => [
+        `POST ${studyPath}/participant/${participantId}/pending-enrollment/cancel`,
+        () => {
+          server.cancellations.push(participantId);
+          server.blockingParticipantIds = server.blockingParticipantIds.filter((id) => id !== participantId);
+          server.pendingEnrollment = server.blockingParticipantIds.length > 0;
+          return new Response(null, { status: 204 });
+        },
+      ]),
+    ),
+  };
+  globalThis.fetch = routeFetch({
+    ...Object.fromEntries(
+      Object.entries(routes).map(([key, handler]) => [
+        key,
+        (request: Request) =>
+          server.sessionExpired ? json({ message: 'Session expired' }, { status: 401 }) : handler(request),
+      ]),
+    ),
+    [`POST ${AUTH_DASHBOARD_LOGIN_ENDPOINT}`]: () => {
+      server.sessionExpired = false;
+      return json({ ...sessionPayload, authenticated: true });
+    },
+  });
+}
+
+function pauseStudyWrites(server: StudyServer): Middleware {
   const pauseWrites: Middleware = () => (next) => (action) => {
     const result = next(action) as
       | { arg?: { endpointName?: string }; reset?: () => void; unwrap?: () => Promise<unknown> }
@@ -186,319 +235,452 @@ function renderStudyWithServer(iosSensors?: string[], withSessionGate = false) {
     }
     return result;
   };
+  return pauseWrites;
+}
+
+function renderStudyWithServer(withSessionGate = false, setup?: (server: StudyServer) => void) {
+  const sessionPayload = studySessionPayload();
+  const server = createStudyServer();
+  setup?.(server);
+  installStudyFetch(server, sessionPayload);
   const store = withSessionGate
     ? dashboardStore
     : configureStore({
-        middleware: (getDefault) => getDefault().prepend(pauseWrites).concat(studyOperationsApi.middleware),
+        middleware: (getDefault) =>
+          getDefault().prepend(pauseStudyWrites(server)).concat(studyOperationsApi.middleware),
         reducer: { [studyOperationsApi.reducerPath]: studyOperationsApi.reducer },
       });
 
   if (withSessionGate) store.dispatch(bootstrapSession.fulfilled(sessionPayload, 'session-test', undefined));
-  const routes = (
-    <Routes>
-      <Route element={<StudyLayout />} path="/studies/:studyId" />
-    </Routes>
+  const router = createMemoryRouter(
+    [
+      {
+        element: (
+          <>
+            <UnsavedEditsGuard />
+            {withSessionGate ? (
+              <SessionBootstrap>
+                <Outlet />
+              </SessionBootstrap>
+            ) : (
+              <Outlet />
+            )}
+          </>
+        ),
+        children: [
+          { element: <StudyLayout />, path: '/studies/:studyId' },
+          { element: <p>Other page</p>, path: '/other' },
+        ],
+      },
+    ],
+    { initialEntries: ['/other', `/studies/${STUDY_ID}`] },
   );
 
   render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={[`/studies/${STUDY_ID}`]}>
-        {withSessionGate ? <SessionBootstrap>{routes}</SessionBootstrap> : routes}
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </Provider>,
   );
 
-  return { server, store };
+  return { server, store, router };
 }
 
 async function openEditDialog() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit Study' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit study' }));
   const dialog = await screen.findByRole('dialog');
-  const policyVersion = () => within(dialog).getByLabelText<HTMLInputElement>(/^Policy Version/);
+  const policyVersion = () => within(dialog).getByLabelText<HTMLInputElement>(/^Policy version/);
   await waitFor(() => expect(policyVersion().value).toBe('policy-v1'));
   const save = () => fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
   return { dialog, policyVersion, save };
 }
 
+test('pending enrollment conflict keeps the draft, shows blockers in the body, and offers cancellation', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, policyVersion, save } = await openEditDialog();
+  const draft = 'draft-policy-after-conflict';
+  fireEvent.change(policyVersion(), { target: { value: draft } });
+  server.pendingEnrollment = true;
+  save();
+  expect(await within(dialog).findByText(/Enrollment is pending/)).toBeTruthy();
+  expect(within(dialog).getByText(/These changes did not save: study details/)).toBeTruthy();
+  const participantId = within(dialog).getByText(PENDING_PARTICIPANTS.first, { exact: true });
+  expect(policyVersion().value).toBe(draft);
+  expect(within(dialog).getByRole('button', { name: 'Save changes' }).parentElement?.contains(participantId)).toBe(
+    false,
+  );
+  await confirmCancelPending(within(dialog).getByRole('button', { name: 'Cancel pending enrollment' }));
+  await waitFor(() => expect(server.cancellations).toHaveLength(1));
+  await waitFor(() => expect(within(dialog).queryByRole('button', { name: 'Cancel pending enrollment' })).toBeNull());
+  expect(policyVersion().value).toBe(draft);
+  const patchesBeforeRetry = server.patches.length;
+  save();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(
+    server.patches.slice(patchesBeforeRetry).find((patch) => patch.settingType === 'ParticipantPolicy')?.body.version,
+  ).toBe(draft);
+});
+
+test('collects failures and blockers when an ordinary write fails before a later enrollment conflict', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, policyVersion, save } = await openEditDialog();
+  fireEvent.change(policyVersion(), { target: { value: 'draft-policy' } });
+  server.participantPolicyFails = true;
+  server.pendingEnrollment = true;
+  save();
+
+  expect(
+    await within(dialog).findByText(/These changes did not save: participant policy, study details\./),
+  ).toBeTruthy();
+  expect(within(dialog).getByText(PENDING_PARTICIPANTS.first, { exact: true })).toBeTruthy();
+  await confirmCancelPending(within(dialog).getByRole('button', { name: 'Cancel pending enrollment' }));
+  await waitFor(() => expect(within(dialog).queryByText(/Enrollment is pending/)).toBeNull());
+  expect(within(dialog).getByText(/These changes did not save: participant policy, study details\./)).toBeTruthy();
+});
+
+test('partial cancellation leaves only the current blocker in the panel and its message', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  server.blockingParticipantIds = [PENDING_PARTICIPANTS.first, PENDING_PARTICIPANTS.second];
+  server.pendingEnrollment = true;
+  save();
+  await within(dialog).findByText(/Enrollment is pending/);
+
+  const row = within(dialog).getByText(PENDING_PARTICIPANTS.first, { exact: true }).closest('li');
+  if (!row) throw new Error('Missing blocker row');
+  await confirmCancelPending(within(row).getByRole('button', { name: 'Cancel pending enrollment' }));
+
+  await waitFor(() => expect(server.cancellations).toEqual([PENDING_PARTICIPANTS.first]));
+  await waitFor(() => expect(dialog.textContent).not.toContain(PENDING_PARTICIPANTS.first));
+  expect(within(dialog).getByText(PENDING_PARTICIPANTS.second, { exact: true })).toBeTruthy();
+  expect(within(dialog).getAllByRole('button', { name: 'Cancel pending enrollment' })).toHaveLength(1);
+  expect(within(dialog).getAllByRole('alert')).toHaveLength(2);
+});
+
+test('clears the conflict after concurrent cancellation of every pending participant', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  server.blockingParticipantIds = [PENDING_PARTICIPANTS.first, PENDING_PARTICIPANTS.second];
+  server.pendingEnrollment = true;
+  save();
+  await within(dialog).findByText(/Enrollment is pending/);
+
+  for (const button of within(dialog).getAllByRole('button', { name: 'Cancel pending enrollment' }))
+    await confirmCancelPending(button);
+
+  await waitFor(() => expect(server.cancellations).toHaveLength(2));
+  await waitFor(() => expect(within(dialog).queryByText(/Enrollment is pending/)).toBeNull());
+  expect(within(dialog).getByText(/These changes did not save: study details/)).toBeTruthy();
+  expect(within(dialog).queryAllByRole('alert')).toHaveLength(1);
+});
+
+test('a locked dirty study still protects unload and Back until reauthentication and save', async () => {
+  const { server, router } = renderStudyWithServer(true);
+  const { policyVersion, save } = await openEditDialog();
+  const confirmLeave = mock(() => false);
+  window.confirm = confirmLeave;
+  fireEvent.change(policyVersion(), { target: { value: 'locked-draft' } });
+  expect(leaveIsBlocked()).toBe(true);
+  await act(() => dashboardStore.dispatch(expireSession()));
+  const password = await screen.findByLabelText(/dashboard password/i);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(leaveIsBlocked()).toBe(true);
+  await act(async () => {
+    await router.navigate(-1);
+  });
+  await waitFor(() => expect(confirmLeave).toHaveBeenCalledTimes(1));
+  expect(router.state.location.pathname).toBe(`/studies/${STUDY_ID}`);
+  fireEvent.change(password, { target: { value: 'test-password' } });
+  fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+  await screen.findByRole('dialog');
+  expect(policyVersion().value).toBe('locked-draft');
+  expect(leaveIsBlocked()).toBe(true);
+  save();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(server.patches.find(({ settingType }) => settingType === 'ParticipantPolicy')?.body.version).toBe(
+    'locked-draft',
+  );
+  expect(leaveIsBlocked()).toBe(false);
+  await act(async () => {
+    await router.navigate(-1);
+  });
+  expect(router.state.location.pathname).toBe('/other');
+  expect(confirmLeave).toHaveBeenCalledTimes(1);
+});
+
 test('a dirty study form survives a save 401 and password reauthentication', async () => {
-  const { server } = renderStudyWithServer(undefined, true);
+  const { server } = renderStudyWithServer(true);
   const { dialog, policyVersion, save } = await openEditDialog();
   fireEvent.change(policyVersion(), { target: { value: 'unsaved-policy' } });
-  fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
+  fireEvent.change(within(dialog).getByLabelText('Data retention (days)'), { target: { value: '12' } });
   server.sessionExpired = true;
   save();
   const password = await screen.findByLabelText(/dashboard password/i);
   expect(screen.queryByRole('dialog')).toBeNull();
-  expect(within(dialog).getByLabelText<HTMLInputElement>(/^Policy Version/).value).toBe('unsaved-policy');
-  expect(within(dialog).getByLabelText<HTMLInputElement>('Participant Limit').value).toBe('12');
+  expect(within(dialog).getByLabelText<HTMLInputElement>(/^Policy version/).value).toBe('unsaved-policy');
+  expect(within(dialog).getByLabelText<HTMLInputElement>('Data retention (days)').value).toBe('12');
   fireEvent.change(password, { target: { value: 'test-password' } });
   fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
   await waitFor(() => expect(server.limitsPuts).toHaveLength(1));
   expect(server.patches.find((patch) => patch.settingType === 'ParticipantPolicy')?.body.version).toBe(
     'unsaved-policy',
   );
-  expect(server.limitsPuts[0]?.participantLimit).toBe(12);
+  expect(server.limitsPuts[0]?.dataRetentionDuration).toEqual({ years: 0, months: 0, days: 12 });
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 });
 
-describe('study edit dialog after a settings 412', () => {
-  test('a settings conflict prevents stale details and limits writes', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
-    server.revision = 2;
-    save();
-    await within(dialog).findByText(/changed by someone else/);
-    expect(server.detailsPatches).toHaveLength(0);
-    expect(server.limitsPuts).toHaveLength(0);
+// Reads that arrive without a revision (a proxy that drops the ETag) leave nothing to make a write conditional on:
+// the save stops before any write and asks for a reload, so it can never overwrite another researcher's edit.
+test('a study loaded without a revision saves nothing and asks for a reload', async () => {
+  const { server } = renderStudyWithServer(false, (setup) => {
+    setup.omitRevision = true;
   });
+  const { dialog, save } = await openEditDialog();
+  fireEvent.change(within(dialog).getByLabelText(/^Study name/), { target: { value: 'Renamed Study' } });
+  save();
+  await within(dialog).findByText(/changed by someone else/);
+  expect(server.patches).toHaveLength(0);
+  expect(server.detailsPatches).toHaveLength(0);
+  expect(server.limitsPuts).toHaveLength(0);
+});
 
-  test('details uses the revision returned by the last settings patch', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
-    save();
-    await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
-    expect(server.detailsPatches[0]?.ifMatch).toBe(`"${server.detailsPatches[0]?.revision}"`);
-  });
+test('a settings conflict prevents stale details and limits writes', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  fireEvent.change(within(dialog).getByLabelText('Data retention (days)'), { target: { value: '12' } });
+  server.revision = 2;
+  save();
+  await within(dialog).findByText(/changed by someone else/);
+  expect(server.detailsPatches).toHaveLength(0);
+  expect(server.limitsPuts).toHaveLength(0);
+});
 
-  test('chains each mutation response token despite overlapping GETs remembering a newer revision', async () => {
-    const { server, store } = renderStudyWithServer();
-    const { dialog, policyVersion, save } = await openEditDialog();
-    fireEvent.change(policyVersion(), { target: { value: 'my-policy' } });
-    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
-    server.readRevision = 50;
-    server.afterWrite = async () => {
-      await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
-      const read = store.dispatch(
-        studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
-      );
-      await read.unwrap();
-      read.unsubscribe();
-      expect(knownSettingsRevision(STUDY_ID)).toBe('"50"');
-    };
-    save();
-    await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
-    expect(server.patches.length).toBeGreaterThan(1);
-    expect(server.patches.map((p) => p.ifMatch)).toEqual(server.patches.map((_p, index) => `"${1 + index}"`));
-    expect(server.detailsPatches[0]?.ifMatch).toBe(`"${1 + server.patches.length}"`);
-    expect(server.limitsIfMatch).toEqual([`"${2 + server.patches.length}"`]);
-  });
+test('editing survey frequency saves its setting separately from details', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  fireEvent.change(within(dialog).getByLabelText('App usage survey frequency'), { target: { value: 'HOURLY' } });
+  save();
+  await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
+  expect(server.patches.find(({ settingType }) => settingType === 'AppUsageSurvey')?.body.appUsageFrequency).toBe(
+    'HOURLY',
+  );
+});
 
-  test('a concurrent edit between PATCHes still causes 412 and reloads the form', async () => {
-    const { server, store } = renderStudyWithServer();
-    const { dialog, policyVersion, save } = await openEditDialog();
-    fireEvent.change(policyVersion(), { target: { value: 'my-policy' } });
-    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
-    server.afterWrite = async () => {
-      server.afterWrite = null;
-      server.revision += 1;
-      await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
-      const read = store.dispatch(
-        studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
-      );
-      await read.unwrap();
-      read.unsubscribe();
-      expect(knownSettingsRevision(STUDY_ID)).toBe('"3"');
-    };
-    save();
-    await within(dialog).findByText(/changed by someone else/);
-    await waitFor(() => expect(policyVersion().value).toBe('policy-v3'));
-    expect(server.patches.map((p) => p.ifMatch)).toEqual(['"1"', '"2"']);
-    expect(server.detailsPatches).toEqual([]);
-    expect(server.limitsPuts).toEqual([]);
-  });
-  test('reloads the form from the current settings and saves them under the new revision', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, policyVersion, save } = await openEditDialog();
+test('details uses the revision returned by the last settings patch', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  fireEvent.change(within(dialog).getByLabelText(/^Study name/), { target: { value: 'Renamed Study' } });
+  save();
+  await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
+  expect(server.detailsPatches[0]?.ifMatch).toBe(`"${server.detailsPatches[0]?.revision}"`);
+  expect(server.detailsPatches[0]?.body).not.toHaveProperty('settings');
+});
 
-    server.revision = 2; // the other user's save lands while this form is open
-    save();
-    await within(dialog).findByText(/changed by someone else/);
-    expect(server.patches).toHaveLength(1);
-    expect(server.patches[0]?.ifMatch).toBe('"1"');
+test('chains each mutation response token despite overlapping GETs remembering a newer revision', async () => {
+  const { server, store } = renderStudyWithServer();
+  const { dialog, policyVersion, save } = await openEditDialog();
+  fireEvent.change(policyVersion(), { target: { value: 'my-policy' } });
+  fireEvent.change(within(dialog).getByLabelText('Data retention (days)'), { target: { value: '12' } });
+  server.readRevision = 50;
+  server.afterWrite = async () => {
+    await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
+    const read = store.dispatch(
+      studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
+    );
+    await read.unwrap();
+    read.unsubscribe();
+    expect(knownSettingsRevision(STUDY_ID)).toBe('"50"');
+  };
+  save();
+  await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
+  expect(server.patches.length).toBeGreaterThan(1);
+  expect(server.patches.map((p) => p.ifMatch)).toEqual(server.patches.map((_p, index) => `"${1 + index}"`));
+  expect(server.detailsPatches[0]?.ifMatch).toBe(`"${1 + server.patches.length}"`);
+  expect(server.limitsIfMatch).toEqual([`"${2 + server.patches.length}"`]);
+});
 
-    // The conflict message says the form was reloaded: it must actually show revision 2.
-    await waitFor(() => expect(policyVersion().value).toBe('policy-v2'));
-    expect(within(dialog).getByText(/changed by someone else/)).toBeTruthy();
+test('a concurrent edit between PATCHes preserves the draft despite an overlapping refetch', async () => {
+  const { server, store } = renderStudyWithServer();
+  const { dialog, policyVersion, save } = await openEditDialog();
+  fireEvent.change(policyVersion(), { target: { value: 'my-policy' } });
+  fireEvent.change(within(dialog).getByLabelText('Data retention (days)'), { target: { value: '12' } });
+  server.afterWrite = async () => {
+    server.afterWrite = null;
+    server.revision += 1;
+    await store.dispatch(studyOperationsApi.util.getRunningQueryThunk('getStudySettings', STUDY_ID));
+    const read = store.dispatch(
+      studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
+    );
+    await read.unwrap();
+    read.unsubscribe();
+    expect(knownSettingsRevision(STUDY_ID)).toBe('"3"');
+  };
+  save();
+  await within(dialog).findByText(/changed by someone else/);
+  expect(policyVersion().value).toBe('my-policy');
+  expect(within(dialog).getByLabelText<HTMLInputElement>('Data retention (days)').value).toBe('12');
+  expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Save changes' }).disabled).toBe(true);
+  expect(server.patches.map((p) => p.ifMatch)).toEqual(['"1"', '"2"']);
+  expect(server.detailsPatches).toEqual([]);
+  expect(server.limitsPuts).toEqual([]);
+});
+test('keeps the conflicted draft until an explicit discard and reload, then saves the current revision', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, policyVersion, save } = await openEditDialog();
+  fireEvent.change(policyVersion(), { target: { value: 'unsaved-policy' } });
+  server.revision = 2; // the other user's save lands while this form is open
+  save();
+  await within(dialog).findByText(/changed by someone else/);
+  expect(server.patches).toHaveLength(1);
+  expect(server.patches[0]?.ifMatch).toBe('"1"');
 
-    save();
-    await waitFor(() => expect(server.patches.slice(1).some((p) => p.settingType === 'DataCollection')).toBe(true));
-    const retry = server.patches.slice(1);
-    // The retry starts from the reloaded revision and chains each PATCH response's ETag.
-    expect(retry.map((p) => p.ifMatch)).toEqual(retry.map((_p, i) => `"${2 + i}"`));
-    const dataCollection = retry.find((p) => p.settingType === 'DataCollection');
-    // The retry carries the other user's saved DataCollection entry, not the stale snapshot.
-    expect((dataCollection?.body.modules as Record<string, unknown>).future_module).toEqual({
-      enabled: true,
-      marker: 'from-revision-2',
-    });
-  });
+  const reload = await within(dialog).findByRole('button', { name: 'Discard draft and reload latest' });
+  expect(policyVersion().value).toBe('unsaved-policy');
+  expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Save changes' }).disabled).toBe(true);
+  fireEvent.click(reload);
+  const confirmation = screen.getAllByRole('dialog').find((candidate) => candidate !== dialog);
+  if (!confirmation) throw new Error('Discard confirmation is missing');
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Discard draft and reload latest' }));
+  await waitFor(() => expect(policyVersion().value).toBe('policy-v2'));
 
-  test('sends the revision the form was loaded from, not a newer one another read remembered', async () => {
-    const { server, store } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-
-    // Another user saves, and some other page refetches settings: the tab now knows ETag "2",
-    // but this form still shows revision 1.
-    server.revision = 2;
-    await act(async () => {
-      const refetch = store.dispatch(
-        studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
-      );
-      await refetch;
-      refetch.unsubscribe();
-    });
-
-    save();
-    await within(dialog).findByText(/changed by someone else/);
-    expect(server.patches.map((p) => p.ifMatch)).toEqual(['"1"']);
+  save();
+  await waitFor(() => expect(server.patches.slice(1).some((p) => p.settingType === 'DataCollection')).toBe(true));
+  const retry = server.patches.slice(1);
+  // The retry starts from the reloaded revision and chains each PATCH response's ETag.
+  expect(retry.map((p) => p.ifMatch)).toEqual(retry.map((_p, i) => `"${2 + i}"`));
+  const dataCollection = retry.find((p) => p.settingType === 'DataCollection');
+  if (!dataCollection) throw new Error('Retry did not include the DataCollection settings');
+  // The retry carries the other user's saved DataCollection entry, not the stale snapshot.
+  expect((dataCollection.body.modules as Record<string, unknown>).future_module).toEqual({
+    enabled: true,
+    marker: 'from-revision-2',
   });
 });
 
-// ai-built-code S9: the allSettled branch. One disjoint write failing must not hide behind
+test('sends the revision the form was loaded from, not a newer one another read remembered', async () => {
+  const { server, store } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+
+  // Another user saves, and some other page refetches settings: the tab now knows ETag "2",
+  // but this form still shows revision 1.
+  server.revision = 2;
+  await act(async () => {
+    const refetch = store.dispatch(
+      studyOperationsApi.endpoints.getStudySettings.initiate(STUDY_ID, { forceRefetch: true }),
+    );
+    await refetch;
+    refetch.unsubscribe();
+  });
+
+  save();
+  await within(dialog).findByText(/changed by someone else/);
+  expect(server.patches.map((p) => p.ifMatch)).toEqual(['"1"']);
+});
+
+// The allSettled branch. One disjoint write failing must not hide behind
 // the others' success: the dialog stays open and names exactly the step that did not save.
-describe('study edit dialog after a partial save failure', () => {
-  test('names the failed limits step while the settings PATCHes still saved', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
+test('names the failed limits step while the settings PATCHes still saved', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
 
-    server.limitsFails = true;
-    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
-    save();
-    expect(await within(dialog).findByText(/These changes did not save: study limits\./)).toBeTruthy();
-    expect(within(dialog).queryByText(/changed by someone else/)).toBeNull();
-    expect(server.patches.length).toBeGreaterThan(0);
-    expect(server.patches.every((p) => p.ifMatch !== null)).toBe(true);
-  });
-
-  test('retries a partial save from the committed revision without losing unsaved limits', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    server.limitsFails = true;
-    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
-    save();
-    await within(dialog).findByText(/These changes did not save: study limits\./);
-    const committedRevision = server.revision;
-    const patchCount = server.patches.length;
-    expect(within(dialog).getByLabelText<HTMLInputElement>('Participant Limit').value).toBe('12');
-    server.limitsFails = false;
-    save();
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(server.patches[patchCount]?.ifMatch).toBe(`"${committedRevision}"`);
-    expect(server.limitsPuts.at(-1)?.participantLimit).toBe(12);
-  });
+  server.limitsFails = true;
+  fireEvent.change(within(dialog).getByLabelText('Data retention (days)'), { target: { value: '12' } });
+  save();
+  expect(await within(dialog).findByText(/These changes did not save: study limits\./)).toBeTruthy();
+  expect(within(dialog).queryByText(/changed by someone else/)).toBeNull();
+  expect(server.patches.length).toBeGreaterThan(0);
+  expect(server.patches.every((p) => p.ifMatch !== null)).toBe(true);
 });
 
-// ai-built-code W1: the limits PUT is admin-only server-side and re-derives the study end
+test('retries a partial save from the committed revision without losing unsaved limits', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  server.limitsFails = true;
+  fireEvent.change(within(dialog).getByLabelText('Data retention (days)'), { target: { value: '12' } });
+  save();
+  await within(dialog).findByText(/These changes did not save: study limits\./);
+  const committedRevision = server.revision;
+  const patchCount = server.patches.length;
+  expect(within(dialog).getByLabelText<HTMLInputElement>('Data retention (days)').value).toBe('12');
+  server.limitsFails = false;
+  save();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(server.patches[patchCount]?.ifMatch).toBe(`"${committedRevision}"`);
+  expect(server.limitsPuts.at(-1)?.dataRetentionDuration).toEqual({ years: 0, months: 0, days: 12 });
+});
+
+// The limits PUT is admin-only server-side and re-derives the study end
 // date on every write, so an edit that leaves the limits alone must not send them.
-describe('study edit dialog limits', () => {
-  async function saveAndSettle(save: () => void, server: { patches: unknown[] }) {
-    save();
-    await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
-    expect(server.patches.length).toBeGreaterThan(0);
+async function saveAndSettle(save: () => void, server: { patches: unknown[] }) {
+  save();
+  await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
+  expect(server.patches.length).toBeGreaterThan(0);
+}
+
+test('a title-only edit does not re-send the loaded limits', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  await waitFor(() =>
+    expect(within(dialog).getByLabelText<HTMLInputElement>('Study duration (days)').value).not.toBe(''),
+  );
+  fireEvent.change(within(dialog).getByLabelText(/^Study name/), { target: { value: 'Renamed Study' } });
+  await saveAndSettle(save, server);
+  expect(server.limitsPuts).toEqual([]);
+});
+
+test.each([
+  ['Study duration (days)', 'studyDuration', 'studyEnds'],
+  ['Data retention (days)', 'dataRetentionDuration', 'studyDataExpires'],
+] as const)('editing %s recomputes its dependent deadlines', async (label, duration, deadline) => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  fireEvent.change(within(dialog).getByLabelText(label), { target: { value: '400' } });
+  await saveAndSettle(save, server);
+  const expected: Partial<typeof LIMITS> = { ...LIMITS, [duration]: { years: 0, months: 0, days: 400 } };
+  delete expected[deadline];
+  if (duration === 'studyDuration') delete expected.studyDataExpires;
+  expect(server.limitsPuts).toEqual([expected]);
+});
+
+test('clearing both loaded limits saves an open-ended study', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  for (const label of ['Study duration (days)', 'Data retention (days)']) {
+    fireEvent.change(within(dialog).getByLabelText(label), { target: { value: '' } });
   }
+  await saveAndSettle(save, server);
+  expect(server.limitsPuts).toEqual([{}]);
+});
 
-  test('a title-only edit does not re-send the loaded limits', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    await waitFor(() => expect(within(dialog).getByLabelText<HTMLInputElement>('Participant Limit').value).toBe('10'));
-    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
-    await saveAndSettle(save, server);
-    expect(server.limitsPuts).toEqual([]);
-  });
-
-  test('an edited limit is sent', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    fireEvent.change(within(dialog).getByLabelText('Participant Limit'), { target: { value: '12' } });
-    await saveAndSettle(save, server);
-    expect(server.limitsPuts).toEqual([{ ...LIMITS, participantLimit: 12 }]);
-    expect(server.limitsIfMatch).toEqual([`"${server.revision - 1}"`]);
-  });
-
-  test('a partly filled limit set is refused with a form error instead of binding server defaults', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    fireEvent.change(within(dialog).getByLabelText('Study Duration (days)'), { target: { value: '' } });
-    save();
-    expect(await within(dialog).findByText(/Fill in all 3 study limits, or leave all 3 empty/)).toBeTruthy();
-    expect(server.limitsPuts).toEqual([]);
-    expect(server.patches).toEqual([]);
-  });
-
-  test('clearing all loaded limits blocks saving with an inline explanation', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    for (const label of ['Participant Limit', 'Study Duration (days)', 'Data Retention (days)']) {
-      fireEvent.change(within(dialog).getByLabelText(label), { target: { value: '' } });
-    }
-    save();
-    expect(await within(dialog).findByText(/limits cannot be removed, only changed/)).toBeTruthy();
-    expect(screen.getByRole('dialog')).toBe(dialog);
-    expect(server.limitsPuts).toEqual([]);
-    expect(server.patches).toEqual([]);
-    expect(server.detailsPatches).toEqual([]);
-  });
-
-  test('importing empty limits over loaded limits blocks saving with the same inline explanation', async () => {
-    const { server } = renderStudyWithServer();
-    const { dialog, save } = await openEditDialog();
-    const config = {
-      format: 'chronicle-study-config',
-      version: 1,
-      exportedAt: '2026-09-29T00:00:00Z',
-      study: {
-        contact: 'study-team@example.org',
-        dataRetentionDays: '',
-        description: '',
-        features: ['CHRONICLE_DATA_COLLECTION'],
-        group: '',
-        notificationsEnabled: false,
-        participantLimit: '',
-        studyDurationDays: '',
-        title: 'Imported Study',
-        version: '',
+test('enabling collection saves the retained usage and battery choices from a feature-off study', async () => {
+  const { server } = renderStudyWithServer(false, (server) => {
+    server.features = {};
+    server.storedCollection = {
+      modules: {
+        usage_events: { enabled: true, required: true },
+        battery_telemetry: { enabled: true, required: false },
       },
     };
-    const file = new File([JSON.stringify(config)], 'empty-limits.json', { type: 'application/json' });
-    await act(async () => {
-      fireEvent.change(within(dialog).getByTestId('study-config-file'), { target: { files: [file] } });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(within(dialog).getByRole('status').textContent).toContain('empty-limits.json');
-    for (const label of ['Participant Limit', 'Study Duration (days)', 'Data Retention (days)']) {
-      expect(within(dialog).getByLabelText<HTMLInputElement>(label).value).toBe('');
-    }
-    save();
-    expect(await within(dialog).findByText(/limits cannot be removed, only changed/)).toBeTruthy();
-    expect(screen.getByRole('dialog')).toBe(dialog);
-    expect(server.limitsPuts).toEqual([]);
-    expect(server.patches).toEqual([]);
-    expect(server.detailsPatches).toEqual([]);
   });
+  const { dialog, save } = await openEditDialog();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Data collection' }));
+  save();
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  const saved = server.patches.find((patch) => patch.settingType === 'DataCollection');
+  expect(saved?.body.modules).toMatchObject({
+    usage_events: { enabled: true, required: true },
+    battery_telemetry: { enabled: true, required: false },
+  });
+  expect(server.detailsPatches.at(-1)?.body.modules).toHaveProperty('CHRONICLE_DATA_COLLECTION');
 });
 
-describe('study edit dialog iOS sensor setting', () => {
-  test('a non-admin title-only edit with legacy iOS sensors saves without Sensor PATCH', async () => {
-    const { server } = renderStudyWithServer(['deviceUsage']);
-    server.sensorAdminOnly = true;
-    const { dialog, save } = await openEditDialog();
-    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
-    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: 'Save changes' }).disabled).toBe(false);
-    save();
-    await waitFor(() => expect(screen.queryByRole('dialog') === null).toBe(true));
-    expect(server.detailsPatches).toHaveLength(1);
-    expect(server.patches.some((patch) => patch.settingType === 'Sensor')).toBe(false);
-  });
-
-  test('a non-admin title-only edit on a study with iOS sensors off saves details without Sensor PATCH', async () => {
-    const { server } = renderStudyWithServer();
-    server.sensorAdminOnly = true;
-    const { dialog, save } = await openEditDialog();
-    fireEvent.change(within(dialog).getByLabelText(/^Study Name/), { target: { value: 'Renamed Study' } });
-    save();
-    await waitFor(() => expect(server.detailsPatches).toHaveLength(1));
-    expect(server.patches.some((patch) => patch.settingType === 'Sensor')).toBe(false);
-  });
+test('a settings failure reports downstream details and limits as unsaved', async () => {
+  const { server } = renderStudyWithServer();
+  const { dialog, save } = await openEditDialog();
+  fireEvent.change(within(dialog).getByLabelText(/^Study name/), { target: { value: 'Unsaved title' } });
+  fireEvent.change(within(dialog).getByLabelText('Study duration (days)'), { target: { value: '60' } });
+  server.pendingEnrollment = true;
+  save();
+  expect(await within(dialog).findByText(/These changes did not save:.*study details.*study limits/)).toBeTruthy();
+  expect(server.detailsPatches).toEqual([]);
+  expect(server.limitsPuts).toEqual([]);
 });
