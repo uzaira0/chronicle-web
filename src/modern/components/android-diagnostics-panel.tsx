@@ -1,53 +1,38 @@
-import { Download, LoaderCircle } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-
+import { CircleAlert, Download, LoaderCircle } from 'lucide-react';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { StatePanel } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useTranslator } from '@/i18n';
+import { ANDROID_UPLOAD_ISSUE_CATEGORIES } from '@/generated/chronicle-contracts';
+import { translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDateTime, localDay } from '@/lib/format';
+import { ANDROID_DIAGNOSTIC_FAMILIES } from '@/lib/study-constants';
+import { toSyncExportSelection } from '@/lib/sync-export-selection';
+import { useSearchParamsUpdate } from '@/lib/use-list-search-params';
 import {
   type AndroidDiagnosticCodeSummary,
   type AndroidDiagnosticsHistoryRow,
-  exportRangeExceedsLimit,
   useDownloadParticipantDataMutation,
   useGetAndroidDiagnosticsQuery,
 } from '@/state/study-operations-api';
+import { useStudyTimeZone } from '@/state/study-time-zone';
 
-const MODULE_FAMILIES = [
-  'USAGE_LIFECYCLE',
-  'BATTERY',
-  'DEVICE_TELEMETRY',
-  'SENSOR',
-  'APP_RUNTIME',
-  'INTERACTION',
-  'AUDIO_ACTIVITY',
-  'AUDIO_CONTENT',
-  'NOTIFICATION',
-  'SLEEP',
-  'ACTIVITY_RECOGNITION',
-  'HEALTH',
-  'CONNECTIVITY',
-  'APP_NETWORK',
-  'DEVICE_SETTINGS',
-  'LOCAL_STORE',
-] as const;
+type DiagnosticCategory = (typeof ANDROID_UPLOAD_ISSUE_CATEGORIES)[keyof typeof ANDROID_UPLOAD_ISSUE_CATEGORIES];
+const CATEGORY_ORDER: readonly DiagnosticCategory[] = [
+  'data_loss',
+  'quarantined',
+  'upload_failures',
+  'app_crashes',
+  'collection_paused',
+];
 
-const CATEGORY_ORDER = ['data_loss', 'quarantined', 'upload_failures', 'app_crashes', 'collection_paused'] as const;
-type DiagnosticCategory = (typeof CATEGORY_ORDER)[number];
-
+/** The generated issue-code catalog owns each code's category; retired codes count as lost data. */
 function categoryFor(code: string): DiagnosticCategory {
-  if (code === 'COLLECTION_PAUSED_STORAGE' || code === 'COLLECTION_ACCESS_MISSING') return 'collection_paused';
-  if (code === 'APP_CRASH' || code === 'APP_CRASH_NATIVE' || code === 'APP_ANR') return 'app_crashes';
-  if (code.includes('QUARANTINED') || code === 'DIRECT_BOOT_CORRUPT_RECORD') return 'quarantined';
-  if (
-    code.startsWith('DESTINATION_') ||
-    code.startsWith('HTTP_') ||
-    ['TIMEOUT', 'DNS_FAILURE', 'TLS_FAILURE', 'CONNECTION_FAILURE', 'UPLOAD_FAILURE'].includes(code)
-  )
-    return 'upload_failures';
-  return 'data_loss';
+  return Object.hasOwn(ANDROID_UPLOAD_ISSUE_CATEGORIES, code)
+    ? ANDROID_UPLOAD_ISSUE_CATEGORIES[code as keyof typeof ANDROID_UPLOAD_ISSUE_CATEGORIES]
+    : 'data_loss';
 }
 
 function groupedCodes(codes: AndroidDiagnosticCodeSummary[]) {
@@ -76,20 +61,6 @@ function groupedCodes(codes: AndroidDiagnosticCodeSummary[]) {
 
 function HistoryRow({ row }: { row: AndroidDiagnosticsHistoryRow }) {
   const { t } = useTranslator();
-  if (row.dataQualityAlert) {
-    return (
-      <div className="rounded-md border border-border bg-background p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="font-medium">{t('participants.diagnostics_quality_alert')}</span>
-          <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.dataQualityAlert.createdAt)}</span>
-        </div>
-        <p className="mt-1 text-sm">
-          {row.dataQualityAlert.alertType} · {row.dataQualityAlert.score.toFixed(1)}%
-        </p>
-      </div>
-    );
-  }
-
   const codes = groupedCodes(row.codes);
   if (codes.length === 0) return null;
   const firstCode = codes[0];
@@ -112,7 +83,7 @@ function HistoryRow({ row }: { row: AndroidDiagnosticsHistoryRow }) {
         <div>
           <p className="font-medium">{row.day}</p>
           <p className="text-xs text-muted-foreground">
-            {t('participants.diagnostics_device')}: {row.deviceId ?? t('participants.diagnostics_unknown_device')}
+            {t('participants.diagnostics_device')}: {row.randomDeviceId ?? t('participants.diagnostics_unknown_device')}
           </p>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -133,10 +104,12 @@ function HistoryRow({ row }: { row: AndroidDiagnosticsHistoryRow }) {
                 .filter((code) => categoryFor(code.issueCode) === category)
                 .map((code) => (
                   <li
-                    className="rounded bg-muted px-2 py-1 font-mono text-xs"
+                    className="rounded bg-muted px-2 py-1 text-xs"
                     key={`${code.moduleFamily}:${code.issueCode}`}
+                    title={code.issueCode}
                   >
-                    {code.issueCode} · {code.count.toLocaleString()}
+                    {translateCatalog(t, 'upload_issue', code.issueCode, code.issueCode)} ·{' '}
+                    {code.count.toLocaleString()}
                   </li>
                 ))}
             </ul>
@@ -151,52 +124,87 @@ function HistoryContent({
   isError,
   isLoading,
   rows,
+  onRetry,
 }: {
+  onRetry: () => unknown;
   isError: boolean;
   isLoading: boolean;
   rows: AndroidDiagnosticsHistoryRow[];
 }) {
   const { t } = useTranslator();
   if (isLoading) return <p className="text-sm text-muted-foreground">{t('participants.diagnostics_loading')}</p>;
-  if (isError) return <p className="text-sm text-destructive">{t('participants.diagnostics_load_failed')}</p>;
+  if (isError)
+    return (
+      <StatePanel
+        description={t('participants.diagnostics_load_failed')}
+        icon={<CircleAlert className="h-5 w-5" />}
+        onRetry={onRetry}
+        title={t('participants.diagnostics_title')}
+        titleAs="h3"
+        tone="destructive"
+      />
+    );
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t('participants.diagnostics_empty')}</p>;
   return (
     <div className="space-y-2">
-      {rows.map((row, index) => (
-        <HistoryRow key={`${row.day}:${row.deviceId ?? 'alert'}:${row.dataQualityAlert?.alertId ?? index}`} row={row} />
+      {rows.map((row) => (
+        <HistoryRow key={`${row.participantId}:${row.randomDeviceId ?? 'none'}:${row.day}`} row={row} />
       ))}
     </div>
   );
 }
 
+/** History and download share independently optional bounds, defaulting only an entirely blank range. */
+function diagnosticsDays(fromDay: string, toDay: string, today: Date): { fromDay?: string; toDay?: string } {
+  if (fromDay || toDay) return { ...(fromDay ? { fromDay } : {}), ...(toDay ? { toDay } : {}) };
+  const monthAgo = new Date(today);
+  monthAgo.setDate(today.getDate() - 29);
+  return { fromDay: localDay(monthAgo), toDay: localDay(today) };
+}
+
+function diagnosticsFilters(params: URLSearchParams, prefix: string) {
+  return {
+    fromDay: params.get(`${prefix}from`) ?? '',
+    toDay: params.get(`${prefix}to`) ?? '',
+    randomDeviceId: params.get(`${prefix}device`) ?? '',
+    moduleFamily: params.get(`${prefix}module`) ?? '',
+    issueCode: params.get(`${prefix}issue`) ?? '',
+  };
+}
+
 export function AndroidDiagnosticsPanel({ participantId, studyId }: { participantId: string; studyId: string }) {
   const { t } = useTranslator();
-  const [fromDay, setFromDay] = useState('');
-  const [toDay, setToDay] = useState('');
-  const [deviceId, setDeviceId] = useState('');
-  const [settledDeviceId, setSettledDeviceId] = useState('');
-  const [moduleFamily, setModuleFamily] = useState('');
-  const [issueCode, setIssueCode] = useState('');
-  const [settledIssueCode, setSettledIssueCode] = useState('');
-  const [pageCursors, setPageCursors] = useState<(string | undefined)[]>([undefined]);
+  const idPrefix = useId();
+  const [params, updateParams] = useSearchParamsUpdate();
+  const prefix = `diagnostics.${participantId}.`;
+  const { fromDay, toDay, randomDeviceId, moduleFamily, issueCode } = diagnosticsFilters(params, prefix);
+  const [settledRandomDeviceId, setSettledRandomDeviceId] = useState(randomDeviceId.trim());
+  const [settledIssueCode, setSettledIssueCode] = useState(issueCode.trim());
+  const pageCursors = new URLSearchParams(params.get(`${prefix}pages`) ?? '').getAll('cursor');
+  const cursor = pageCursors.at(-1);
+  const [today, setToday] = useState(() => new Date());
+  const days = diagnosticsDays(fromDay, toDay, new Date());
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const cursor = pageCursors[pageCursors.length - 1];
   useEffect(() => {
-    if (deviceId.trim() === settledDeviceId && issueCode.trim() === settledIssueCode) return;
+    const tomorrow = new Date(today);
+    tomorrow.setHours(24, 0, 0, 0);
+    const timeout = window.setTimeout(() => setToday(new Date()), tomorrow.getTime() - Date.now());
+    return () => window.clearTimeout(timeout);
+  }, [today]);
+  useEffect(() => {
+    if (randomDeviceId.trim() === settledRandomDeviceId && issueCode.trim() === settledIssueCode) return;
     const timeout = window.setTimeout(() => {
-      setSettledDeviceId(deviceId.trim());
+      setSettledRandomDeviceId(randomDeviceId.trim());
       setSettledIssueCode(issueCode.trim());
-      setPageCursors([undefined]);
     }, 300);
     return () => window.clearTimeout(timeout);
-  }, [deviceId, issueCode, settledDeviceId, settledIssueCode]);
+  }, [randomDeviceId, issueCode, settledRandomDeviceId, settledIssueCode]);
 
   const query = useGetAndroidDiagnosticsQuery({
     studyId,
     participantId,
-    ...(fromDay ? { fromDay } : {}),
-    ...(toDay ? { toDay } : {}),
-    ...(settledDeviceId ? { deviceId: settledDeviceId } : {}),
+    ...days,
+    ...(settledRandomDeviceId ? { randomDeviceId: settledRandomDeviceId } : {}),
     ...(moduleFamily ? { moduleFamily } : {}),
     ...(settledIssueCode ? { issueCode: settledIssueCode } : {}),
     ...(cursor ? { cursor } : {}),
@@ -204,32 +212,28 @@ export function AndroidDiagnosticsPanel({ participantId, studyId }: { participan
   });
   const nextCursor = query.data?.nextCursor;
   const [downloadData, { isLoading: isDownloading }] = useDownloadParticipantDataMutation();
+  const { query: studyQuery, timeZone } = useStudyTimeZone(studyId);
   const rows = useMemo(() => query.data?.items ?? [], [query.data?.items]);
 
-  const updateFilter = (setter: (value: string) => void) => (value: string) => {
-    setter(value);
-    setPageCursors([undefined]);
-  };
+  const updateFilter = (name: string, value: string) =>
+    updateParams({ [`${prefix}${name}`]: value, [`${prefix}pages`]: '' });
+  const setPageCursors = (cursors: string[]) =>
+    updateParams({ [`${prefix}pages`]: new URLSearchParams(cursors.map((value) => ['cursor', value])).toString() });
 
   const handleDownload = async () => {
+    if (!timeZone) return;
     setDownloadError(null);
+    const days = diagnosticsDays(fromDay, toDay, new Date());
     try {
-      // The synchronous export takes at most 31 days; default to the last 30 when no range is set.
-      const today = new Date();
-      const monthAgo = new Date(today);
-      monthAgo.setDate(today.getDate() - 29);
-      const startDate = fromDay || localDay(monthAgo);
-      const endDate = toDay || localDay(today);
-      if (exportRangeExceedsLimit(startDate, endDate)) {
-        setDownloadError(t('download_modal.range_too_long'));
-        return;
-      }
+      const selection = toSyncExportSelection([participantId]);
+      if (!selection) throw new Error(t('participants.diagnostics_download_failed'));
       await downloadData({
         dataType: 'UploadDiagnostics',
-        endDate,
-        participantIds: [participantId],
-        startDate,
+        ...(days.fromDay ? { startDate: days.fromDay } : {}),
+        ...(days.toDay ? { endDate: days.toDay } : {}),
+        participantIds: selection,
         studyId,
+        timeZone,
       }).unwrap();
     } catch (error) {
       setDownloadError(getErrorMessage(error, t('participants.diagnostics_download_failed')));
@@ -249,7 +253,7 @@ export function AndroidDiagnosticsPanel({ participantId, studyId }: { participan
           <p className="text-xs text-muted-foreground">{t('participants.diagnostics_description')}</p>
           <p className="text-xs text-muted-foreground">{t('participants.diagnostics_download_hint')}</p>
         </div>
-        <Button disabled={isDownloading} onClick={() => void handleDownload()} size="sm" variant="outline">
+        <Button disabled={isDownloading || !timeZone} onClick={() => void handleDownload()} size="sm" variant="outline">
           {isDownloading ? (
             <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -261,78 +265,99 @@ export function AndroidDiagnosticsPanel({ participantId, studyId }: { participan
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="space-y-1">
-          <Label htmlFor={`diagnostics-from-${participantId}`}>{t('participants.diagnostics_from')}</Label>
+          <Label htmlFor={`${idPrefix}-from`}>{t('participants.diagnostics_from')}</Label>
           <Input
-            id={`diagnostics-from-${participantId}`}
-            onChange={(event) => updateFilter(setFromDay)(event.target.value)}
+            id={`${idPrefix}-from`}
+            name={`${idPrefix}-from`}
+            onChange={(event) => updateFilter('from', event.target.value)}
             type="date"
             value={fromDay}
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor={`diagnostics-to-${participantId}`}>{t('participants.diagnostics_to')}</Label>
+          <Label htmlFor={`${idPrefix}-to`}>{t('participants.diagnostics_to')}</Label>
           <Input
-            id={`diagnostics-to-${participantId}`}
-            onChange={(event) => updateFilter(setToDay)(event.target.value)}
+            id={`${idPrefix}-to`}
+            name={`${idPrefix}-to`}
+            onChange={(event) => updateFilter('to', event.target.value)}
             type="date"
             value={toDay}
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor={`diagnostics-device-${participantId}`}>{t('participants.diagnostics_device_filter')}</Label>
+          <Label htmlFor={`${idPrefix}-device`}>{t('participants.diagnostics_device_filter')}</Label>
           <Input
-            id={`diagnostics-device-${participantId}`}
-            onChange={(event) => setDeviceId(event.target.value)}
+            id={`${idPrefix}-device`}
+            name={`${idPrefix}-device`}
+            onChange={(event) => updateFilter('device', event.target.value)}
             placeholder={t('participants.diagnostics_device_placeholder')}
-            value={deviceId}
+            spellCheck={false}
+            value={randomDeviceId}
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor={`diagnostics-module-${participantId}`}>{t('participants.diagnostics_module_family')}</Label>
+          <Label htmlFor={`${idPrefix}-module`}>{t('participants.diagnostics_module_family')}</Label>
           <select
             className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            id={`diagnostics-module-${participantId}`}
-            onChange={(event) => updateFilter(setModuleFamily)(event.target.value)}
+            id={`${idPrefix}-module`}
+            name={`${idPrefix}-module`}
+            onChange={(event) => updateFilter('module', event.target.value)}
             value={moduleFamily}
           >
             <option value="">{t('participants.diagnostics_any')}</option>
-            {MODULE_FAMILIES.map((family) => (
-              <option key={family} value={family}>
-                {family}
+            {ANDROID_DIAGNOSTIC_FAMILIES.map(({ value }) => (
+              <option key={value} value={value}>
+                {translateCatalog(t, 'diagnostic_family', value, value)}
               </option>
             ))}
           </select>
         </div>
         <div className="space-y-1">
-          <Label htmlFor={`diagnostics-issue-${participantId}`}>{t('participants.diagnostics_issue_code')}</Label>
+          <Label htmlFor={`${idPrefix}-issue`}>{t('participants.diagnostics_issue_code')}</Label>
           <Input
-            id={`diagnostics-issue-${participantId}`}
-            onChange={(event) => setIssueCode(event.target.value)}
+            id={`${idPrefix}-issue`}
+            name={`${idPrefix}-issue`}
+            onChange={(event) => updateFilter('issue', event.target.value)}
             placeholder={t('participants.diagnostics_issue_placeholder')}
+            spellCheck={false}
             value={issueCode}
           />
         </div>
       </div>
 
-      {downloadError && <p className="text-sm text-destructive">{downloadError}</p>}
-      <HistoryContent isError={query.isError} isLoading={query.isLoading} rows={rows} />
+      {downloadError && (
+        <p className="text-sm text-destructive" role="alert">
+          {downloadError}
+        </p>
+      )}
+      {studyQuery.isError && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-destructive" role="alert">
+            {getErrorMessage(studyQuery.error, t('bulk_downloads.load_error_fallback'))}
+          </p>
+          <Button onClick={() => void studyQuery.refetch()} size="sm" variant="outline">
+            {t('common.try_again')}
+          </Button>
+        </div>
+      )}
+      <HistoryContent isError={query.isError} isLoading={query.isLoading} rows={rows} onRetry={() => query.refetch()} />
 
       <div className="flex items-center justify-between border-t border-border pt-3">
         <Button
-          disabled={pageCursors.length <= 1 || query.isFetching}
-          onClick={() => setPageCursors((current) => current.slice(0, -1))}
+          disabled={pageCursors.length === 0 || query.isFetching}
+          onClick={() => setPageCursors(pageCursors.slice(0, -1))}
           size="sm"
           variant="outline"
         >
           {t('participants.diagnostics_previous')}
         </Button>
         <span className="text-xs text-muted-foreground">
-          {t('participants.diagnostics_page', { page: String(pageCursors.length) })}
+          {t('participants.diagnostics_page', { page: String(pageCursors.length + 1) })}
         </span>
         <Button
           disabled={!nextCursor || query.isFetching}
           onClick={() => {
-            if (nextCursor) setPageCursors((current) => [...current, nextCursor]);
+            if (nextCursor) setPageCursors([...pageCursors, nextCursor]);
           }}
           size="sm"
           variant="outline"

@@ -8,6 +8,7 @@ const entry: StudySettingsAuditEntry = {
   studyId: 'study-1',
   changedAt: '2026-10-07T10:00:00Z',
   changedBy: 'researcher',
+  changeSummary: 'Enabled collection',
   settingKey: 'DataCollection',
   beforeValue: { enabled: false },
   afterValue: { enabled: true },
@@ -23,16 +24,17 @@ await mock.module('@/state/study-operations-api', () => ({
   useGetStudySettingsAuditQuery: () => ({ data: [entry] }),
   useGetStudyCollectionAcknowledgmentsQuery: () => ({ data: [] }),
 }));
-await mock.module('@/components/api-keys-panel', () => ({ ApiKeysPanel: () => null }));
+const ApiKeysPanel = () => null;
+await mock.module('@/components/api-keys-panel', () => ({ ApiKeysPanel }));
 const { StudySettingsAuditPage } = await import('./study-settings-audit-page');
 
 afterEach(cleanup);
 
 test('audit details have a named native button with expanded state', () => {
   render(
-    <MemoryRouter initialEntries={['/studies/study-1/audit']}>
+    <MemoryRouter initialEntries={['/studies/study-1/settings-audit']}>
       <Routes>
-        <Route element={<StudySettingsAuditPage />} path="/studies/:studyId/audit" />
+        <Route element={<StudySettingsAuditPage />} path="/studies/:studyId/settings-audit" />
       </Routes>
     </MemoryRouter>,
   );

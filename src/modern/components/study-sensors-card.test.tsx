@@ -11,9 +11,6 @@ function renderCard(androidSettings: Record<string, unknown> | undefined) {
   return render(
     <StudySensorsCard
       collectionSettings={{ sensor_accelerometer: { enabled: true, sensorPolicy: androidSettings ?? {} } }}
-      iosSensors={[]}
-      showAndroid
-      showIos={false}
     />,
   );
 }
@@ -22,7 +19,7 @@ describe('StudySensorsCard cadence summary', () => {
   test('says the cadence is unconfigured rather than inventing one', () => {
     const { container } = renderCard({});
     expect(screen.getByText('Sampling cadence not configured')).toBeTruthy();
-    // The old defaults were 5 Hz / 30s active / 270s idle, indistinguishable from real config.
+    // An invented default (5 Hz, 30s active / 270s idle) would read as real config.
     expect(container.textContent).not.toContain('Hz');
   });
 

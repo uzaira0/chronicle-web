@@ -3,6 +3,7 @@ import { Fragment, useCallback, useState } from 'react';
 import { useParams } from 'react-router';
 
 import { ApiKeysPanel } from '@/components/api-keys-panel';
+import { AcknowledgmentsCard } from '@/components/collection-acknowledgments-card';
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { SectionHeader } from '@/components/section-header';
 import { StatePanel, TableSkeleton } from '@/components/state-panel';
@@ -13,7 +14,6 @@ import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDateTime } from '@/lib/format';
 import {
-  type CollectionAcknowledgmentEntry,
   type StudySettingsAuditEntry,
   useGetStudyCollectionAcknowledgmentsQuery,
   useGetStudySettingsAuditQuery,
@@ -33,13 +33,13 @@ function SettingsAuditEntryRows({
   const { t } = useTranslator();
   return (
     <Fragment>
-      <TableRow className="hover:bg-muted/50">
-        <TableCell className="whitespace-nowrap font-medium text-xs">
+      <TableRow variant="lazy">
+        <TableCell size="small" weight="medium" className="whitespace-nowrap">
           {formatDisplayDateTime(entry.changedAt)}
         </TableCell>
-        <TableCell className="text-sm">{entry.changedBy}</TableCell>
-        <TableCell className="text-sm font-semibold">{entry.settingKey}</TableCell>
-        <TableCell className="text-sm">{entry.changeSummary}</TableCell>
+        <TableCell>{entry.changedBy}</TableCell>
+        <TableCell weight="semibold">{entry.settingKey}</TableCell>
+        <TableCell>{entry.changeSummary}</TableCell>
         <TableCell>
           <Button
             aria-expanded={isExpanded}
@@ -53,7 +53,7 @@ function SettingsAuditEntryRows({
         </TableCell>
       </TableRow>
       {isExpanded && (
-        <TableRow className="bg-muted/30">
+        <TableRow variant="detail">
           <TableCell colSpan={5}>
             <div className="grid grid-cols-2 gap-4 p-4">
               <div className="space-y-2">
@@ -69,7 +69,7 @@ function SettingsAuditEntryRows({
                   {t('settings_audit.after')}
                 </span>
                 <pre className="max-h-75 overflow-auto rounded-md bg-muted p-3 text-3xs leading-relaxed">
-                  {entry.afterValue != null ? JSON.stringify(entry.afterValue, null, 2) : t('common.none_paren')}
+                  {JSON.stringify(entry.afterValue, null, 2)}
                 </pre>
               </div>
             </div>
@@ -77,62 +77,6 @@ function SettingsAuditEntryRows({
         </TableRow>
       )}
     </Fragment>
-  );
-}
-
-const TRIGGER_KEYS: Record<NonNullable<CollectionAcknowledgmentEntry['trigger']>, string> = {
-  ENROLLMENT: 'settings_audit.trigger_enrollment',
-  PARTICIPANT_TOGGLE: 'settings_audit.trigger_self_toggle',
-  SETTINGS_CHANGE: 'settings_audit.trigger_settings_change',
-  WITHDRAWAL: 'settings_audit.trigger_withdrawal',
-};
-
-function AcknowledgmentsCard({ entries }: { entries: CollectionAcknowledgmentEntry[] }) {
-  const { t } = useTranslator();
-  return (
-    <Card>
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">{t('settings_audit.consent_title')}</h2>
-        <p className="text-xs text-muted-foreground">{t('settings_audit.consent_description')}</p>
-      </div>
-      <Table aria-label={t('settings_audit.consent_title')}>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-45">{t('settings_audit.col_recorded')}</TableHead>
-            <TableHead>{t('settings_audit.col_participant')}</TableHead>
-            <TableHead>{t('settings_audit.col_accepted')}</TableHead>
-            <TableHead>{t('settings_audit.col_declined')}</TableHead>
-            <TableHead className="w-35">{t('settings_audit.col_trigger')}</TableHead>
-            <TableHead className="w-40">{t('settings_audit.col_device')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {entries.length === 0 ? (
-            <TableRow>
-              <TableCell className="h-24 text-center text-muted-foreground" colSpan={6}>
-                {t('settings_audit.no_consent')}
-              </TableCell>
-            </TableRow>
-          ) : (
-            entries.map((entry) => {
-              const declined = entry.declinedModules ?? [];
-              return (
-                <TableRow key={entry.id}>
-                  <TableCell className="whitespace-nowrap font-medium text-xs">
-                    {formatDisplayDateTime(entry.recordedAt)}
-                  </TableCell>
-                  <TableCell className="text-sm">{entry.participantId}</TableCell>
-                  <TableCell className="text-sm">{entry.acknowledgedModules.join(', ') || '—'}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{declined.join(', ') || '—'}</TableCell>
-                  <TableCell className="text-xs">{t(TRIGGER_KEYS[entry.trigger ?? 'ENROLLMENT'])}</TableCell>
-                  <TableCell className="truncate text-xs text-muted-foreground">{entry.sourceDeviceId}</TableCell>
-                </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
-    </Card>
   );
 }
 
@@ -205,7 +149,7 @@ export function StudySettingsAuditPage() {
             <TableBody>
               {auditEntries.length === 0 ? (
                 <TableRow>
-                  <TableCell className="h-24 text-center text-muted-foreground" colSpan={5}>
+                  <TableCell tone="muted" className="h-24 text-center" colSpan={5}>
                     {t('settings_audit.no_changes')}
                   </TableCell>
                 </TableRow>

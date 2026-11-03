@@ -10,31 +10,28 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CopyButton } from '@/components/ui/copy-button';
-import { translateCatalog, useTranslator } from '@/i18n';
+import { type Translator, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { formatDisplayDate, isSentinelDate } from '@/lib/format';
+import { formatDisplayDate } from '@/lib/format';
 import { COLLECTION_MODULES, collectionModuleEnabled, STUDY_FEATURES } from '@/lib/study-constants';
 import {
+  type StudyLimits,
   useGetStudyDataCollectionSettingQuery,
+  useGetStudyLimitsQuery,
   useGetStudyParticipantsQuery,
   useGetStudySummaryQuery,
 } from '@/state/study-operations-api';
-
-function toStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
 
 const CAPABILITY_COPY_KEYS: Record<string, string> = {
   ANDROID_SENSOR: 'study_details.capability_android_sensor',
   CHRONICLE_DATA_COLLECTION: 'study_details.capability_data_collection',
   CHRONICLE_SURVEYS: 'study_details.capability_surveys',
-  IOS_SENSOR: 'study_details.capability_ios_sensor',
   TIME_USE_DIARY: 'study_details.capability_tud',
 };
 
 /**
- * A stat only states a number once the number is known. An in-flight or failed request
- * previously rendered as 0, which reads as a measurement rather than a placeholder.
+ * A stat only states a number once the number is known: an in-flight or failed request
+ * shown as 0 would read as a measurement.
  */
 function statValue(isLoading: boolean, isError: boolean, value: number): string | number {
   if (isLoading) return '…';
@@ -60,10 +57,19 @@ function TimelineRow({ label, value, withBorder }: { label: string; value: strin
   );
 }
 
+/** The end the server enforces. Only a researcher sets one; without it the study runs until someone stops it. */
+function studyEndLabel(limits: StudyLimits | undefined, t: Translator['t']): string {
+  if (!limits) return t('common.na');
+  return limits.studyEnds ? formatDisplayDate(limits.studyEnds) : t('study_details.open_ended');
+}
+
 export function StudyDetailsPage() {
   const { studyId = '' } = useParams<{ studyId: string }>();
   const { t } = useTranslator();
   const { data: study } = useGetStudySummaryQuery(studyId, { skip: !studyId });
+  const limitsQuery = useGetStudyLimitsQuery(studyId, { skip: !studyId });
+  // The last limits read failed (RTK keeps the error while a retry is pending): the cached end may be obsolete.
+  const limitsFailed = limitsQuery.error !== undefined;
   const {
     data: dataCollectionSetting,
     isError: isDataCollectionError,
@@ -83,22 +89,17 @@ export function StudyDetailsPage() {
     [participants],
   );
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
-  const iosSensors = toStringArray(study?.settings?.Sensor?.[1]);
+
   const dataCollectionModules = dataCollectionSetting?.modules ?? {};
   const enabledCollectionModuleCount = COLLECTION_MODULES.filter((module) =>
     collectionModuleEnabled(module, dataCollectionModules),
   ).length;
-  const showSensorCard =
-    (modules.includes('CHRONICLE_DATA_COLLECTION') ||
-      modules.includes('ANDROID_SENSOR') ||
-      modules.includes('IOS_SENSOR')) &&
-    Boolean(study);
+  const showSensorCard = modules.includes('CHRONICLE_DATA_COLLECTION') && Boolean(study);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {/* Getting data out is the reason most people open a study, and the Overview
-            offered no route to it — only the Bulk Downloads tab did. */}
+        {/* Getting data out is the reason most people open a study, so the Overview links to it. */}
         <Button asChild size="sm" variant="outline">
           <Link to={`/studies/${encodeURIComponent(studyId)}/downloads`}>
             <Download className="mr-1.5 h-4 w-4" />
@@ -108,8 +109,8 @@ export function StudyDetailsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* A pending or failed fetch used to render as a confident 0, which for a study
-            that has participants is not a placeholder but a wrong number. */}
+        {/* A pending or failed fetch must not render as 0: for a study with participants
+            that is a wrong number, not a placeholder. */}
         <StatCard
           label={t('study_details.total_participants')}
           tone="default"
@@ -122,10 +123,6 @@ export function StudyDetailsPage() {
         <StatCard
           label={t('study_details.collection_modules')}
           value={statValue(isDataCollectionLoading, isDataCollectionError, enabledCollectionModuleCount)}
-        />
-        <StatCard
-          label={t('study_details.notifications')}
-          value={study?.notificationsEnabled ? t('common.enabled') : t('common.disabled')}
         />
       </div>
 
@@ -151,7 +148,7 @@ export function StudyDetailsPage() {
           <CardHeader>
             <CardTitle>{t('study_details.study_information')}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+          <CardContent spacing={4} size="small">
             <DetailField label={t('study_details.study_id')}>
               <div className="flex items-center gap-2">
                 <code translate="no" className="rounded bg-muted px-2 py-1 font-mono text-xs">
@@ -193,24 +190,30 @@ export function StudyDetailsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle layout="icon">
               <Calendar className="h-4 w-4 text-primary" />
               {t('study_details.timeline')}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+          <CardContent spacing={3} size="small">
             <TimelineRow
               label={t('study_details.started')}
               value={study?.startedAt ? formatDisplayDate(study.startedAt) : t('common.na')}
             />
             <TimelineRow
               label={t('study_details.ends')}
-              value={
-                study?.endedAt && !isSentinelDate(study.endedAt)
-                  ? formatDisplayDate(study.endedAt)
-                  : t('study_details.open_ended')
-              }
+              value={limitsFailed ? t('study_details.end_unavailable') : studyEndLabel(limitsQuery.data, t)}
             />
+            {limitsFailed && (
+              <Button
+                disabled={limitsQuery.isFetching}
+                onClick={() => void limitsQuery.refetch()}
+                size="sm"
+                variant="outline"
+              >
+                {t('common.try_again')}
+              </Button>
+            )}
             <TimelineRow
               label={t('study_details.created')}
               value={study?.createdAt ? formatDisplayDate(study.createdAt) : t('common.na')}
@@ -231,12 +234,7 @@ export function StudyDetailsPage() {
       />
 
       {showSensorCard && !isDataCollectionError && !isDataCollectionLoading && (
-        <StudySensorsCard
-          collectionSettings={dataCollectionModules}
-          iosSensors={iosSensors}
-          showAndroid={modules.includes('CHRONICLE_DATA_COLLECTION') || modules.includes('ANDROID_SENSOR')}
-          showIos={modules.includes('IOS_SENSOR')}
-        />
+        <StudySensorsCard collectionSettings={dataCollectionModules} />
       )}
     </div>
   );

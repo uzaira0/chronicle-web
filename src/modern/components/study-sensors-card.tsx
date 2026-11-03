@@ -13,18 +13,14 @@ type AndroidSensorSettings = {
 
 type StudySensorsCardProps = {
   collectionSettings: Record<string, { enabled?: boolean; sensorPolicy?: AndroidSensorSettings | null }>;
-  iosSensors: string[];
-  showAndroid: boolean;
-  showIos: boolean;
 };
 
 /**
  * Sampling cadence, reported only where the study actually configured it.
  *
- * This used to substitute `5 Hz · 30s active / 270s idle` for absent fields, which a
- * researcher could not tell apart from a real setting; `|| 5` also rewrote a deliberate
- * `samplingRateHz: 0` into 5, inverting it; and `period - active` printed a negative idle
- * for any config whose active window exceeds its period. Nothing is invented here.
+ * Absent fields show as not configured, never as a default a researcher could mistake for
+ * a real setting. `samplingRateHz: 0` stays 0, and no idle time is printed when the active
+ * window exceeds the period.
  */
 function CadenceSummary({ settings }: { settings: AndroidSensorSettings }) {
   const { t } = useTranslator();
@@ -56,8 +52,8 @@ function CadenceSummary({ settings }: { settings: AndroidSensorSettings }) {
   );
 }
 
-/** Android and iOS sensor configuration, previously two separate full-width cards. */
-export function StudySensorsCard({ collectionSettings, iosSensors, showAndroid, showIos }: StudySensorsCardProps) {
+/** Android and iOS sensor configuration in one card. */
+export function StudySensorsCard({ collectionSettings }: StudySensorsCardProps) {
   const { t } = useTranslator();
   return (
     <Card>
@@ -69,42 +65,28 @@ export function StudySensorsCard({ collectionSettings, iosSensors, showAndroid, 
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        {showAndroid && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {t('common.android')}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {COLLECTION_MODULES.filter((module) => module.sensorType).map(({ label, value }) => {
-                const setting = collectionSettings[value];
-                return (
-                  <div className="space-y-1" key={value}>
-                    <Badge variant={setting?.enabled ? 'success' : 'muted'}>
-                      {translateCatalog(t, 'module', value, label)}
-                    </Badge>
-                    {setting?.enabled && <CadenceSummary settings={setting.sensorPolicy ?? {}} />}
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs leading-5 text-muted-foreground">{t('sensors_card.consent_note')}</p>
+      <CardContent spacing={4} size="small">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t('common.android')}
+            </p>
           </div>
-        )}
-        {showIos && iosSensors.length > 0 && (
-          <div className="space-y-2 border-t border-border pt-4 first:border-0 first:pt-0">
-            <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">{t('common.ios')}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {iosSensors.map((sensor) => (
-                <Badge key={sensor} variant="success">
-                  {translateCatalog(t, 'ios_sensor', sensor, sensor)}
-                </Badge>
-              ))}
-            </div>
+          <div className="flex flex-wrap gap-1.5">
+            {COLLECTION_MODULES.filter((module) => module.sensorType).map(({ label, value }) => {
+              const setting = collectionSettings[value];
+              return (
+                <div className="space-y-1" key={value}>
+                  <Badge variant={setting?.enabled ? 'success' : 'muted'}>
+                    {translateCatalog(t, 'module', value, label)}
+                  </Badge>
+                  {setting?.enabled && <CadenceSummary settings={setting.sensorPolicy ?? {}} />}
+                </div>
+              );
+            })}
           </div>
-        )}
+          <p className="text-xs leading-5 text-muted-foreground">{t('sensors_card.consent_note')}</p>
+        </div>
       </CardContent>
     </Card>
   );

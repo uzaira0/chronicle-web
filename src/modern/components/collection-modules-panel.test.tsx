@@ -1,14 +1,33 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
+import { COLLECTION_MODULE_ID } from '@/generated/chronicle-contracts';
 import { COLLECTION_MODULES } from '@/lib/study-constants';
 
 import { CollectionModulesPanel } from './collection-modules-panel';
 
 afterEach(cleanup);
 
-const MODULES = COLLECTION_MODULES.filter(({ value }) => value === 'usage_events' || value === 'device_lifecycle');
+const MODULES = COLLECTION_MODULES.filter(
+  ({ value }) => value === COLLECTION_MODULE_ID.usage_events || value === COLLECTION_MODULE_ID.device_lifecycle,
+);
 
-const HEALTH_MODULES = COLLECTION_MODULES.filter(({ value }) => value === 'health_connect');
+const HEALTH_MODULES = COLLECTION_MODULES.filter(({ value }) => value === COLLECTION_MODULE_ID.health_connect);
+
+describe('CollectionModulesPanel Play Store availability', () => {
+  test.each([true, false])('warns next to Health Connect when enabled is %s', (enabled) => {
+    render(<CollectionModulesPanel modules={HEALTH_MODULES} settings={{ health_connect: { enabled } }} />);
+    expect(
+      screen.getAllByText(
+        'Not available on this build of the Play Store app. Participants using it cannot enroll while this is on.',
+      ),
+    ).toHaveLength(1);
+  });
+
+  test('does not warn for Play Store app usage collection', () => {
+    render(<CollectionModulesPanel modules={MODULES} settings={{ usage_events: { enabled: true } }} />);
+    expect(screen.queryByText(/Not available on this build of the Play Store app/)).toBeNull();
+  });
+});
 
 describe('CollectionModulesPanel unknown states', () => {
   test('does not claim zero active modules while the settings request is open', () => {
@@ -30,7 +49,7 @@ describe('CollectionModulesPanel unknown states', () => {
     render(<CollectionModulesPanel modules={MODULES} settings={settings} />);
     expect(screen.getByText('2 of 2 active')).toBeTruthy();
     expect(screen.queryByText('Not collected (1)')).toBeNull();
-    expect(settings).not.toHaveProperty('device_lifecycle');
+    expect(settings).not.toHaveProperty(COLLECTION_MODULE_ID.device_lifecycle);
   });
 
   test('preserves an explicit opt-out of a default-enabled module', () => {
