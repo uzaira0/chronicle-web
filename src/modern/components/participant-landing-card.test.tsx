@@ -35,7 +35,7 @@ describe('ParticipantLandingCard', () => {
   });
 });
 
-test('W10 form sessions cannot navigate into PORTAL authority; PORTAL can', () => {
+test('form sessions cannot navigate into PORTAL authority; PORTAL can', () => {
   for (const kind of ['TIME_USE_DIARY', 'APP_USAGE', 'PORTAL'] as const) {
     session(kind);
     render(

@@ -51,14 +51,19 @@ export function EnrollmentHandoff({
     <section className="space-y-4 rounded-xl border border-border bg-card p-6">
       <div className="flex items-center gap-3">
         <Smartphone className="h-6 w-6 text-primary" />
-        <h2 className="text-xl font-semibold">{t('enrollment.continue_title')}</h2>
+        <h2 className="text-balance text-xl font-semibold">{t('enrollment.continue_title')}</h2>
       </div>
       <p className="leading-7 text-muted-foreground">{continueBody}</p>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Button asChild size="lg">
           <a href={handoffUrl}>{t('enrollment.open_android')}</a>
         </Button>
-        <a className="text-sm text-primary underline" href={ANDROID_PLAY_STORE_URL} rel="noreferrer" target="_blank">
+        <a
+          className="text-sm text-primary underline hover:no-underline"
+          href={ANDROID_PLAY_STORE_URL}
+          rel="noreferrer"
+          target="_blank"
+        >
           {t('enrollment.get_on_play')}
         </a>
       </div>

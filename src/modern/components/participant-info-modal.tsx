@@ -77,13 +77,12 @@ export function ParticipantInfoModal({ modules, onClose, participant, studyId }:
     // The diary day is the researcher's local calendar day, not the UTC one.
     const today = new Date();
     const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-    const todayDate = localDay(today);
     const yesterdayDate = localDay(yesterday);
 
     const issueMissing = (kind: 'APP_USAGE' | 'TIME_USE_DIARY', date?: string) =>
       issuedLinks.current.has(`${kind}/${date ?? ''}`) ? Promise.resolve(null) : issue(kind, date);
     Promise.allSettled([
-      hasDataCollection ? issueMissing('APP_USAGE', todayDate) : Promise.resolve(null),
+      hasDataCollection ? issueMissing('APP_USAGE') : Promise.resolve(null),
       hasTud ? issueMissing('TIME_USE_DIARY', yesterdayDate) : Promise.resolve(null),
     ])
       .then((results) => {
@@ -93,8 +92,8 @@ export function ParticipantInfoModal({ modules, onClose, participant, studyId }:
         );
         const links: { appUsage?: string; tudYesterday?: string } = {};
         if (appAccessCode) {
-          issuedLinks.current.add(`APP_USAGE/${todayDate}`);
-          links.appUsage = getAppUsageLink(studyId, participant.participantId, todayDate, appAccessCode);
+          issuedLinks.current.add('APP_USAGE/');
+          links.appUsage = getAppUsageLink(studyId, participant.participantId, appAccessCode);
         }
         if (yesterdayAccessCode) {
           issuedLinks.current.add(`TIME_USE_DIARY/${yesterdayDate}`);

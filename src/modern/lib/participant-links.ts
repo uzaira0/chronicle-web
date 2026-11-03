@@ -1,5 +1,6 @@
 import { getCurrentLanguage } from '@/i18n/language-context';
 import { createTranslator } from '@/i18n/translator';
+import { timeoutSignal } from '@/lib/request-timeout';
 
 /**
  * Generates enrollment and survey links for study participants.
@@ -13,12 +14,20 @@ function getBaseUrl() {
 
 type EnrollmentLinkOptions = {
   accessCode: string;
+  /** The deployment's private CA root (`loadInvitationServerCa`), or null on a public CA. */
+  serverCa?: string | null;
 };
 
 type ChronicleRuntimeConfig = {
   allowPrivateServerUrl?: unknown;
+  localCa?: unknown;
   serverUrl?: unknown;
 };
+
+// base64url DER of one certificate. A 4096-bit RSA root is about 1.9k characters.
+export const SERVER_CA_PARAMETER_NAME = 'serverCa';
+const SERVER_CA_PARAMETER_PATTERN = /^[A-Za-z0-9_-]{100,4096}$/;
+const PEM_CERTIFICATE = /^\s*-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\s]+)-----END CERTIFICATE-----\s*$/;
 
 type PublicServerNormalizationOptions = {
   allowPrivateHost?: boolean;
@@ -126,8 +135,81 @@ function accessCodeFragment(accessCode: string): string {
   return new URLSearchParams({ accessCode }).toString();
 }
 
+/** Read one bounded DER field; callers decide the X.509 structure. */
+function certificateField(der: string, start: number, tag: number) {
+  let cursor = start;
+  if (der.charCodeAt(cursor++) !== tag) throw new Error();
+  let length = der.charCodeAt(cursor++);
+  if (length & 0x80) {
+    const count = length & 0x7f;
+    if (![1, 2].includes(count) || der.charCodeAt(cursor) === 0) throw new Error();
+    length = 0;
+    for (let i = 0; i < count; i++) length = length * 256 + der.charCodeAt(cursor++);
+    if (length < 128) throw new Error();
+  }
+  const end = cursor + length;
+  if (!(length > 0 && end <= der.length)) throw new Error();
+  return { contentStart: cursor, end };
+}
+
+export function isValidServerCaParameter(value: unknown): value is string {
+  if (typeof value !== 'string' || !SERVER_CA_PARAMETER_PATTERN.test(value)) return false;
+  try {
+    const der = atob(value.replace(/-/g, '+').replace(/_/g, '/'));
+    if (btoa(der).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_') !== value) return false;
+    // Check the DER envelope and mandatory X.509 fields. Native apps validate the CA and trust.
+    const certificate = certificateField(der, 0, 0x30);
+    const tbs = certificateField(der, certificate.contentStart, 0x30);
+    let cursor = tbs.contentStart;
+    if (der.charCodeAt(cursor) === 0xa0) cursor = certificateField(der, cursor, 0xa0).end;
+    for (const tag of [0x02, 0x30, 0x30, 0x30, 0x30, 0x30]) cursor = certificateField(der, cursor, tag).end;
+    if (cursor > tbs.end) return false;
+    const algorithm = certificateField(der, tbs.end, 0x30);
+    const signature = certificateField(der, algorithm.end, 0x03);
+    return signature.end === certificate.end && certificate.end === der.length;
+  } catch {
+    return false;
+  }
+}
+
+function serverCaUnavailable(): Error {
+  return new Error(createTranslator(getCurrentLanguage()).t('participant_access.server_ca_unavailable'));
+}
+
+/** The single certificate of a PEM file as the `serverCa` link parameter (base64url DER, no padding). */
+export function serverCaParameterFromPem(pem: string): string {
+  const body = PEM_CERTIFICATE.exec(pem)?.[1]?.replace(/\s/g, '') ?? '';
+  const parameter = body.replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  if (!isValidServerCaParameter(parameter)) throw serverCaUnavailable();
+  return parameter;
+}
+
+/**
+ * In the local HTTPS trial the deployment's certificate comes from its own private CA. Invitation
+ * links then carry that root so the apps trust it for this server without a CA profile. Null when
+ * the deployment uses a certificate phones already trust.
+ */
+export async function loadInvitationServerCa(): Promise<string | null> {
+  const config = Reflect.get(window, '__CHRONICLE_RUNTIME_CONFIG__') as ChronicleRuntimeConfig | undefined;
+  if (config?.localCa !== true) return null;
+  try {
+    // Same origin: the dashboard listener serves Caddy's current root at /local-ca.crt.
+    const response = await fetch('/local-ca.crt', {
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+      signal: timeoutSignal(),
+    });
+    if (!response.ok) throw serverCaUnavailable();
+    return serverCaParameterFromPem(await response.text());
+  } catch {
+    throw serverCaUnavailable();
+  }
+}
+
 export function getHttpsEnrollmentLink(studyId: string, participantId: string, options: EnrollmentLinkOptions) {
   const params = new URLSearchParams({ studyId, participantId });
+  if (options.serverCa) params.set(SERVER_CA_PARAMETER_NAME, options.serverCa);
   return `${getBaseUrl()}/enroll?${params.toString()}#${accessCodeFragment(options.accessCode)}`;
 }
 
@@ -147,8 +229,9 @@ export function getTimeUseDiaryLink(
   return `${getBaseUrl()}/time-use-diary?${params.toString()}#${accessCodeFragment(accessCode)}`;
 }
 
-export function getAppUsageLink(studyId: string, participantId: string, logicalDate: string, accessCode: string) {
-  const params = new URLSearchParams({ date: logicalDate, studyId, participantId });
+/** The survey link names no day: the page opens the server's oldest open day. */
+export function getAppUsageLink(studyId: string, participantId: string, accessCode: string) {
+  const params = new URLSearchParams({ studyId, participantId });
   return `${getBaseUrl()}/survey?${params.toString()}#${accessCodeFragment(accessCode)}`;
 }
 

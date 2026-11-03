@@ -1,32 +1,39 @@
 import { ExternalLink, Server, ShieldCheck } from 'lucide-react';
-import { useEffect, useState } from 'react';
-
+import { useEffect, useRef, useState } from 'react';
 import { EnrollmentDetails, EnrollmentHandoff } from '@/components/enrollment-details';
+import { Button } from '@/components/ui/button';
+import { ENROLLMENT_CODE_HEADER } from '@/generated/chronicle-contracts';
 import { isRtlLanguage, LanguageSwitcher, useTranslator } from '@/i18n';
 import {
   type EnrollmentInvitation,
   type EnrollmentPreview,
+  enrollmentRequestErrorKey,
   enrollmentTranslator,
   getAndroidEnrollmentHandoffUrl,
   invitationFromAddress,
   validateEnrollmentPreview,
 } from '@/lib/enrollment-preview';
+import { isRetryableHttpStatus } from '@/lib/errors';
 import { getDefaultEnrollmentServerUrl } from '@/lib/participant-links';
-import { REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
+import { anySignal, timeoutSignal } from '@/lib/request-timeout';
 
 type PageState =
   | { kind: 'loading' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: string; retryable?: boolean }
   | { handoffUrl: string; kind: 'verified'; preview: EnrollmentPreview };
 
 export function PublicEnrollmentPage() {
   const [state, setState] = useState<PageState>({ kind: 'loading' });
+  const invitationRef = useRef<EnrollmentInvitation | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const { effectiveCode, t } = useTranslator();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` retries with the retained invitation.
   useEffect(() => {
     let invitation: EnrollmentInvitation;
     try {
-      invitation = invitationFromAddress();
+      invitation = invitationRef.current ?? invitationFromAddress();
+      invitationRef.current = invitation;
     } catch (error: unknown) {
       setState({
         kind: 'error',
@@ -47,31 +54,37 @@ export function PublicEnrollmentPage() {
       return;
     }
 
-    const controller = new AbortController();
-    // Unmount cancels quietly (AbortError); a hung server ends in the unverified error instead.
-    const timer = setTimeout(
-      () => controller.abort(new DOMException('The request timed out.', 'TimeoutError')),
-      REQUEST_TIMEOUT_MS,
-    );
+    // Unmount cancels quietly; a timeout leaves the invitation available for retry.
+    const unmounted = new AbortController();
+    setState({ kind: 'loading' });
     const previewUrl =
       `${publicServerUrl}/chronicle/v4/study/${encodeURIComponent(invitation.studyId)}` +
       `/participant/${encodeURIComponent(invitation.participantId)}/enrollment-preview`;
 
+    let errorKey = 'enrollment.error_network';
+    let retryable = true;
     fetch(previewUrl, {
       cache: 'no-store',
       credentials: 'omit',
       headers: {
         Accept: 'application/json',
-        'X-Chronicle-Enrollment-Code': invitation.accessCode,
+        [ENROLLMENT_CODE_HEADER]: invitation.accessCode,
       },
       method: 'GET',
       redirect: 'error',
       referrerPolicy: 'no-referrer',
-      signal: controller.signal,
+      signal: anySignal([unmounted.signal, timeoutSignal()]),
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error(enrollmentTranslator().t('enrollment.preview_request_failed'));
+        if (!response.ok) {
+          retryable = isRetryableHttpStatus(response.status);
+          errorKey = enrollmentRequestErrorKey(response.status);
+          throw new Error(enrollmentTranslator().t(errorKey));
+        }
+        errorKey = 'enrollment.error_response';
         const payload: unknown = await response.json();
+        retryable = false;
+        errorKey = 'enrollment.error_disclosure';
         return validateEnrollmentPreview(payload, invitation, publicServerUrl);
       })
       .then((preview) => {
@@ -82,18 +95,17 @@ export function PublicEnrollmentPage() {
         });
       })
       .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
+        if (unmounted.signal.aborted) return;
+        const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
         setState({
           kind: 'error',
-          message: enrollmentTranslator().t('enrollment.error_unverified'),
+          message: enrollmentTranslator().t(timedOut ? 'enrollment.error_timeout' : errorKey),
+          retryable: retryable || timedOut,
         });
       });
 
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, []);
+    return () => unmounted.abort();
+  }, [attempt]);
 
   return (
     <main
@@ -109,7 +121,7 @@ export function PublicEnrollmentPage() {
             </span>
             <LanguageSwitcher />
           </div>
-          <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">{t('enrollment.title')}</h1>
+          <h1 className="text-balance text-3xl font-semibold tracking-normal sm:text-4xl">{t('enrollment.title')}</h1>
           <p className="mt-4 max-w-2xl leading-7 text-muted-foreground">{t('enrollment.intro')}</p>
         </header>
 
@@ -121,8 +133,13 @@ export function PublicEnrollmentPage() {
 
         {state.kind === 'error' && (
           <section aria-live="polite" className="rounded-lg border border-destructive/40 bg-card p-5">
-            <h2 className="font-semibold">{t('enrollment.unavailable_title')}</h2>
+            <h2 className="text-balance font-semibold">{t('enrollment.unavailable_title')}</h2>
             <p className="mt-2 leading-7 text-muted-foreground">{state.message}</p>
+            {state.retryable && (
+              <Button className="mt-4" onClick={() => setAttempt((n) => n + 1)}>
+                {t('common.try_again')}
+              </Button>
+            )}
           </section>
         )}
 
@@ -134,7 +151,7 @@ export function PublicEnrollmentPage() {
                 {t('enrollment.verified_response')}
               </div>
               <div>
-                <h2 className="text-2xl font-semibold">{state.preview.studyTitle}</h2>
+                <h2 className="text-balance text-2xl font-semibold">{state.preview.studyTitle}</h2>
                 <p className="mt-2 leading-7 text-muted-foreground">{state.preview.studyDescription}</p>
               </div>
               <EnrollmentDetails
@@ -153,7 +170,7 @@ export function PublicEnrollmentPage() {
             </section>
 
             <section className="space-y-5 rounded-xl border border-border bg-card p-6">
-              <h2 className="text-xl font-semibold">{t('enrollment.disclosure')}</h2>
+              <h2 className="text-balance text-xl font-semibold">{t('enrollment.disclosure')}</h2>
               <div>
                 <h3 className="font-semibold">{t('enrollment.purpose')}</h3>
                 <p className="mt-1 leading-7 text-muted-foreground">{state.preview.participantPolicy.purpose}</p>
@@ -197,7 +214,7 @@ export function PublicEnrollmentPage() {
                 <p className="mt-1 leading-7 text-muted-foreground">
                   {t(
                     state.preview.withdrawalMode === 'ERASE'
-                      ? 'enrollment.withdrawal_erases'
+                      ? 'enrollment.withdrawal_policy'
                       : 'enrollment.withdrawal_keeps',
                   )}
                 </p>

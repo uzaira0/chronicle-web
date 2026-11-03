@@ -14,15 +14,19 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { Fragment, memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { Fragment, memo, useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { AndroidDiagnosticsPanel } from '@/components/android-diagnostics-panel';
+import { CancelPendingEnrollmentButton } from '@/components/cancel-pending-enrollment-button';
 import { ChangeEnrollmentModal } from '@/components/change-enrollment-modal';
+import { AcknowledgmentsCard } from '@/components/collection-acknowledgments-card';
+import { DeletionStatusCard } from '@/components/deletion-status-card';
 import { DownloadParticipantDataModal } from '@/components/download-participant-data-modal';
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
 import { ParticipantActivityCell } from '@/components/participant-activity-cell';
 import { ParticipantInfoModal } from '@/components/participant-info-modal';
 import { ParticipantNotesEditor } from '@/components/participant-notes-editor';
+import { ParticipantProcessingDialog } from '@/components/participant-processing-dialog';
 import { QrEnrollmentModal } from '@/components/qr-enrollment-modal';
 import { SectionHeader } from '@/components/section-header';
 import { SortableTableHead } from '@/components/sortable-table-head';
@@ -39,12 +43,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { statusLabel, translateCatalog, useTranslator } from '@/i18n';
+import { PARTICIPANT_ID_PATTERN, PARTICIPATION_STATUS } from '@/generated/chronicle-contracts';
+import { statusLabel, type Translator, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDateTime, parseDisplayDate } from '@/lib/format';
 import { canChangeEnrollment, getStatusVariant } from '@/lib/participant-status';
 import { ANDROID_SENSOR_TYPES, COLLECTION_MODULES } from '@/lib/study-constants';
-import { useListSearchParams } from '@/lib/use-list-search-params';
+import { useListSearchParams, useSearchParamsUpdate } from '@/lib/use-list-search-params';
 import {
   type AndroidDeviceSensorAvailability,
   type CollectionAcknowledgmentEntry,
@@ -52,22 +57,26 @@ import {
   EMPTY_PARTICIPANT_MAP,
   type IosUploadStatus,
   type Participant,
+  type ParticipantConsentState,
   type ParticipantStats,
   type StudyDeviceInstance,
   useDeleteStudyParticipantsMutation,
   useGetIosUploadStatusQuery,
   useGetParticipantStatsQuery,
+  useGetPendingEnrollmentsQuery,
   useGetStudyCollectionAcknowledgmentsQuery,
   useGetStudyDataCollectionSettingQuery,
+  useGetStudyDeletionsQuery,
   useGetStudyDevicesQuery,
   useGetStudyParticipantsQuery,
   useGetStudySensorAvailabilityQuery,
   useGetStudySummaryQuery,
-  useLazyGetDeletionOperationQuery,
   useRegisterParticipantMutation,
 } from '@/state/study-operations-api';
 
 const PARTICIPANT_PAGE_SIZE = 100;
+// The server's whole-string participant-id rule, for enrollment codes, form links and uploads.
+const PARTICIPANT_ID_RULE = new RegExp(`^(?:${PARTICIPANT_ID_PATTERN})$`);
 
 type ModalState =
   | { type: 'none' }
@@ -75,6 +84,7 @@ type ModalState =
   | { type: 'info'; participant: Participant }
   | { type: 'enrollment'; participant: Participant }
   | { type: 'notes'; participant: Participant }
+  | { type: 'processing'; participant: Participant }
   | { type: 'download'; participantIds: string[] }
   | { type: 'delete-confirm'; participantIds: string[] };
 
@@ -94,6 +104,7 @@ function compareActivity(left: number | null, right: number | null, direction: n
  * of the entire participant list when a single row's state (expansion/selection) changes.
  */
 type ParticipantRowProps = {
+  pendingEnrollment?: boolean;
   colCount: number;
   handleSingleDelete: (id: string) => void;
   hasTud: boolean;
@@ -107,7 +118,6 @@ type ParticipantRowProps = {
   iosUploadStatus?: IosUploadStatus | undefined;
   ps?: ParticipantStats | undefined;
   selectedAndroidSensors: string[];
-  settingsVersion?: number | undefined;
   hardwareSensorsEnabled: boolean;
   setModal: (state: ModalState) => void;
   toggleExpanded: (id: string) => void;
@@ -115,37 +125,30 @@ type ParticipantRowProps = {
 };
 
 type DeviceInstanceTypeSummary = {
-  enrollmentCount: number;
   instanceCount: number;
   label: string;
 };
 
 type DeviceInstanceSummary = {
   byType: DeviceInstanceTypeSummary[];
-  totalEnrollments: number;
   totalInstances: number;
 };
 
 function summarizeDeviceInstances(devices: StudyDeviceInstance[], unknownLabel: string): DeviceInstanceSummary {
   const byLabel = new Map<string, DeviceInstanceTypeSummary>();
-  let totalEnrollments = 0;
 
   for (const device of devices) {
     const label = String(device.deviceType ?? unknownLabel);
-    const enrollmentCount =
-      Array.isArray(device.enrollments) && device.enrollments.length > 0 ? device.enrollments.length : 1;
-    const existing = byLabel.get(label) ?? { enrollmentCount: 0, instanceCount: 0, label };
-    existing.enrollmentCount += enrollmentCount;
+    const existing = byLabel.get(label) ?? { instanceCount: 0, label };
     existing.instanceCount += 1;
-    totalEnrollments += enrollmentCount;
     byLabel.set(label, existing);
   }
 
-  return { byType: [...byLabel.values()], totalEnrollments, totalInstances: devices.length };
+  return { byType: [...byLabel.values()], totalInstances: devices.length };
 }
 
-type SensorProfile = { available: string[]; count: number; unavailable: string[] };
-type SensorDeviceReport = { available: string[]; sourceDeviceId: string; unavailable: string[] };
+type SensorProfile = { available: string[]; count: number };
+type SensorDeviceReport = { available: string[]; sourceRandomDeviceId: string };
 type SensorBuckets = {
   available: string[];
   consented: string[];
@@ -174,19 +177,20 @@ function formatSensorLabel(sensor: string) {
 // Sensor availability is a pure hardware-capability report (SensorManager
 // getDefaultSensor over the full sensor catalog), independent of which sensors
 // the study toggled or what the participant consented to. Dedupe identical
-// capability profiles and sort each list so re-enrollments of the same hardware
-// render as one stable, ordered block instead of repeated, shuffled lists.
+// capability profiles and sort the list so re-enrollments of the same hardware
+// render as one stable, ordered block instead of repeated, shuffled lists. The
+// report lists only the sensors the device has; a type missing from it is one the
+// device lacks.
 function dedupeSensorProfiles(rows: AndroidDeviceSensorAvailability[]): SensorProfile[] {
   const byProfile = new Map<string, SensorProfile>();
   for (const row of rows) {
     const available = [...row.availableSensors].sort((a, b) => a.localeCompare(b));
-    const unavailable = [...row.unavailableSensors].sort((a, b) => a.localeCompare(b));
-    const signature = `${available.join(',')}|${unavailable.join(',')}`;
+    const signature = available.join(',');
     const existing = byProfile.get(signature);
     if (existing) {
       existing.count += 1;
     } else {
-      byProfile.set(signature, { available, count: 1, unavailable });
+      byProfile.set(signature, { available, count: 1 });
     }
   }
   return [...byProfile.values()];
@@ -195,14 +199,13 @@ function dedupeSensorProfiles(rows: AndroidDeviceSensorAvailability[]): SensorPr
 function dedupeSensorReports(rows: AndroidDeviceSensorAvailability[]): SensorDeviceReport[] {
   const bySourceDevice = new Map<string, SensorDeviceReport>();
   for (const row of rows) {
-    if (bySourceDevice.has(row.deviceId)) continue;
-    bySourceDevice.set(row.deviceId, {
+    if (bySourceDevice.has(row.randomDeviceId)) continue;
+    bySourceDevice.set(row.randomDeviceId, {
       available: [...row.availableSensors].sort((a, b) => a.localeCompare(b)),
-      sourceDeviceId: row.deviceId,
-      unavailable: [...row.unavailableSensors].sort((a, b) => a.localeCompare(b)),
+      sourceRandomDeviceId: row.randomDeviceId,
     });
   }
-  return [...bySourceDevice.values()].sort((a, b) => a.sourceDeviceId.localeCompare(b.sourceDeviceId));
+  return [...bySourceDevice.values()].sort((a, b) => a.sourceRandomDeviceId.localeCompare(b.sourceRandomDeviceId));
 }
 
 function sensorBucketsForReport({
@@ -210,20 +213,21 @@ function sensorBucketsForReport({
   hardwareSensorsEnabled,
   report,
   selectedAndroidSensors,
-  settingsVersion,
 }: {
   acknowledgments: CollectionAcknowledgmentEntry[];
   hardwareSensorsEnabled: boolean;
   report: SensorDeviceReport;
   selectedAndroidSensors: string[];
-  settingsVersion: number | undefined;
 }): SensorBuckets {
   const selectedSensors = new Set(selectedAndroidSensors);
   const buckets: SensorBuckets = {
     available: [],
     consented: [],
     notConsented: [],
-    unavailable: [...report.unavailable],
+    // Only a sensor the study asks for is worth naming as missing from this device.
+    unavailable: hardwareSensorsEnabled
+      ? selectedAndroidSensors.filter((sensor) => !report.available.includes(sensor))
+      : [],
   };
 
   for (const sensor of report.available) {
@@ -232,18 +236,15 @@ function sensorBucketsForReport({
     const acknowledgment = acknowledgments.find(
       (entry) =>
         entry.trigger === 'WITHDRAWAL' ||
-        [...entry.acknowledgedModules, ...(entry.declinedModules ?? []), ...(entry.unavailableModules ?? [])].includes(
-          moduleId ?? '',
+        [...entry.acknowledgedModules, ...(entry.declinedModules ?? []), ...(entry.unavailableModules ?? [])].some(
+          (id) => id === moduleId,
         ),
     );
-    const currentAcknowledgment =
-      acknowledgment?.trigger !== 'WITHDRAWAL' &&
-      (settingsVersion === undefined || acknowledgment?.settingsVersion === settingsVersion);
     if (acknowledgment?.unavailableModules?.some((id) => id === moduleId)) {
       if (!buckets.unavailable.includes(sensor)) buckets.unavailable.push(sensor);
     } else if (!hardwareSensorsEnabled || !selectedSensors.has(sensor)) {
       buckets.available.push(sensor);
-    } else if (currentAcknowledgment && moduleId && acknowledgment?.acknowledgedModules.includes(moduleId)) {
+    } else if (moduleId && acknowledgments[0]?.currentConsentedModules?.includes(moduleId)) {
       buckets.consented.push(sensor);
     } else {
       buckets.notConsented.push(sensor);
@@ -253,8 +254,10 @@ function sensorBucketsForReport({
   return buckets;
 }
 
-function shortDeviceId(sourceDeviceId: string) {
-  return sourceDeviceId.length > 12 ? `${sourceDeviceId.slice(0, 8)}...${sourceDeviceId.slice(-4)}` : sourceDeviceId;
+function shortRandomDeviceId(sourceRandomDeviceId: string) {
+  return sourceRandomDeviceId.length > 12
+    ? `${sourceRandomDeviceId.slice(0, 8)}…${sourceRandomDeviceId.slice(-4)}`
+    : sourceRandomDeviceId;
 }
 
 function formatOptionalDateTime(value?: string | null) {
@@ -301,7 +304,7 @@ function IosUploadStatusPanel({
           {status?.lastCommittedAt ? t('participants.receiving_data') : t('participants.no_committed_ios')}
         </Badge>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-3">
         <StatusMetric label={t('participants.committed_rows')} value={(status?.committedRows ?? 0).toLocaleString()} />
         <StatusMetric
           label={t('participants.latest_committed')}
@@ -311,19 +314,7 @@ function IosUploadStatusPanel({
           label={t('participants.latest_window_end')}
           value={formatOptionalDateTime(status?.lastObservationEndAt)}
         />
-        <StatusMetric
-          label={t('participants.server_buffer')}
-          value={t('participants.server_buffer_value', {
-            batches: (status?.bufferedBatches ?? 0).toLocaleString(),
-            rows: (status?.bufferedRecords ?? 0).toLocaleString(),
-          })}
-        />
       </div>
-      {status?.lastBufferedUploadAt && (
-        <p className="text-xs text-muted-foreground">
-          {t('participants.latest_buffered', { time: formatDisplayDateTime(status.lastBufferedUploadAt) })}
-        </p>
-      )}
     </div>
   );
 }
@@ -346,7 +337,7 @@ function SensorBucket({
       </p>
       <div className="flex flex-wrap gap-1">
         {sensors.map((sensor) => (
-          <Badge className="normal-case tracking-normal" key={sensor} variant={variant}>
+          <Badge casing="natural" key={sensor} variant={variant}>
             {translateCatalog(t, 'android_sensor', sensor, formatSensorLabel(sensor))}
           </Badge>
         ))}
@@ -364,7 +355,6 @@ function ParticipantExpandedDetails({
   participantSensors,
   iosUploadStatus,
   selectedAndroidSensors,
-  settingsVersion,
 }: {
   hardwareSensorsEnabled: boolean;
   participant: Participant;
@@ -374,7 +364,6 @@ function ParticipantExpandedDetails({
   participantSensors: AndroidDeviceSensorAvailability[];
   iosUploadStatus?: IosUploadStatus | undefined;
   selectedAndroidSensors: string[];
-  settingsVersion: number | undefined;
 }) {
   const { t } = useTranslator();
   const deviceInstances = summarizeDeviceInstances(participantDevices, t('participants.unknown_device_type'));
@@ -396,27 +385,17 @@ function ParticipantExpandedDetails({
       {deviceInstances.totalInstances === 0 ? (
         <p className="text-sm text-muted-foreground">{t('participants.no_device_instances')}</p>
       ) : (
-        <>
-          <p className="text-xs text-muted-foreground">
-            {t('participants.enrollment_summary', {
-              enrollments: String(deviceInstances.totalEnrollments),
-              instances: String(deviceInstances.totalInstances),
-            })}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {deviceInstances.byType.map(({ enrollmentCount, instanceCount, label }) => (
-              <Badge key={label} variant="muted">
-                {t('participants.instance_badge', { label })}
-                {instanceCount > 1 && <span className="ml-1 opacity-70">×{instanceCount}</span>}
-                <span className="ml-1 opacity-70">
-                  {t('participants.enrollment_count', { count: String(enrollmentCount) })}
-                </span>
-              </Badge>
-            ))}
-          </div>
-        </>
+        <div className="flex flex-wrap gap-2">
+          {deviceInstances.byType.map(({ instanceCount, label }) => (
+            <Badge key={label} variant="muted">
+              {t('participants.instance_badge', { label })}
+              {instanceCount > 1 && <span className="ml-1 opacity-70">×{instanceCount}</span>}
+            </Badge>
+          ))}
+        </div>
       )}
 
+      <AcknowledgmentsCard entries={participantAcknowledgments} />
       <IosUploadStatusPanel participantDevices={participantDevices} status={iosUploadStatus} />
       <AndroidDiagnosticsPanel participantId={participant.participantId} studyId={studyId} />
 
@@ -433,23 +412,27 @@ function ParticipantExpandedDetails({
             {sensorReports.map((report) => {
               const acknowledgments = participant.withdrawnAt
                 ? EMPTY_ARRAY
-                : participantAcknowledgments.filter((entry) => entry.sourceDeviceId === report.sourceDeviceId);
+                : participantAcknowledgments.filter(
+                    (entry) => entry.sourceRandomDeviceId === report.sourceRandomDeviceId,
+                  );
               const buckets = sensorBucketsForReport({
                 acknowledgments,
                 hardwareSensorsEnabled,
                 report,
                 selectedAndroidSensors,
-                settingsVersion,
               });
               const acknowledged = buckets.consented.length > 0;
               return (
-                <div className="space-y-3 rounded-lg border border-border bg-card/70 p-3" key={report.sourceDeviceId}>
+                <div
+                  className="space-y-3 rounded-lg border border-border bg-card/70 p-3"
+                  key={report.sourceRandomDeviceId}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {t('participants.app_instance')}
                       </p>
-                      <p className="font-mono text-xs">{shortDeviceId(report.sourceDeviceId)}</p>
+                      <p className="font-mono text-xs">{shortRandomDeviceId(report.sourceRandomDeviceId)}</p>
                     </div>
                     <Badge variant={acknowledged ? 'success' : hardwareSensorsEnabled ? 'warning' : 'muted'}>
                       {acknowledged
@@ -503,7 +486,38 @@ function ParticipantTagBadges({ tags }: { tags: string[] }) {
   );
 }
 
+function moduleNames(t: Translator['t'], ids: string[]) {
+  return ids.map((id) => translateCatalog(t, 'module', id, id)).join(', ');
+}
+
+/** An enrolled participant is collecting unless the server's reading of their decisions says otherwise. */
+function EnrolledCollectionState({ consentState }: { consentState?: ParticipantConsentState | null | undefined }) {
+  const { t } = useTranslator();
+  const declined = consentState?.declinedRequiredModules ?? [];
+  const awaiting = consentState?.modulesAwaitingDecision ?? [];
+  if (declined.length > 0)
+    return (
+      <div className="space-y-1">
+        <Badge variant="warning">{t('participants.collection_stopped')}</Badge>
+        <p className="text-xs text-muted-foreground">
+          {t('participants.declined_required', { modules: moduleNames(t, declined) })}
+        </p>
+      </div>
+    );
+  return (
+    <div className="space-y-1">
+      <span className="text-xs text-muted-foreground">{t('participants.enrolled')}</span>
+      {awaiting.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t('participants.awaiting_review', { modules: moduleNames(t, awaiting) })}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ParticipantRowBody({
+  pendingEnrollment,
   colCount,
   handleSingleDelete,
   hardwareSensorsEnabled,
@@ -518,7 +532,6 @@ function ParticipantRowBody({
   iosUploadStatus,
   ps,
   selectedAndroidSensors,
-  settingsVersion,
   setModal,
   toggleExpanded,
   toggleSelected,
@@ -526,20 +539,20 @@ function ParticipantRowBody({
   const { t } = useTranslator();
   return (
     <Fragment>
-      <TableRow data-state={isSelected ? 'selected' : undefined}>
+      <TableRow variant="lazy" data-state={isSelected ? 'selected' : undefined}>
         <TableCell>
           {/* The label gives the 16px box a 44px hit area (WCAG 2.5.5). */}
           <label className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center">
             <input
               aria-label={t('participants.select_participant', { id: participant.participantId })}
               checked={isSelected}
-              className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              className="h-4 w-4 rounded border-border text-primary"
               onChange={() => toggleSelected(participant.participantId)}
               type="checkbox"
             />
           </label>
         </TableCell>
-        <TableCell className="px-1">
+        <TableCell padding="selection">
           <button
             aria-expanded={isExpanded}
             aria-label={t(isExpanded ? 'participants.collapse_row' : 'participants.expand_row', {
@@ -552,11 +565,14 @@ function ParticipantRowBody({
             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
         </TableCell>
-        <TableCell translate="no" className="font-medium">
+        <TableCell weight="medium">
           <div className="flex items-center gap-2">
-            {participant.participantId}
+            <span translate="no">{participant.participantId}</span>
             <ParticipantTagBadges tags={participant.participantTags} />
           </div>
+          {pendingEnrollment && (
+            <CancelPendingEnrollmentButton studyId={studyId} participantId={participant.participantId} />
+          )}
         </TableCell>
         <TableCell>
           {/* Nearly every participant is ENROLLED, so badging all of them carries no
@@ -567,8 +583,15 @@ function ParticipantRowBody({
               <Badge variant="muted">{t('participants.withdrawn')}</Badge>
               <div className="text-xs text-muted-foreground">{formatDisplayDateTime(participant.withdrawnAt)}</div>
             </div>
-          ) : participant.participationStatus === 'ENROLLED' ? (
-            <span className="text-xs text-muted-foreground">{t('participants.enrolled')}</span>
+          ) : participant.processingBlockedAt && canChangeEnrollment(participant) ? (
+            <div className="space-y-1">
+              <Badge variant="muted">{t('participants.processing_blocked')}</Badge>
+              <p className="text-xs text-muted-foreground">
+                {statusLabel(t, 'participation', participant.participationStatus)}
+              </p>
+            </div>
+          ) : participant.participationStatus === PARTICIPATION_STATUS.ENROLLED ? (
+            <EnrolledCollectionState consentState={participant.consentState} />
           ) : (
             <Badge variant={getStatusVariant(participant.participationStatus)}>
               {statusLabel(t, 'participation', participant.participationStatus)}
@@ -595,10 +618,19 @@ function ParticipantRowBody({
                 {t('participants.edit_notes_tags')}
               </DropdownMenuItem>
               {canChangeEnrollment(participant) && (
-                <DropdownMenuItem onClick={() => setModal({ type: 'enrollment', participant })}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t('participants.change_enrollment')}
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onClick={() => setModal({ type: 'enrollment', participant })}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {t('participants.change_enrollment')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setModal({ type: 'processing', participant })}>
+                    {t(
+                      participant.processingBlockedAt
+                        ? 'participants.unblock_processing'
+                        : 'participants.block_processing',
+                    )}
+                  </DropdownMenuItem>
+                </>
               )}
               <DropdownMenuItem
                 onClick={() => setModal({ type: 'download', participantIds: [participant.participantId] })}
@@ -606,10 +638,7 @@ function ParticipantRowBody({
                 <Download className="mr-2 h-4 w-4" />
                 {t('participants.download_data')}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => handleSingleDelete(participant.participantId)}
-              >
+              <DropdownMenuItem variant="destructive" onClick={() => handleSingleDelete(participant.participantId)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 {t('common.delete')}
               </DropdownMenuItem>
@@ -621,7 +650,7 @@ function ParticipantRowBody({
       {/* Expanded device row */}
       {isExpanded && (
         <TableRow>
-          <TableCell className="bg-muted/30 p-4" colSpan={colCount}>
+          <TableCell tone="expanded" colSpan={colCount}>
             <ParticipantExpandedDetails
               hardwareSensorsEnabled={hardwareSensorsEnabled}
               participant={participant}
@@ -631,7 +660,6 @@ function ParticipantRowBody({
               participantSensors={participantSensors}
               iosUploadStatus={iosUploadStatus}
               selectedAndroidSensors={selectedAndroidSensors}
-              settingsVersion={settingsVersion}
             />
           </TableCell>
         </TableRow>
@@ -656,31 +684,50 @@ export function StudyParticipantsPage() {
     isLoading: isParticipantsLoading,
     refetch: refetchParticipants,
   } = useGetStudyParticipantsQuery(studyId, { skip: !studyId });
+  const pendingQuery = useGetPendingEnrollmentsQuery(studyId, {
+    skip: !studyId,
+    pollingInterval: 30_000,
+    skipPollingIfUnfocused: true,
+    // RTK arms each poll with the focus state of that moment, so focus alone would wait up to two intervals.
+    refetchOnFocus: true,
+  });
+  const { data: pendingEnrollments = EMPTY_ARRAY } = pendingQuery;
 
   const statsQuery = useGetParticipantStatsQuery(studyId, { skip: !studyId });
   const { data: stats = EMPTY_PARTICIPANT_MAP, isLoading: isStatsLoading } = statsQuery;
 
-  const enrolledCount = participants.filter((p) => p.participationStatus === 'ENROLLED').length;
+  const enrolledCount = participants.filter((p) => p.participationStatus === PARTICIPATION_STATUS.ENROLLED).length;
 
   const [registerParticipant, { isLoading: isRegistering }] = useRegisterParticipantMutation();
   const [deleteParticipants, { isLoading: isDeletingBatch }] = useDeleteStudyParticipantsMutation();
 
   const [newParticipantId, setNewParticipantId] = useState('');
+  const [registrationAttempted, setRegistrationAttempted] = useState(false);
+  const participantIdInput = useRef<HTMLInputElement>(null);
   const { searchQuery, setSearchQuery, sort, handleSort, page, showMore } = useListSearchParams(
     ['activity', 'id', 'status'],
     'id',
   );
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [deletionOperations, setDeletionOperations] = useState<
-    (Partial<DataDeletionOperation> & { operationId: string })[]
-  >([]);
-  const [deletionStatusError, setDeletionStatusError] = useState<string | null>(null);
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const deletionsQuery = useGetStudyDeletionsQuery(studyId, { skip: !studyId, refetchOnMountOrArgChange: true });
+  const [queuedByStudy, setQueuedByStudy] = useState<Map<string, readonly string[]>>(() => new Map());
+  const queuedOperationIds = queuedByStudy.get(studyId) ?? EMPTY_ARRAY;
+  const persistedOperations = deletionsQuery.currentData ?? [];
+  const persistedIds = new Set(persistedOperations.map(({ operationId }) => operationId));
+  const deletionOperations: (Partial<DataDeletionOperation> & { operationId: string })[] = [
+    ...persistedOperations,
+    ...queuedOperationIds.filter((id) => !persistedIds.has(id)).map((operationId) => ({ operationId })),
+  ];
+  const deletionStatusError = deletionsQuery.isError
+    ? getErrorMessage(deletionsQuery.error, t('participants.refresh_deletion_failed'))
+    : null;
+  const [params, updateParams] = useSearchParamsUpdate();
+  const expanded = params.get('expanded') ?? '';
+  const expandedRows = useMemo(() => new Set(expanded.split(',').filter(Boolean)), [expanded]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<ModalState>({ type: 'none' });
   const visibleCount = page * PARTICIPANT_PAGE_SIZE;
-  const [getDeletionOperation, deletionStatusRequest] = useLazyGetDeletionOperationQuery();
 
   const hasExpandedRows = expandedRows.size > 0;
   const devicesQuery = useGetStudyDevicesQuery(studyId, { skip: !studyId || !hasExpandedRows });
@@ -699,6 +746,7 @@ export function StudyParticipantsPage() {
   );
   const { data: acknowledgments = [] } = acknowledgmentsQuery;
   const secondaryQueries = [
+    pendingQuery,
     statsQuery,
     collectionQuery,
     ...(hasExpandedRows ? [devicesQuery, iosUploadQuery, sensorsQuery, acknowledgmentsQuery] : []),
@@ -707,14 +755,15 @@ export function StudyParticipantsPage() {
 
   const modules = useMemo(() => (study?.modules ? Object.keys(study.modules) : []), [study?.modules]);
   const hasTud = modules.includes('TIME_USE_DIARY');
+  const pendingEnrollmentIds = useMemo(() => new Set(pendingEnrollments), [pendingEnrollments]);
   const selectedAndroidSensors = useMemo(
     () =>
       dataCollectionSetting
         ? COLLECTION_MODULES.flatMap(({ value, sensorType }) =>
             sensorType && dataCollectionSetting.modules?.[value]?.enabled ? [sensorType] : [],
           )
-        : (study?.settings?.AndroidSensor?.sensors ?? []),
-    [dataCollectionSetting, study?.settings?.AndroidSensor?.sensors],
+        : [],
+    [dataCollectionSetting],
   );
   const hardwareSensorsEnabled = selectedAndroidSensors.length > 0;
 
@@ -766,14 +815,15 @@ export function StudyParticipantsPage() {
     [stableSetModal],
   );
 
-  const toggleExpanded = useCallback((id: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
+  const toggleExpanded = useCallback(
+    (id: string) => {
+      const next = new Set(expandedRows);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
-    });
-  }, []);
+      updateParams({ expanded: [...next].join(',') });
+    },
+    [expandedRows, updateParams],
+  );
 
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -808,17 +858,22 @@ export function StudyParticipantsPage() {
     return <MissingStudyIdPanel section={t('participants.section')} />;
   }
 
-  // Same format the server requires for enrollment codes, form links and uploads.
-  const newIdInvalid = newParticipantId.trim() !== '' && !/^[a-zA-Z0-9_.-]+$/.test(newParticipantId.trim());
+  const newIdInvalid =
+    (registrationAttempted || newParticipantId.trim() !== '') && !PARTICIPANT_ID_RULE.test(newParticipantId.trim());
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newParticipantId.trim() || newIdInvalid) return;
+    if (!PARTICIPANT_ID_RULE.test(newParticipantId.trim())) {
+      setRegistrationAttempted(true);
+      participantIdInput.current?.focus();
+      return;
+    }
     setActionError(null);
     try {
       const registered = newParticipantId.trim();
       await registerParticipant({ participantId: registered, studyId }).unwrap();
       setNewParticipantId('');
+      setRegistrationAttempted(false);
       // Registering is only half of enrollment — the device still has to scan a code.
       // Hand the researcher that code for the ID they just typed instead of making them
       // reopen the QR dialog and type it a second time.
@@ -834,15 +889,12 @@ export function StudyParticipantsPage() {
     setActionError(null);
     try {
       const operationIds = await deleteParticipants({ participantIds: requested, studyId }).unwrap();
-      setDeletionOperations((current) => [
-        ...current,
-        ...operationIds
-          .filter((id) => !current.some(({ operationId }) => operationId === id))
-          .map((operationId) => ({ operationId })),
-      ]);
+      setQueuedByStudy((current) =>
+        new Map(current).set(studyId, [...new Set([...(current.get(studyId) ?? []), ...operationIds])]),
+      );
       setSelectedIds(new Set());
       setModal({ type: 'none' });
-      await refreshDeletionOperations(operationIds);
+      void deletionsQuery.refetch();
       if (operationIds.length < requested.length) {
         setActionError(
           t('participants.queued_partial', {
@@ -856,21 +908,6 @@ export function StudyParticipantsPage() {
     }
   };
 
-  const refreshDeletionOperations = async (operationIds = deletionOperations.map(({ operationId }) => operationId)) => {
-    setDeletionStatusError(null);
-    const results = await Promise.allSettled(
-      operationIds.map((operationId) => getDeletionOperation({ operationId, studyId }, false).unwrap()),
-    );
-    const operations = new Map(
-      results.flatMap((result) =>
-        result.status === 'fulfilled' ? [[result.value.operationId, result.value] as const] : [],
-      ),
-    );
-    setDeletionOperations((current) => current.map((operation) => operations.get(operation.operationId) ?? operation));
-    if (results.some((result) => result.status === 'rejected'))
-      setDeletionStatusError(t('participants.refresh_deletion_failed'));
-  };
-
   // Select all acts on the rows on screen, so a bulk action never reaches rows nobody saw.
   const allVisibleSelected =
     visibleParticipants.length > 0 && visibleParticipants.every((p) => selectedIds.has(p.participantId));
@@ -880,9 +917,7 @@ export function StudyParticipantsPage() {
 
   const isLoading = isParticipantsLoading || isStatsLoading;
 
-  // checkbox + expand + ID + status + android(3) + ios(3) + actions = 11; + TUD(3) if present
-  // select · expand · id · status · activity · actions — the per-platform date columns
-  // now collapse into the single activity cell, so this no longer varies with TUD.
+  // select · expand · id · status · activity · actions; per-platform dates share the activity cell.
   const colCount = 6;
 
   return (
@@ -897,6 +932,19 @@ export function StudyParticipantsPage() {
         })}
         eyebrow={t('participants.section')}
         icon={<Users className="h-3.5 w-3.5" />}
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              void refetchParticipants();
+              for (const query of secondaryQueries) void query.refetch();
+            }}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {t('participants.refresh')}
+          </Button>
+        }
         title={t('participants.section')}
       />
 
@@ -911,61 +959,23 @@ export function StudyParticipantsPage() {
         />
       )}
 
-      {deletionOperations.length > 0 && (
-        <Card className="space-y-3 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">{t('participants.deletion_status')}</p>
-              <p className="text-sm text-muted-foreground">{t('participants.deletion_status_note')}</p>
-            </div>
-            <Button
-              disabled={deletionStatusRequest.isFetching}
-              onClick={() => {
-                refreshDeletionOperations().catch((err) => {
-                  setActionError(getErrorMessage(err, t('participants.refresh_deletion_failed')));
-                });
-              }}
-              size="sm"
-              variant="outline"
-            >
-              <RefreshCw className={`mr-1.5 h-4 w-4 ${deletionStatusRequest.isFetching ? 'animate-spin' : ''}`} />
-              {t('participants.refresh_status')}
-            </Button>
-          </div>
-          <div className="space-y-2">
-            {deletionStatusError && (
-              <p className="text-sm text-destructive" role="alert">
-                {deletionStatusError}
-              </p>
-            )}
-            {deletionOperations.map((operation) => (
-              <div className="flex flex-wrap items-center gap-2 text-sm" key={operation.operationId}>
-                <code translate="no" className="text-xs">
-                  {operation.operationId}
-                </code>
-                <Badge variant={operation.status === 'COMPLETED' ? 'success' : 'warning'}>
-                  {operation.status ? statusLabel(t, 'job', operation.status) : t('common.loading')}
-                </Badge>
-                {operation.quarantineUntil && (
-                  <span className="text-muted-foreground">
-                    {t('participants.eligible_after', { time: formatDisplayDateTime(operation.quarantineUntil) })}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      <DeletionStatusCard
+        studyId={studyId}
+        operations={deletionOperations}
+        error={deletionStatusError}
+        isFetching={deletionsQuery.isFetching}
+        onRefresh={() => void deletionsQuery.refetch()}
+      />
 
-      {/* One toolbar: filter the list on the left, add to it on the right. The register
-          controls previously sat in a Card whose padding made a 40px control row ~130px
-          tall, with search stranded in a separate band below it. */}
+      {/* One toolbar: filter the list on the left, add to it on the right. */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label={t('participants.search_aria')}
-            className="pl-9"
+            name="participant-search"
+            type="search"
+            variant="search"
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('participants.search_placeholder')}
             value={searchQuery}
@@ -975,13 +985,12 @@ export function StudyParticipantsPage() {
           <form
             className="flex flex-col gap-3 sm:flex-row"
             onSubmit={(event) => {
-              handleRegister(event).catch((err) => {
-                setActionError(getErrorMessage(err, t('participants.register_failed')));
-              });
+              void handleRegister(event);
             }}
           >
             <div className="flex flex-col gap-1">
               <Input
+                ref={participantIdInput}
                 aria-describedby={newIdInvalid ? 'new-participant-id-error' : undefined}
                 aria-invalid={newIdInvalid}
                 aria-label={t('participants.new_id_aria')}
@@ -999,7 +1008,7 @@ export function StudyParticipantsPage() {
                 </p>
               )}
             </div>
-            <Button disabled={isRegistering || !newParticipantId.trim() || newIdInvalid} type="submit">
+            <Button disabled={isRegistering} type="submit">
               {isRegistering ? (
                 <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
@@ -1078,7 +1087,7 @@ export function StudyParticipantsPage() {
                     <input
                       aria-label={t('participants.select_all')}
                       checked={allVisibleSelected}
-                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                      className="h-4 w-4 rounded border-border text-primary"
                       onChange={toggleSelectAll}
                       type="checkbox"
                     />
@@ -1109,6 +1118,7 @@ export function StudyParticipantsPage() {
               ) : (
                 visibleParticipants.map((participant) => (
                   <ParticipantRow
+                    pendingEnrollment={pendingEnrollmentIds.has(participant.participantId)}
                     colCount={colCount}
                     handleSingleDelete={handleSingleDelete}
                     hardwareSensorsEnabled={hardwareSensorsEnabled}
@@ -1124,7 +1134,6 @@ export function StudyParticipantsPage() {
                     iosUploadStatus={iosUploadStatus[participant.participantId]}
                     ps={stats[participant.participantId]}
                     selectedAndroidSensors={selectedAndroidSensors}
-                    settingsVersion={dataCollectionSetting?.settingsVersion}
                     setModal={stableSetModal}
                     toggleExpanded={toggleExpanded}
                     toggleSelected={toggleSelected}
@@ -1136,7 +1145,7 @@ export function StudyParticipantsPage() {
           {hiddenCount > 0 && (
             <div className="flex justify-center border-t border-border p-3">
               <Button onClick={showMore} variant="outline">
-                {t('participants.show_more', { hidden: hiddenCount, step: PARTICIPANT_PAGE_SIZE })}
+                {t('participants.show_more', { count: hiddenCount, hidden: hiddenCount, step: PARTICIPANT_PAGE_SIZE })}
               </Button>
             </div>
           )}
@@ -1177,9 +1186,15 @@ export function StudyParticipantsPage() {
         />
       )}
 
+      {modal.type === 'processing' && (
+        <ParticipantProcessingDialog
+          participant={modal.participant}
+          studyId={studyId}
+          onClose={() => setModal({ type: 'none' })}
+        />
+      )}
       {modal.type === 'download' && (
         <DownloadParticipantDataModal
-          modules={modules}
           onClose={() => setModal({ type: 'none' })}
           participantIds={modal.participantIds}
           studyId={studyId}
@@ -1194,18 +1209,25 @@ export function StudyParticipantsPage() {
         open={modal.type === 'delete-confirm'}
       >
         <DialogContent className="w-11/12 max-w-md">
-          <DialogTitle className="text-destructive">
+          <DialogTitle tone="destructive">
             {modal.type === 'delete-confirm' && modal.participantIds.length > 1
               ? t('participants.delete_title_many')
               : t('participants.delete_title_one')}
           </DialogTitle>
           <DialogDescription>
             {modal.type === 'delete-confirm' && modal.participantIds.length === 1
-              ? t('participants.delete_one_description', { id: modal.participantIds[0] ?? '' })
+              ? t('participants.remove_one_description', { id: modal.participantIds[0] ?? '' })
               : modal.type === 'delete-confirm'
-                ? t('participants.delete_many_description', { count: String(modal.participantIds.length) })
+                ? t('participants.remove_many_description', { count: String(modal.participantIds.length) })
                 : ''}
           </DialogDescription>
+          {modal.type === 'delete-confirm' && modal.participantIds.length > 1 && (
+            <ul className="break-all rounded border border-border p-3 text-sm" translate="no">
+              {modal.participantIds.map((id) => (
+                <li key={id}>{id}</li>
+              ))}
+            </ul>
+          )}
           {actionError && (
             <p className="text-sm font-medium text-destructive" role="alert">
               {actionError}
@@ -1218,9 +1240,7 @@ export function StudyParticipantsPage() {
             <Button
               disabled={isDeletingBatch}
               onClick={() => {
-                handleBulkDelete().catch((err) => {
-                  setActionError(getErrorMessage(err, t('participants.delete_failed')));
-                });
+                void handleBulkDelete();
               }}
               variant="destructive"
             >

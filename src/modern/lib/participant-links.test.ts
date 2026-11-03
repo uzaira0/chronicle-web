@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { installBrowserEnv, uninstallBrowserEnv } from '../test/browser-env';
+import { TRIAL_CA_PARAMETER, TRIAL_CA_PEM } from '../test/trial-ca';
 
 const ACCESS_CODE = 'Abc_123-'.repeat(8);
 
@@ -75,6 +76,10 @@ describe('participant link helpers', () => {
     'https://[fd00::1]',
     'https://[fe80::1]',
     'https://public-study.example.org:8081',
+    // Typed without a scheme, or with a stray space or port typo: not a URL at all.
+    'public-study.example.org',
+    'https://public study.example.org',
+    'https://public-study.example.org:84433',
   ])('rejects an absent or invalid runtime public server URL: %s', (serverUrl) => {
     Reflect.set(window, '__CHRONICLE_RUNTIME_CONFIG__', { serverUrl });
     expect(() => participantLinks.getDefaultEnrollmentServerUrl()).toThrow(/public HTTPS server URL/i);
@@ -95,17 +100,14 @@ describe('participant link helpers', () => {
     expect(new URLSearchParams(link.hash.slice(1)).get('accessCode')).toBe(ACCESS_CODE);
   });
 
-  it.each([
-    'short',
-    `${'a'.repeat(32)}/`,
-    'a'.repeat(257),
-    `${'a'.repeat(31)} `,
-    `${'a'.repeat(32)}\n`,
-  ])('rejects an access code Android cannot consume', (accessCode) => {
-    expect(() => participantLinks.getHttpsEnrollmentLink('s1', 'p1', { accessCode })).toThrow(
-      /valid one-time participant access code/i,
-    );
-  });
+  it.each(['short', `${'a'.repeat(32)}/`, 'a'.repeat(257), `${'a'.repeat(31)} `, `${'a'.repeat(32)}\n`])(
+    'rejects an access code Android cannot consume',
+    (accessCode) => {
+      expect(() => participantLinks.getHttpsEnrollmentLink('s1', 'p1', { accessCode })).toThrow(
+        /valid one-time participant access code/i,
+      );
+    },
+  );
 
   it('accepts the Android credential length boundaries', () => {
     expect(() => participantLinks.getHttpsEnrollmentLink('s1', 'p1', { accessCode: 'a'.repeat(32) })).not.toThrow();
@@ -125,11 +127,11 @@ describe('participant link helpers', () => {
     expect(link).toContain('day=today');
   });
 
-  it('getAppUsageLink builds a survey link with a fragment-only access code', () => {
-    const link = participantLinks.getAppUsageLink('s1', 'p1', '2026-07-13', ACCESS_CODE);
+  // The survey link names no day; the page opens the server's oldest open day.
+  it('getAppUsageLink builds a dateless survey link with a fragment-only access code', () => {
+    const link = participantLinks.getAppUsageLink('s1', 'p1', ACCESS_CODE);
     expect(link).toBe(
-      'https://public-study.example.org:8443/chronicle/survey?' +
-        `date=2026-07-13&studyId=s1&participantId=p1#accessCode=${ACCESS_CODE}`,
+      `https://public-study.example.org:8443/chronicle/survey?studyId=s1&participantId=p1#accessCode=${ACCESS_CODE}`,
     );
   });
 
@@ -138,5 +140,91 @@ describe('participant link helpers', () => {
     expect(() => participantLinks.getHttpsEnrollmentLink('x', 'y', { accessCode: ACCESS_CODE })).toThrow(
       /public HTTPS server URL/i,
     );
+  });
+});
+
+describe('invitation CA root (local HTTPS trial)', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(async () => {
+    installBrowserEnv({ url: 'https://192.168.1.50:8081/chronicle/studies/abc' });
+    Reflect.set(window, '__CHRONICLE_RUNTIME_CONFIG__', {
+      allowPrivateServerUrl: true,
+      localCa: true,
+      serverUrl: 'https://192.168.1.50',
+    });
+    participantLinks = await import('./participant-links');
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    uninstallBrowserEnv();
+  });
+
+  it('converts the PEM root to the base64url DER link parameter', () => {
+    expect(participantLinks.serverCaParameterFromPem(TRIAL_CA_PEM)).toBe(TRIAL_CA_PARAMETER);
+  });
+
+  it.each([
+    ['no certificate', 'hello'],
+    ['empty certificate', '-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----'],
+    ['public key', TRIAL_CA_PEM.replace(/CERTIFICATE/g, 'PUBLIC KEY')],
+    ['invalid DER', `-----BEGIN CERTIFICATE-----\n${'A'.repeat(120)}\n-----END CERTIFICATE-----`],
+    ['multiple roots', TRIAL_CA_PEM + TRIAL_CA_PEM],
+  ])('refuses a CA file with %s', (_label, pem) => {
+    expect(() => participantLinks.serverCaParameterFromPem(pem)).toThrow(/certificate authority/);
+  });
+
+  it('reads the root from the dashboard origin when the deployment runs its own CA', async () => {
+    const fetchMock = mock(() => Promise.resolve(new Response(TRIAL_CA_PEM, { status: 200 })));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    expect(await participantLinks.loadInvitationServerCa()).toBe(TRIAL_CA_PARAMETER);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/local-ca.crt');
+    expect(init.redirect).toBe('error');
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('asks for nothing on a deployment whose certificate phones already trust', async () => {
+    Reflect.set(window, '__CHRONICLE_RUNTIME_CONFIG__', { serverUrl: 'https://public-study.example.org' });
+    const fetchMock = mock(() => Promise.resolve(new Response(TRIAL_CA_PEM, { status: 200 })));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    expect(await participantLinks.loadInvitationServerCa()).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a missing file', () => Promise.resolve(new Response('', { status: 404 }))],
+    ['a network failure', () => Promise.reject(new TypeError('Failed to fetch'))],
+    [
+      'a response body failure',
+      () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error('body interrupted'));
+              },
+            }),
+          ),
+        ),
+    ],
+  ])('fails visibly on %s instead of issuing a link without the root', async (_label, response) => {
+    globalThis.fetch = mock(response) as unknown as typeof fetch;
+    const failure: unknown = await participantLinks.loadInvitationServerCa().catch((error: unknown) => error);
+    expect(failure instanceof Error ? failure.message : failure).toMatch(/certificate authority/);
+  });
+
+  it('puts the root in the HTTPS invitation link, and nothing when there is none', () => {
+    const withRoot = participantLinks.getHttpsEnrollmentLink('study-1', 'participant-1', {
+      accessCode: ACCESS_CODE,
+      serverCa: TRIAL_CA_PARAMETER,
+    });
+    expect(new URL(withRoot).searchParams.get('serverCa')).toBe(TRIAL_CA_PARAMETER);
+    const withoutRoot = participantLinks.getHttpsEnrollmentLink('study-1', 'participant-1', {
+      accessCode: ACCESS_CODE,
+      serverCa: null,
+    });
+    expect(new URL(withoutRoot).searchParams.has('serverCa')).toBe(false);
   });
 });

@@ -1,30 +1,28 @@
-import { ShieldCheck } from 'lucide-react';
+import { LoaderCircle, ShieldCheck } from 'lucide-react';
 import { type FormEvent, useRef, useState } from 'react';
-
 import { EnrollmentDetails, EnrollmentHandoff } from '@/components/enrollment-details';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { REVIEWER_SECRET_HEADER } from '@/generated/chronicle-contracts';
 import { isRtlLanguage, LanguageSwitcher, useTranslator } from '@/i18n';
 import {
   type EnrollmentPreview,
   enrollmentInvitationFromPreview,
+  enrollmentRequestErrorKey,
   enrollmentTranslator,
   getAndroidEnrollmentHandoffUrl,
   validateEnrollmentPreview,
 } from '@/lib/enrollment-preview';
+import { isRetryableHttpStatus } from '@/lib/errors';
 import { getDefaultEnrollmentServerUrl, normalizePublicServerUrl } from '@/lib/participant-links';
 import { timeoutSignal } from '@/lib/request-timeout';
 
 type ReviewerPageState =
   | { kind: 'entry' }
   | { kind: 'loading' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: string; retryable?: boolean }
   | { handoffUrl: string; kind: 'verified'; preview: EnrollmentPreview };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function sameOriginPublicServer(): string {
   const configuredServer = getDefaultEnrollmentServerUrl();
@@ -40,13 +38,23 @@ function sameOriginPublicServer(): string {
 
 export function ReviewerEnrollmentPage() {
   const [secret, setSecret] = useState('');
+  const [invalidSecret, setInvalidSecret] = useState(false);
+  const secretInput = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<ReviewerPageState>({ kind: 'entry' });
   const submissionInFlight = useRef(false);
+  const retrySecret = useRef<string | null>(null);
   const { effectiveCode, t } = useTranslator();
 
   async function submitSecret(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (secret.length < 32 || submissionInFlight.current) return;
+    const submittedSecret = secret || retrySecret.current || '';
+    if (submissionInFlight.current) return;
+    if (submittedSecret.length < 32) {
+      setInvalidSecret(true);
+      secretInput.current?.focus();
+      return;
+    }
+    setInvalidSecret(false);
 
     let publicServerUrl: string;
     try {
@@ -57,44 +65,50 @@ export function ReviewerEnrollmentPage() {
     }
 
     submissionInFlight.current = true;
-    const submittedSecret = secret;
     // The reusable reviewer secret exists only in component memory and this request header.
     // Clear the input state before any network response or rendering can retain it.
     setSecret('');
+    retrySecret.current = null;
     setState({ kind: 'loading' });
 
+    let errorKey = 'reviewer.error_network';
+    let retryable = true;
     try {
       const response = await fetch('/chronicle/v4/mobile/reviewer-enrollment', {
         cache: 'no-store',
         credentials: 'omit',
         headers: {
           Accept: 'application/json',
-          'X-Chronicle-Reviewer-Secret': submittedSecret,
+          [REVIEWER_SECRET_HEADER]: submittedSecret,
         },
         method: 'POST',
         redirect: 'error',
         referrerPolicy: 'no-referrer',
         signal: timeoutSignal(),
       });
-      // swallowed by the catch below, which renders t('reviewer.error_unverified')
-      // ast-grep-ignore: web-i18n-error-message
-      if (!response.ok) throw new Error('Reviewer enrollment request failed');
-      const payload: unknown = await response.json();
-      // swallowed by the catch below, which renders t('reviewer.error_unverified')
-      // ast-grep-ignore: web-i18n-error-message
-      if (!isRecord(payload)) throw new Error('Reviewer enrollment response was malformed');
+      if (!response.ok) {
+        retryable = isRetryableHttpStatus(response.status);
+        errorKey = enrollmentRequestErrorKey(response.status, true);
+        throw new Error(t(errorKey));
+      }
+      errorKey = 'reviewer.error_response';
+      const payload = (await response.json()) as { enrollmentCode?: unknown; preview?: unknown } | null;
+      retryable = false;
 
-      const invitation = enrollmentInvitationFromPreview(payload.preview, payload.enrollmentCode);
-      const preview = validateEnrollmentPreview(payload.preview, invitation, publicServerUrl);
+      errorKey = 'reviewer.error_disclosure';
+      const invitation = enrollmentInvitationFromPreview(payload?.preview, payload?.enrollmentCode);
+      const preview = validateEnrollmentPreview(payload?.preview, invitation, publicServerUrl);
       setState({
         handoffUrl: getAndroidEnrollmentHandoffUrl(invitation, publicServerUrl),
         kind: 'verified',
         preview,
       });
     } catch {
+      retrySecret.current = retryable ? submittedSecret : null;
       setState({
         kind: 'error',
-        message: t('reviewer.error_unverified'),
+        message: t(errorKey),
+        retryable,
       });
     } finally {
       submissionInFlight.current = false;
@@ -121,6 +135,7 @@ export function ReviewerEnrollmentPage() {
 
         {(state.kind === 'entry' || state.kind === 'error') && (
           <form
+            noValidate
             className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm"
             onSubmit={(event) => {
               void submitSecret(event);
@@ -129,29 +144,45 @@ export function ReviewerEnrollmentPage() {
             <div className="space-y-1.5">
               <Label htmlFor="reviewer-secret">{t('reviewer.secret_label')}</Label>
               <Input
+                aria-describedby={invalidSecret ? 'reviewer-secret-error' : undefined}
+                aria-invalid={invalidSecret}
+                ref={secretInput}
                 autoComplete="off"
                 id="reviewer-secret"
-                onChange={(event) => setSecret(event.target.value)}
-                required
+                name="reviewer-secret"
+                onChange={(event) => {
+                  setSecret(event.target.value);
+                  setInvalidSecret(false);
+                }}
+                required={!retrySecret.current}
                 spellCheck={false}
                 type="password"
                 value={secret}
               />
               <p className="text-xs leading-5 text-muted-foreground">{t('reviewer.secret_note')}</p>
             </div>
+            {invalidSecret && (
+              <p id="reviewer-secret-error" role="alert" className="text-sm text-destructive">
+                {t('reviewer.error_secret_length')}
+              </p>
+            )}
             {state.kind === 'error' && (
               <p aria-live="polite" className="text-sm font-medium text-destructive">
                 {state.message}
               </p>
             )}
-            <Button disabled={secret.length < 32} type="submit">
-              {t('reviewer.verify')}
+            <Button type="submit">
+              {t(state.kind === 'error' && state.retryable ? 'common.try_again' : 'reviewer.verify')}
             </Button>
           </form>
         )}
 
         {state.kind === 'loading' && (
-          <p aria-live="polite" className="rounded-xl border border-border bg-card p-6 text-muted-foreground">
+          <p
+            aria-live="polite"
+            className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-muted-foreground"
+          >
+            <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
             {t('reviewer.requesting')}
           </p>
         )}

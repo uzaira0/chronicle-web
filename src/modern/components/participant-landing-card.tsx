@@ -32,13 +32,13 @@ export function ParticipantLandingCard({ description, extraParams = [], icon, ti
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardTitle as="h2" className="flex items-center gap-2">
+        <CardTitle as="h2" layout="icon">
           {icon}
           {title}
         </CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent spacing={4}>
         {studyId && participantId ? (
           <div className="space-y-2 text-sm">
             <p>

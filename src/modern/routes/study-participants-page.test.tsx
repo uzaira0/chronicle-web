@@ -2,20 +2,24 @@ import { describe, expect, mock, test } from 'bun:test';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useCallback, useState } from 'react';
 import { Table, TableBody } from '@/components/ui/table';
+import { LanguageProvider } from '@/i18n';
 import { formatDisplayDateTime } from '@/lib/format';
+import type { ParticipantConsentState } from '@/state/study-operations-api';
 
 // Every ParticipantRow body renders exactly one activity cell, so counting the cell's renders
 // counts row re-renders. The wrapper delegates to the real cell, so other tests are unaffected.
 let activityCellRenders = 0;
 // Bind the real function first: mock.module rewrites the live module namespace in place.
 const { ParticipantActivityCell: RealActivityCell } = await import('@/components/participant-activity-cell');
+const ParticipantActivityCell = (props: Parameters<typeof RealActivityCell>[0]) => {
+  activityCellRenders += 1;
+  return RealActivityCell(props);
+};
 await mock.module('@/components/participant-activity-cell', () => ({
-  ParticipantActivityCell: (props: Parameters<typeof RealActivityCell>[0]) => {
-    activityCellRenders += 1;
-    return RealActivityCell(props);
-  },
+  ParticipantActivityCell,
 }));
-await mock.module('@/components/android-diagnostics-panel', () => ({ AndroidDiagnosticsPanel: () => null }));
+const AndroidDiagnosticsPanel = () => null;
+await mock.module('@/components/android-diagnostics-panel', () => ({ AndroidDiagnosticsPanel }));
 const { ParticipantRow } = await import('./study-participants-page');
 
 const mockParticipant = {
@@ -26,6 +30,98 @@ const mockParticipant = {
   participantTags: ['tag1'],
   enrollmentDate: '2023-01-01',
 };
+
+describe('StudyParticipantsPage - collection state', () => {
+  const renderRow = (consentState: ParticipantConsentState) =>
+    render(
+      <Table>
+        <TableBody>
+          <ParticipantRow
+            colCount={11}
+            handleSingleDelete={() => {}}
+            hardwareSensorsEnabled={false}
+            hasTud={false}
+            isExpanded={false}
+            isSelected={false}
+            participant={{ ...mockParticipant, consentState }}
+            studyId="study-test"
+            participantAcknowledgments={[]}
+            participantDevices={[]}
+            participantSensors={[]}
+            selectedAndroidSensors={[]}
+            setModal={() => {}}
+            toggleExpanded={() => {}}
+            toggleSelected={() => {}}
+          />
+        </TableBody>
+      </Table>,
+    );
+
+  // The server reads the decisions; the row shows its reading instead of a quiet "Enrolled".
+  test('an enrolled participant who declined a required data type shows collection stopped and the next step', () => {
+    renderRow({ declinedRequiredModules: ['battery_telemetry'], modulesAwaitingDecision: [] });
+    expect(screen.queryByText('Enrolled')).toBeNull();
+    expect(screen.getByText('Collection stopped')).toBeTruthy();
+    expect(screen.getByText(/declined a required data type: Battery Telemetry/)).toBeTruthy();
+    expect(screen.getByText(/Data Sharing in the Chronicle app/)).toBeTruthy();
+  });
+
+  // The pilot study's required module declined, read by a Spanish-speaking researcher.
+  test('a declined required usage module reads as stopped collection with the next step in Spanish', () => {
+    const view = render(
+      <LanguageProvider initialSearch="?lang=es">
+        <Table>
+          <TableBody>
+            <ParticipantRow
+              colCount={11}
+              handleSingleDelete={() => {}}
+              hardwareSensorsEnabled={false}
+              hasTud={false}
+              isExpanded={false}
+              isSelected={false}
+              participant={{
+                ...mockParticipant,
+                consentState: { declinedRequiredModules: ['usage_events'], modulesAwaitingDecision: [] },
+              }}
+              studyId="study-test"
+              participantAcknowledgments={[]}
+              participantDevices={[]}
+              participantSensors={[]}
+              selectedAndroidSensors={[]}
+              setModal={() => {}}
+              toggleExpanded={() => {}}
+              toggleSelected={() => {}}
+            />
+          </TableBody>
+        </Table>
+      </LanguageProvider>,
+    );
+    try {
+      expect(screen.getByText('Recopilación detenida')).toBeTruthy();
+      expect(
+        screen.getByText(
+          /rechazó un tipo de dato obligatorio: Eventos de uso de aplicaciones\. Pídale que lo active en Datos compartidos/,
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText('Collection stopped')).toBeNull();
+    } finally {
+      view.unmount();
+      render(<LanguageProvider initialSearch="?lang=en">{null}</LanguageProvider>).unmount();
+    }
+  });
+
+  test('an enrolled participant with data types awaiting review says which ones and what to do', () => {
+    renderRow({ declinedRequiredModules: [], modulesAwaitingDecision: ['battery_telemetry'] });
+    expect(screen.getByText('Enrolled')).toBeTruthy();
+    expect(screen.getByText(/Waiting for the participant to review: Battery Telemetry/)).toBeTruthy();
+  });
+
+  test('a participant with nothing outstanding stays quietly enrolled', () => {
+    renderRow({ declinedRequiredModules: [], modulesAwaitingDecision: [] });
+    expect(screen.getByText('Enrolled')).toBeTruthy();
+    expect(screen.queryByText(/Waiting for the participant/)).toBeNull();
+  });
+});
 
 describe('StudyParticipantsPage - Accessibility', () => {
   test('shows a withdrawn participant and the withdrawal date', () => {
@@ -90,7 +186,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
     expect(expandBtn).toBeTruthy();
   });
 
-  // design-review DR4 (WCAG 2.5.5 AAA): the 16px checkbox and the chevron get a 44px hit area.
+  // WCAG 2.5.5 AAA: the 16px checkbox and the chevron get a 44px hit area.
   test('ParticipantRow controls have 44px targets', () => {
     render(
       <Table>
@@ -161,10 +257,7 @@ describe('StudyParticipantsPage - Accessibility', () => {
             hardwareSensorsEnabled={false}
             hasTud={false}
             iosUploadStatus={{
-              bufferedBatches: 2,
-              bufferedRecords: 7,
               committedRows: 166,
-              lastBufferedUploadAt: '2026-06-25T03:45:00Z',
               lastCommittedAt: '2026-06-25T03:44:00Z',
               lastObservationEndAt: '2026-06-25T03:40:00Z',
               participantId: 'test-p-1',
@@ -185,63 +278,61 @@ describe('StudyParticipantsPage - Accessibility', () => {
       </Table>,
     );
 
-    expect(screen.getByText('iOS Upload Status')).toBeTruthy();
+    expect(screen.getByText('iOS upload status')).toBeTruthy();
     expect(screen.getByText('166')).toBeTruthy();
-    expect(screen.getByText('7 rows / 2 batches')).toBeTruthy();
-    expect(screen.getByText(/Latest buffered upload received/)).toBeTruthy();
   });
 });
 
-// production-readiness F6: toggling one row of a long table must re-render only that row.
+// Toggling one row of a long table must re-render only that row.
+const EMPTY: never[] = [];
+const participants = Array.from({ length: 500 }, (_, index) => ({
+  candidate: { id: `c-${index}` },
+  participantId: `p-${index}`,
+  participationStatus: 'ENROLLED' as const,
+  participantTags: EMPTY,
+}));
+const noop = () => {};
+
+function Harness() {
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // Same shape as the page: a stable functional-update callback.
+  const toggleSelected = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  return (
+    <Table>
+      <TableBody>
+        {participants.map((participant) => (
+          <ParticipantRow
+            colCount={11}
+            handleSingleDelete={noop}
+            hardwareSensorsEnabled={false}
+            hasTud={false}
+            isExpanded={false}
+            isSelected={selected.has(participant.participantId)}
+            key={participant.participantId}
+            participant={participant}
+            studyId="study-test"
+            participantAcknowledgments={EMPTY}
+            participantDevices={EMPTY}
+            participantSensors={EMPTY}
+            selectedAndroidSensors={EMPTY}
+            setModal={noop}
+            toggleExpanded={noop}
+            toggleSelected={toggleSelected}
+          />
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 describe('StudyParticipantsPage - row re-renders', () => {
-  const EMPTY: never[] = [];
-  const participants = Array.from({ length: 500 }, (_, index) => ({
-    candidate: { id: `c-${index}` },
-    participantId: `p-${index}`,
-    participationStatus: 'ENROLLED' as const,
-    participantTags: EMPTY,
-  }));
-  const noop = () => {};
-
-  function Harness() {
-    const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-    // Same shape as the page: a stable functional-update callback.
-    const toggleSelected = useCallback((id: string) => {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-    }, []);
-    return (
-      <Table>
-        <TableBody>
-          {participants.map((participant) => (
-            <ParticipantRow
-              colCount={11}
-              handleSingleDelete={noop}
-              hardwareSensorsEnabled={false}
-              hasTud={false}
-              isExpanded={false}
-              isSelected={selected.has(participant.participantId)}
-              key={participant.participantId}
-              participant={participant}
-              studyId="study-test"
-              participantAcknowledgments={EMPTY}
-              participantDevices={EMPTY}
-              participantSensors={EMPTY}
-              selectedAndroidSensors={EMPTY}
-              setModal={noop}
-              toggleExpanded={noop}
-              toggleSelected={toggleSelected}
-            />
-          ))}
-        </TableBody>
-      </Table>
-    );
-  }
-
   test('selecting one of 500 rows re-renders that row alone', () => {
     render(<Harness />);
     expect(activityCellRenders).toBeGreaterThanOrEqual(500);

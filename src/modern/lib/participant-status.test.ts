@@ -1,27 +1,27 @@
 import { describe, expect, it } from 'bun:test';
-
-import { getStatusVariant } from './participant-status';
+import { PARTICIPATION_STATUS, PARTICIPATION_STATUSES } from '@/generated/chronicle-contracts';
+import { ENROLLMENT_TRANSITIONS, getStatusVariant } from './participant-status';
 
 describe('getStatusVariant()', () => {
   it('returns "success" for ENROLLED', () => {
-    expect(getStatusVariant('ENROLLED')).toBe('success');
+    expect(getStatusVariant(PARTICIPATION_STATUS.ENROLLED)).toBe('success');
   });
 
   it('returns "warning" for PAUSED', () => {
-    expect(getStatusVariant('PAUSED')).toBe('warning');
+    expect(getStatusVariant(PARTICIPATION_STATUS.PAUSED)).toBe('warning');
   });
 
   it('returns "default" for COLLECTION_COMPLETED', () => {
-    expect(getStatusVariant('COLLECTION_COMPLETED')).toBe('default');
+    expect(getStatusVariant(PARTICIPATION_STATUS.COLLECTION_COMPLETED)).toBe('default');
   });
 
-  // Not enrolled is an ordinary lifecycle state; the red channel is kept for loss (design-review DR27).
+  // Not enrolled is an ordinary lifecycle state; the red channel is kept for loss.
   it('returns "outline" for NOT_ENROLLED', () => {
-    expect(getStatusVariant('NOT_ENROLLED')).toBe('outline');
+    expect(getStatusVariant(PARTICIPATION_STATUS.NOT_ENROLLED)).toBe('outline');
   });
 
   it('returns "muted" for UNKNOWN', () => {
-    expect(getStatusVariant('UNKNOWN')).toBe('muted');
+    expect(getStatusVariant(PARTICIPATION_STATUS.UNKNOWN)).toBe('muted');
   });
 
   it('returns "muted" for any unrecognized status', () => {
@@ -32,11 +32,11 @@ describe('getStatusVariant()', () => {
 
   describe('all 5 known statuses explicitly', () => {
     const knownStatuses = [
-      ['ENROLLED', 'success'],
-      ['PAUSED', 'warning'],
-      ['COLLECTION_COMPLETED', 'default'],
-      ['NOT_ENROLLED', 'outline'],
-      ['UNKNOWN', 'muted'],
+      [PARTICIPATION_STATUS.ENROLLED, 'success'],
+      [PARTICIPATION_STATUS.PAUSED, 'warning'],
+      [PARTICIPATION_STATUS.COLLECTION_COMPLETED, 'default'],
+      [PARTICIPATION_STATUS.NOT_ENROLLED, 'outline'],
+      [PARTICIPATION_STATUS.UNKNOWN, 'muted'],
     ] as const;
 
     it.each(knownStatuses)('%s => %s', (status, expected) => {
@@ -97,4 +97,16 @@ describe('getStatusVariant()', () => {
       expect(getStatusVariant(false)).toBe('muted');
     });
   });
+});
+
+it.each([...PARTICIPATION_STATUSES])('every enrollment transition has explicit consequences: %s', (status) => {
+  const [primary, ...others] = ENROLLMENT_TRANSITIONS[status];
+  for (const transition of [primary, ...others]) {
+    expect(transition.target).not.toBe(status);
+    if (transition.target === PARTICIPATION_STATUS.ENROLLED)
+      expect(transition.consequenceKey).toBe('change_enrollment.resume_confirmation');
+    if (transition.target === PARTICIPATION_STATUS.NOT_ENROLLED)
+      expect(transition.consequenceKey).toBe('change_enrollment.not_enrolled_consequence');
+  }
+  if (status === PARTICIPATION_STATUS.ENROLLED) expect(primary.target).toBe(PARTICIPATION_STATUS.PAUSED);
 });

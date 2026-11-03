@@ -1,4 +1,5 @@
 import { createTranslator, type Translator } from '@/i18n/translator';
+import { STUDY_SETTING_CLASSES } from '@/lib/study-constants';
 export type ParticipantPolicyForm = {
   consentDocumentUrl: string;
   dataUseAndSharing: string;
@@ -216,7 +217,7 @@ export function buildStudyParticipantPolicy(form: ParticipantPolicyForm): StudyP
     Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim()])),
   );
   return {
-    '@class': 'com.openlattice.chronicle.study.StudyParticipantPolicy',
+    '@class': STUDY_SETTING_CLASSES.ParticipantPolicy,
     ...trimmed,
     consentDocumentUrl: trimmed.consentDocumentUrl || null,
   };

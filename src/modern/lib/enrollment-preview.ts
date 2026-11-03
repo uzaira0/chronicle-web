@@ -1,7 +1,13 @@
+import { WITHDRAWAL_MODE, type WithdrawalMode } from '@/generated/chronicle-contracts';
 import { createTranslator, getCurrentLanguage } from '@/i18n';
-import { isValidParticipantAccessCode, normalizePublicServerUrl } from '@/lib/participant-links';
+import { isRetryableHttpStatus } from '@/lib/errors';
+import {
+  isValidParticipantAccessCode,
+  isValidServerCaParameter,
+  normalizePublicServerUrl,
+  SERVER_CA_PARAMETER_NAME,
+} from '@/lib/participant-links';
 import { isRfc3339OffsetDateTime } from '@/lib/participant-policy';
-import { WITHDRAWAL_MODES, type WithdrawalMode } from '@/lib/study-constants';
 
 const ANDROID_PACKAGE = 'com.bcm.chronicle';
 export const ANDROID_PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
@@ -10,6 +16,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export type EnrollmentInvitation = {
   accessCode: string;
   participantId: string;
+  /** The local HTTPS trial's CA root from the dashboard link, handed to the app unchanged. */
+  serverCa?: string;
   studyId: string;
 };
 
@@ -46,6 +54,13 @@ export type EnrollmentPreview = {
 export const enrollmentTranslator = () => createTranslator(getCurrentLanguage());
 const fail = (key: string) => new Error(enrollmentTranslator().t(key));
 
+export function enrollmentRequestErrorKey(status: number, reviewer = false): string {
+  if (isRetryableHttpStatus(status)) return reviewer ? 'reviewer.error_server' : 'enrollment.error_server';
+  if (reviewer) return status === 401 ? 'reviewer.error_unverified' : 'reviewer.error_scope';
+  if (status === 401 || status === 410) return 'enrollment.error_unverified';
+  return status === 403 ? 'participant_access.inactive' : 'enrollment.error_disclosure';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -80,17 +95,21 @@ export function invitationFromAddress(): EnrollmentInvitation {
   const studyId = query.get('studyId')?.trim() ?? '';
   const participantId = query.get('participantId')?.trim() ?? '';
   const accessCode = fragment.get('accessCode') ?? '';
+  const serverCa = query.get(SERVER_CA_PARAMETER_NAME);
   if (
     !UUID_PATTERN.test(studyId) ||
     !participantId ||
     participantId.length > 256 ||
-    !isValidParticipantAccessCode(accessCode)
+    !isValidParticipantAccessCode(accessCode) ||
+    (serverCa !== null && !isValidServerCaParameter(serverCa))
   ) {
     throw new Error(enrollmentTranslator().t('enrollment.error_incomplete'));
   }
-  return { accessCode, participantId, studyId: studyId.toLowerCase() };
+  const invitation = { accessCode, participantId, studyId: studyId.toLowerCase() };
+  return serverCa === null ? invitation : { ...invitation, serverCa };
 }
 
+/** Structure only: the server decides whether the invitation expired; the browser clock is not compared with it. */
 function validateManifestTimes(manifest: Record<string, unknown>): string {
   const expiresAt = requiredString(manifest, 'expiresAt');
   const issuedAt = requiredString(manifest, 'issuedAt');
@@ -101,8 +120,7 @@ function validateManifestTimes(manifest: Record<string, unknown>): string {
     !isRfc3339OffsetDateTime(expiresAt) ||
     !Number.isFinite(issuedAtMillis) ||
     !Number.isFinite(expiresAtMillis) ||
-    expiresAtMillis <= issuedAtMillis ||
-    expiresAtMillis <= Date.now()
+    expiresAtMillis <= issuedAtMillis
   ) {
     throw fail('enrollment.preview_expired');
   }
@@ -159,7 +177,7 @@ export function validateEnrollmentPreview(
   if (!isRecord(manifest.participantPolicy)) throw fail('enrollment.invalid_participant_policy');
   const policy = manifest.participantPolicy;
   const withdrawalMode = manifest.withdrawalMode;
-  if (withdrawalMode !== WITHDRAWAL_MODES.erase && withdrawalMode !== WITHDRAWAL_MODES.keepPriorData)
+  if (withdrawalMode !== WITHDRAWAL_MODE.ERASE && withdrawalMode !== WITHDRAWAL_MODE.KEEP_PRIOR_DATA)
     throw fail('enrollment.unsupported_preview');
   const effectiveAt = requiredString(policy, 'effectiveAt');
   if (!isRfc3339OffsetDateTime(effectiveAt)) throw fail('enrollment.invalid_policy_effective_date');
@@ -195,6 +213,7 @@ export function getAndroidEnrollmentHandoffUrl(invitation: EnrollmentInvitation,
     participantId: invitation.participantId,
     serverUrl,
   });
+  if (invitation.serverCa) query.set(SERVER_CA_PARAMETER_NAME, invitation.serverCa);
   const credentialFragment = new URLSearchParams({ accessCode: invitation.accessCode });
   const fallback = encodeURIComponent(ANDROID_PLAY_STORE_URL);
   return (

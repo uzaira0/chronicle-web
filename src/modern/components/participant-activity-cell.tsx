@@ -20,13 +20,9 @@ function daysSince(value: string | null | undefined): number | null {
 }
 
 /**
- * One column replacing the nine sparse per-platform date columns.
- *
- * The table previously carried Android/iOS/TUD × (first, last, count). Any given
- * participant reports on one platform, so most of that grid was em-dashes and the
- * rows grew three lines tall wrapping timestamps. Here each participant shows only
- * the streams that actually have data, and a stream with no recent upload is called
- * out — which is the thing worth scanning for.
+ * One activity column for every platform. A participant reports on one platform, so a per-platform grid would be mostly empty.
+ * Each participant shows only the streams that have data, and a stream with no recent
+ * upload is called out.
  */
 const UNIT_KEYS = {
   days: { one: 'activity_cell.day', other: 'activity_cell.days' },

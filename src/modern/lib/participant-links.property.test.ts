@@ -6,30 +6,27 @@ import { installBrowserEnv, uninstallBrowserEnv } from '../test/browser-env';
 const ACCESS_CODE = 'Abc_123-'.repeat(8);
 const ACCESS_CODE_CHARACTER = fc.constantFrom(...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
 
-let importCtr = 0;
-function nextId() {
-  importCtr += 1;
-  return importCtr;
-}
+// participant-links.ts has no module-level state, so one import serves every property. A fresh copy per test
+// (a query-string import) would be a second module instance and split this file's coverage record.
+let participantLinks: typeof import('./participant-links');
 
 /**
  * Property tests for participant link helpers.
  * The property checks use the same deployment-provided public origin required in production.
  */
 describe('participant-links properties', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     installBrowserEnv({ url: 'https://dashboard.internal.example:8081/chronicle' });
     Reflect.set(window, '__CHRONICLE_RUNTIME_CONFIG__', { serverUrl: 'https://public-study.example.org' });
+    participantLinks = await import('./participant-links');
   });
 
   afterEach(() => {
     uninstallBrowserEnv();
   });
 
-  it('getHttpsEnrollmentLink always starts with the configured public HTTPS enrollment route', async () => {
-    const { getHttpsEnrollmentLink } = (await import(
-      `./participant-links.ts?pA=${nextId()}`
-    )) as typeof import('./participant-links');
+  it('getHttpsEnrollmentLink always starts with the configured public HTTPS enrollment route', () => {
+    const { getHttpsEnrollmentLink } = participantLinks;
     fc.assert(
       fc.property(fc.string(), fc.string(), (studyId, participantId) => {
         expect(getHttpsEnrollmentLink(studyId, participantId, { accessCode: ACCESS_CODE })).toStartWith(
@@ -39,10 +36,8 @@ describe('participant-links properties', () => {
     );
   });
 
-  it('getHttpsEnrollmentLink always contains both studyId and participantId params', async () => {
-    const { getHttpsEnrollmentLink } = (await import(
-      `./participant-links.ts?pB=${nextId()}`
-    )) as typeof import('./participant-links');
+  it('getHttpsEnrollmentLink always contains both studyId and participantId params', () => {
+    const { getHttpsEnrollmentLink } = participantLinks;
     fc.assert(
       fc.property(fc.string({ minLength: 1 }), fc.string({ minLength: 1 }), (studyId, participantId) => {
         const link = getHttpsEnrollmentLink(studyId, participantId, { accessCode: ACCESS_CODE });
@@ -52,10 +47,8 @@ describe('participant-links properties', () => {
     );
   });
 
-  it('getHttpsEnrollmentLink URL-encodes params that round-trip via URLSearchParams', async () => {
-    const { getHttpsEnrollmentLink } = (await import(
-      `./participant-links.ts?pC=${nextId()}`
-    )) as typeof import('./participant-links');
+  it('getHttpsEnrollmentLink URL-encodes params that round-trip via URLSearchParams', () => {
+    const { getHttpsEnrollmentLink } = participantLinks;
     fc.assert(
       fc.property(fc.webSegment(), fc.webSegment(), (studyId, participantId) => {
         const link = getHttpsEnrollmentLink(studyId, participantId, { accessCode: ACCESS_CODE });
@@ -69,10 +62,8 @@ describe('participant-links properties', () => {
     );
   });
 
-  it('keeps every Android-compatible access code out of the query string', async () => {
-    const { getHttpsEnrollmentLink } = (await import(
-      `./participant-links.ts?pD=${nextId()}`
-    )) as typeof import('./participant-links');
+  it('keeps every Android-compatible access code out of the query string', () => {
+    const { getHttpsEnrollmentLink } = participantLinks;
     fc.assert(
       fc.property(
         fc.array(ACCESS_CODE_CHARACTER, { maxLength: 256, minLength: 32 }).map((characters) => characters.join('')),
