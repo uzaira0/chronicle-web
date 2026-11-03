@@ -3,11 +3,16 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CopyButton } from './copy-button';
 
 const writeTextMock = mock((text: string) => Promise.resolve(text).then(() => undefined));
+let copyResult = true;
+
+// Spread the real module: mock.module is process-wide, so a partial stub leaks into later files.
+const realParticipantLinks = await import('@/lib/participant-links');
 
 await mock.module('@/lib/participant-links', () => ({
+  ...realParticipantLinks,
   copyToClipboard: async (text: string) => {
     await writeTextMock(text);
-    return true;
+    return copyResult;
   },
 }));
 
@@ -15,6 +20,7 @@ describe('CopyButton', () => {
   afterEach(() => {
     cleanup();
     writeTextMock.mockClear();
+    copyResult = true;
   });
 
   it('renders with copy icon initially', () => {
@@ -53,5 +59,18 @@ describe('CopyButton', () => {
   it('applies custom aria-label', () => {
     render(<CopyButton aria-label="Copy PID" value="test-value" />);
     expect(screen.getByLabelText('Copy PID')).toBeTruthy();
+  });
+
+  it.each(['false', 'rejection'])('shows accessible manual-copy guidance on %s', async (outcome) => {
+    copyResult = false;
+    if (outcome === 'rejection') writeTextMock.mockRejectedValueOnce(new Error('Clipboard denied'));
+    render(<CopyButton aria-label="Copy enrollment link" value="https://chronicle.test/enrollment" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy enrollment link' }));
+    const failure = await screen.findByRole('alert');
+    expect(failure.textContent).toBe('Copy failed. Select the displayed text and copy it manually.');
+    expect(failure.classList.contains('sr-only')).toBe(false);
+    expect(screen.queryByLabelText('Copied!')).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('');
+    expect(document.querySelector('svg.lucide-check')).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { cva, type VariantProps } from 'class-variance-authority';
 import * as React from 'react';
 
 import { useTranslator } from '@/i18n';
@@ -32,22 +33,16 @@ const TableBody = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes
 );
 TableBody.displayName = 'TableBody';
 
-const TableFooter = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => (
-    <tfoot className={cn('border-t bg-muted/50 font-medium [&>tr]:last:border-b-0', className)} ref={ref} {...props} />
-  ),
-);
-TableFooter.displayName = 'TableFooter';
+const rowVariants = cva('border-b hover:bg-muted/50 data-[state=selected]:bg-muted', {
+  variants: { variant: { default: '', lazy: 'row-offscreen-lazy', detail: 'bg-muted/30' } },
+});
 
-const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTMLTableRowElement>>(
-  ({ className, ...props }, ref) => (
-    <tr
-      className={cn('border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted', className)}
-      ref={ref}
-      {...props}
-    />
-  ),
-);
+const TableRow = React.forwardRef<
+  HTMLTableRowElement,
+  React.HTMLAttributes<HTMLTableRowElement> & VariantProps<typeof rowVariants>
+>(({ className, variant, ...props }, ref) => (
+  <tr className={cn(rowVariants({ variant }), className)} ref={ref} {...props} />
+));
 TableRow.displayName = 'TableRow';
 
 const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<HTMLTableCellElement>>(
@@ -64,18 +59,22 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
 );
 TableHead.displayName = 'TableHead';
 
-const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<HTMLTableCellElement>>(
-  ({ className, ...props }, ref) => (
-    <td className={cn('p-4 align-middle [&:has([role=checkbox])]:pr-0', className)} ref={ref} {...props} />
-  ),
-);
+const cellVariants = cva('p-4 align-middle [&:has([role=checkbox])]:pr-0', {
+  variants: {
+    tone: { muted: 'text-muted-foreground', expanded: 'bg-muted/30' },
+    size: { small: 'text-xs' },
+    weight: { medium: 'font-medium', semibold: 'font-semibold' },
+    truncate: { true: 'truncate' },
+    padding: { selection: 'px-1' },
+  },
+});
+
+const TableCell = React.forwardRef<
+  HTMLTableCellElement,
+  React.TdHTMLAttributes<HTMLTableCellElement> & VariantProps<typeof cellVariants>
+>(({ className, tone, size, weight, truncate, padding, ...props }, ref) => (
+  <td className={cn(cellVariants({ tone, size, weight, truncate, padding }), className)} ref={ref} {...props} />
+));
 TableCell.displayName = 'TableCell';
 
-const TableCaption = React.forwardRef<HTMLTableCaptionElement, React.HTMLAttributes<HTMLTableCaptionElement>>(
-  ({ className, ...props }, ref) => (
-    <caption className={cn('mt-4 text-sm text-muted-foreground', className)} ref={ref} {...props} />
-  ),
-);
-TableCaption.displayName = 'TableCaption';
-
-export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow };
+export { Table, TableBody, TableCell, TableHead, TableHeader, TableRow };

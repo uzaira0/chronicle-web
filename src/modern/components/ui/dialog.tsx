@@ -35,7 +35,7 @@ function CloseLabel() {
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { variant?: 'default' | 'navigation' }
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { variant?: 'default' | 'navigation' | 'form' }
 >(({ children, className, variant = 'default', ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
@@ -43,6 +43,8 @@ const DialogContent = React.forwardRef<
       aria-modal="true"
       className={cn(
         'fixed left-1/2 top-1/2 z-50 overscroll-contain w-11/12 max-w-dialog -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 shadow-xl',
+        variant !== 'navigation' && 'max-h-dialog overflow-y-auto',
+        variant === 'form' && 'max-w-6xl scroll-pb-28 pb-0',
         variant === 'navigation' &&
           'inset-y-0 left-0 top-0 h-dvh w-72 max-w-navigation-drawer translate-x-0 translate-y-0 overflow-y-auto rounded-none p-4',
         className,
@@ -51,10 +53,10 @@ const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogClose className="absolute right-4 top-4 flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground">
+      <DialogPrimitive.Close className="absolute right-4 top-4 flex items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
         <X className="h-4 w-4" />
         <CloseLabel />
-      </DialogClose>
+      </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
 ));
@@ -63,10 +65,18 @@ DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title> & {
+    size?: 'default' | 'large';
+    tone?: 'default' | 'destructive';
+  }
+>(({ className, size = 'default', tone = 'default', ...props }, ref) => (
   <DialogPrimitive.Title
-    className={cn('text-lg text-balance font-semibold text-foreground', className)}
+    className={cn(
+      'text-lg text-balance font-semibold text-foreground',
+      size === 'large' && 'text-2xl',
+      tone === 'destructive' && 'text-destructive',
+      className,
+    )}
     ref={ref}
     {...props}
   />

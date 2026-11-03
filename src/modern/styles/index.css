@@ -5,6 +5,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@utility max-h-dialog {
+  max-height: 90dvh;
+}
+
+@utility grid-cols-date-search {
+  grid-template-columns: 1fr 1fr auto;
+}
+
+@utility grid-cols-diary-export {
+  grid-template-columns: 1.1fr 0.75fr 1.5fr;
+}
+
 @font-face {
   font-family: "Chronicle Display";
   font-weight: 400 700;
@@ -108,6 +120,7 @@
   --container-dialog: 38rem;
   --container-navigation-drawer: calc(100vw - 1rem);
   --color-primary: var(--primary);
+  --color-primary-hover: color-mix(in srgb, var(--primary) 85%, var(--foreground));
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -116,6 +129,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-hover: color-mix(in srgb, var(--destructive) 85%, var(--foreground));
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -146,6 +160,12 @@
     color-scheme: dark;
   }
 
+  @media (pointer: fine) {
+    html {
+      overscroll-behavior: none;
+    }
+  }
+
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
     font-family: var(--eq-font-sans);
@@ -174,4 +194,10 @@
   .eq-app-shell main :is(a, button, input, select, textarea, [tabindex]) {
     scroll-margin-block-start: calc(var(--app-shell-header-height) + 0.5rem);
   }
+}
+
+/* Long tables: the browser skips layout and paint for rows outside the viewport. */
+@utility row-offscreen-lazy {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.5rem;
 }

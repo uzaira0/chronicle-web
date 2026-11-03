@@ -28,11 +28,12 @@ DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 const DropdownMenuItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & { variant?: 'default' | 'destructive' }
+>(({ className, variant, ...props }, ref) => (
   <DropdownMenuPrimitive.Item
     className={cn(
-      'flex cursor-default select-none items-center rounded-xl px-3 py-2 text-sm outline-none transition hover:bg-muted focus:bg-muted',
+      'flex cursor-default select-none items-center rounded-xl px-3 py-2 text-sm outline-none hover:bg-muted focus:bg-muted',
+      variant === 'destructive' && 'text-destructive focus:text-destructive',
       className,
     )}
     ref={ref}

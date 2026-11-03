@@ -11,6 +11,7 @@ type CopyButtonProps = ButtonProps & {
 
 export function CopyButton({ value, ...props }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const { t } = useTranslator();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -25,29 +26,40 @@ export function CopyButton({ value, ...props }: CopyButtonProps) {
     e.preventDefault();
     e.stopPropagation();
     if (!value) return;
-    copyToClipboard(value)
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setCopied(false);
+    setFailed(false);
+    void copyToClipboard(value)
+      .catch(() => false)
       .then((ok) => {
+        setCopied(ok);
+        setFailed(!ok);
         if (ok) {
-          setCopied(true);
-          if (timerRef.current) clearTimeout(timerRef.current);
           timerRef.current = setTimeout(() => setCopied(false), 2000);
         }
-      })
-      .catch(() => {
-        setCopied(false);
       });
   };
 
   return (
-    <Button
-      size="icon"
-      variant="outline"
-      title={copied ? t('common.copied') : t('common.copy_to_clipboard')}
-      {...props}
-      aria-label={copied ? t('common.copied') : props['aria-label'] || t('common.copy_to_clipboard')}
-      onClick={handleCopy}
-    >
-      {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
-    </Button>
+    <>
+      <Button
+        size="icon"
+        variant="outline"
+        title={copied ? t('common.copied') : t('common.copy_to_clipboard')}
+        {...props}
+        aria-label={copied ? t('common.copied') : props['aria-label'] || t('common.copy_to_clipboard')}
+        onClick={handleCopy}
+      >
+        {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+        <span className="sr-only" role="status">
+          {copied ? t('common.copied') : ''}
+        </span>
+      </Button>
+      {failed && (
+        <span className="text-sm text-destructive" role="alert">
+          {t('common.copy_failed')}
+        </span>
+      )}
+    </>
   );
 }
