@@ -1,5 +1,5 @@
 import { chronicleTest as test, expect } from './fixtures/chronicle-test';
-import { fillRequiredParticipantPolicy, setStudyFeature } from './fixtures/study-form';
+import { fillRequiredParticipantPolicy, headerCreateStudyButton, setStudyFeature } from './fixtures/study-form';
 
 // Persona 1: Expert Power User — uses every feature, configures every setting.
 // Now driven through the chronicleScenario DSL: API-seeded studies for tab-walks
@@ -12,7 +12,7 @@ test.describe('persona: expert researcher', () => {
       await s.asUser('test_admin', async (auth) => {
         await auth.asPersona('expert-researcher', async (persona) => {
           await persona.openStudiesList();
-          await expect(persona.page.getByRole('button', { name: /create new study/i })).toBeVisible({ timeout: 10_000 });
+          await expect(headerCreateStudyButton(persona.page)).toBeVisible({ timeout: 10_000 });
           await expect(persona.page.getByRole('heading').first()).toBeVisible();
         });
       });
@@ -25,7 +25,7 @@ test.describe('persona: expert researcher', () => {
         await auth.asPersona('expert-researcher', async (persona) => {
           await persona.openStudiesList();
           const { page } = persona;
-          await page.getByRole('button', { name: /create new study/i }).click();
+          await headerCreateStudyButton(page).click();
           const dialog = page.getByRole('dialog');
           await expect(dialog).toBeVisible({ timeout: 5_000 });
 
@@ -36,14 +36,21 @@ test.describe('persona: expert researcher', () => {
           await dialog.getByLabel(/contact email/i).fill('expert@chronicle.test');
           await fillRequiredParticipantPolicy(dialog, `expert-fields-${Date.now()}`);
 
-          const checkboxes = dialog.locator('input[type="checkbox"]');
-          const cbCount = await checkboxes.count();
-          expect(cbCount, 'Expected at least one module toggle in create dialog').toBeGreaterThan(0);
-          for (let i = 0; i < cbCount; i++) {
-            await checkboxes.nth(i).click({ force: true });
+          // The study feature toggles come first in the form, so their indexes hold while toggling
+          // Data Collection on adds the module controls below them.
+          const featureToggles = dialog.locator('button[aria-pressed]');
+          const toggleCount = await featureToggles.count();
+          expect(toggleCount, 'Expected the study feature toggles in create dialog').toBeGreaterThan(0);
+          for (let i = 0; i < toggleCount; i++) {
+            const toggle = featureToggles.nth(i);
+            const pressed = await toggle.getAttribute('aria-pressed');
+            await toggle.click();
+            await expect(toggle).toHaveAttribute('aria-pressed', pressed === 'true' ? 'false' : 'true');
           }
 
           await dialog.getByRole('button', { name: /cancel/i }).click();
+          // The form holds edits, so cancelling asks before it throws them away.
+          await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
           await expect(dialog).toBeHidden({ timeout: 5_000 });
         });
       });
@@ -57,17 +64,17 @@ test.describe('persona: expert researcher', () => {
           await persona.openStudiesList();
           const { page } = persona;
           const title = `Expert-Created-${Date.now()}`;
-          await page.getByRole('button', { name: /create new study/i }).click();
+          await headerCreateStudyButton(page).click();
           const dialog = page.getByRole('dialog');
           await expect(dialog).toBeVisible();
           await dialog.getByLabel(/study name/i).fill(title);
           await dialog.getByLabel(/contact email/i).fill('expert@chronicle.test');
           await fillRequiredParticipantPolicy(dialog, `expert-create-${Date.now()}`);
-          await setStudyFeature(dialog, 'Data Collection', true);
+          await setStudyFeature(dialog, 'Data collection', true);
           await dialog.getByRole('button', { name: /^create study$/i }).click();
           await expect(dialog).toBeHidden({ timeout: 15_000 });
           await page.goto('/studies');
-          await page.getByRole('textbox', { name: /search studies/i }).fill(title);
+          await page.getByRole('searchbox', { name: /search studies/i }).fill(title);
           await expect(page.getByRole('row').filter({ hasText: title })).toBeVisible({
             timeout: 10_000,
           });

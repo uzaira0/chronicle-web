@@ -3,6 +3,7 @@ import {
   CSRF_COOKIE_NAME,
   HEADER_CONTENT_TYPE,
   HEADER_CSRF_TOKEN,
+  HEADER_IDEMPOTENCY_KEY,
   MIME_JSON,
 } from '../constants.js';
 
@@ -39,9 +40,9 @@ async function authHeaders(client: ApiClient, contentType?: string): Promise<Rec
   return h;
 }
 
-export async function apiGet<T>(client: ApiClient, path: string): Promise<T> {
+export async function apiGet<T>(client: ApiClient, path: string, headers: Record<string, string> = {}): Promise<T> {
   const response = await client.request.get(`${client.baseUrl}${path}`, {
-    headers: await authHeaders(client),
+    headers: { ...(await authHeaders(client)), ...headers },
   });
   if (!response.ok()) {
     throw new Error(`GET ${path} failed: HTTP ${response.status()} ${await response.text()}`);
@@ -49,10 +50,20 @@ export async function apiGet<T>(client: ApiClient, path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function apiPost<T>(client: ApiClient, path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(
+  client: ApiClient,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  // Create endpoints require an Idempotency-Key (HTTP 428 without one), as the dashboard sends.
   const response = await client.request.post(`${client.baseUrl}${path}`, {
     data: JSON.stringify(body),
-    headers: await authHeaders(client, MIME_JSON),
+    headers: {
+      ...(await authHeaders(client, MIME_JSON)),
+      [HEADER_IDEMPOTENCY_KEY]: crypto.randomUUID(),
+      ...headers,
+    },
   });
   if (!response.ok()) {
     throw new Error(`POST ${path} failed: HTTP ${response.status()} ${await response.text()}`);
@@ -70,11 +81,7 @@ export async function apiDelete(client: ApiClient, path: string, body?: unknown)
   }
 }
 
-export async function apiDeleteDurably(
-  client: DurableCleanupClient,
-  path: string,
-  body?: unknown,
-): Promise<void> {
+export async function apiDeleteDurably(client: DurableCleanupClient, path: string, body?: unknown): Promise<void> {
   const response = await client.request.delete(`${client.baseUrl}${path}`, {
     data: body as Record<string, unknown> | undefined,
     headers: {

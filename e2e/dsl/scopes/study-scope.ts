@@ -3,29 +3,11 @@ import type {
   ApiClient,
   DurableCleanupClient,
 } from '../di/api-client.js';
-import { apiDeleteDurably, apiPost } from '../di/api-client.js';
+import { apiDeleteDurably, apiGetBytes, apiPost } from '../di/api-client.js';
 import type { ScenarioContext } from '../scenario-context.js';
 import { ParticipantScope } from './participant-scope.js';
-import { ExportScope } from './export-scope.js';
 import type { ParticipantSpec } from '../di/test-data-provider.js';
 import { runPersona, type PersonaName, type PersonaScope } from './persona-scope.js';
-
-export interface ExportRequest {
-  dataTypes: string[];
-  format?: string;
-  participantIds?: string[];
-}
-
-export interface ExportJobInfo {
-  exportId: string;
-  studyId: string;
-  status: string;
-  format: string;
-  createdAt: string;
-  completedAt?: string;
-  downloadToken?: string | null;
-  rowCount?: number;
-}
 
 export class StudyScope {
   readonly ctx: ScenarioContext;
@@ -78,16 +60,11 @@ export class StudyScope {
     await block(new ParticipantScope(this.ctx, this.userId, this.client, this.context, this.id, spec.participantId));
   }
 
-  async export(
-    request: ExportRequest = { dataTypes: ['UsageEvents'], format: 'CSV' },
-    block: (exp: ExportScope) => Promise<void>,
-  ): Promise<void> {
-    const job = await apiPost<ExportJobInfo>(
-      this.client,
-      `/chronicle/v3/study/${this.id}/export/async`,
-      request,
-    );
-    await block(new ExportScope(this.ctx, this.client, this.id, job.exportId));
+  /** The synchronous CSV export the dashboard downloads, for the given participants. */
+  async exportCsv(dataType: string, participantIds: string[]): Promise<Buffer> {
+    const query = new URLSearchParams({ dataType });
+    for (const id of participantIds) query.append('participantId', id);
+    return apiGetBytes(this.client, `/chronicle/v3/study/${this.id}/participants/data?${query.toString()}`);
   }
 
   async asPersona(

@@ -18,7 +18,7 @@ export class DataScope {
 
   async flush(): Promise<void> {
     const flusher = this.ctx.providers.flusherFor(this.client);
-    await flusher.flush(this.studyId, this.participantId);
+    await flusher.flush();
   }
 
   async verify(block: (data: DataScope) => Promise<void>): Promise<void> {

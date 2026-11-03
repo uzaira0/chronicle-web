@@ -20,12 +20,15 @@ test.describe('modern shell', () => {
         status: 200,
       });
     });
+    // No participant cookie session: the participant routes need an access code.
+    await page.route('**/participant-access/session', (route) => route.fulfill({ status: 401 }));
   });
 
   test('loads the overview for an authenticated session', async ({ page }) => {
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: 'Operations overview' })).toBeVisible();
+    await expect(page).toHaveTitle('Operations overview | Chronicle');
   });
 
   test('replaces the shell with the sign-in page when unauthenticated', async ({ page }) => {
@@ -61,6 +64,52 @@ test.describe('modern shell', () => {
     await expect.poll(async () => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(true);
   });
 
+  test('browser chrome follows the application theme when it differs from the OS', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto('/');
+    await page.getByLabel('Toggle theme').filter({ visible: true }).first().click();
+    await page.getByRole('menuitem', { name: 'Dark' }).click();
+    await expect(page.locator('html')).toHaveClass(/dark/);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+          return (
+            !meta?.media &&
+            meta?.content === getComputedStyle(document.documentElement).getPropertyValue('--eq-bg').trim()
+          );
+        }),
+      )
+      .toBe(true);
+    await page.getByLabel('Toggle theme').filter({ visible: true }).first().click();
+    await page.getByRole('menuitem', { name: 'Light' }).click();
+    await expect(page.locator('html')).not.toHaveClass(/dark/);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content ===
+            getComputedStyle(document.documentElement).getPropertyValue('--eq-bg').trim(),
+        ),
+      )
+      .toBe(true);
+  });
+
+  test('reduced motion stops repeating loading animations', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.route('**/chronicle/api/web/study', () => new Promise(() => undefined));
+    await page.goto('/studies');
+    await expect(page.locator('.animate-pulse').first()).toBeVisible();
+    const animations = await page.locator('.animate-pulse').evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const style = getComputedStyle(node);
+        return style.animationName === 'none' || style.animationIterationCount !== 'infinite';
+      }),
+    );
+    expect(animations.length).toBeGreaterThan(0);
+    expect(animations.every(Boolean)).toBe(true);
+  });
+
   test('navigates to studies from the mobile menu', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await page.goto('/');
@@ -83,13 +132,35 @@ test.describe('modern shell', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBe(0);
-    await expect(page.getByLabel('Language').filter({ visible: true })).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+    await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Language', exact: true })).toBeInViewport({
+      ratio: 1,
+    });
+  });
+
+  test('a long researcher name stays inside the header with its full accessible value', async ({ page }) => {
+    const name = 'Researcher'.repeat(100);
+    await page.setViewportSize({ height: 800, width: 1024 });
+    await page.route(`**${SESSION_PATH}`, (route) =>
+      route.fulfill({
+        json: {
+          ...STABLE_AUTHENTICATED_SESSION,
+          user: { ...STABLE_AUTHENTICATED_SESSION.user, name },
+        },
+      }),
+    );
+    await page.goto('/studies');
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(
+      0,
+    );
   });
 
   test('loads the studies route directly and keeps it after reload', async ({ page }) => {
     await page.goto('/studies');
 
     await expect(page.locator('main').getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
+    await expect(page).toHaveTitle('Studies | Chronicle');
     await page.reload();
 
     await expect(page).toHaveURL(/\/studies$/);
@@ -103,20 +174,6 @@ test.describe('modern shell', () => {
     await expect(page.getByRole('heading', { name: 'Operations overview' })).toBeVisible();
   });
 
-  test('loads a /modern-prefixed deep link directly', async ({ page }) => {
-    await page.goto('/modern/dashboard');
-
-    await expect(page).toHaveURL(/\/modern\/dashboard$/);
-    await expect(page.getByRole('heading', { name: 'Operations overview' })).toBeVisible();
-  });
-
-  test('loads a /chronicle/modern-prefixed deep link directly', async ({ page }) => {
-    await page.goto('/chronicle/modern/studies');
-
-    await expect(page).toHaveURL(/\/chronicle\/modern\/studies$/);
-    await expect(page.locator('main').getByRole('heading', { name: 'Studies', exact: true })).toBeVisible();
-  });
-
   test('loads a /chronicle-prefixed studies deep link directly', async ({ page }) => {
     await page.goto('/chronicle/studies');
 
@@ -128,7 +185,7 @@ test.describe('modern shell', () => {
     await page.goto('/participant');
 
     await expect(page).toHaveURL(/\/participant$/);
-    await expect(page.getByRole('heading', { name: 'A new link is required' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Participant access unavailable' })).toBeVisible();
     await expect(page.getByText('This participant link is missing a valid one-time access code.')).toBeVisible();
   });
 
@@ -160,7 +217,7 @@ test.describe('modern shell', () => {
     await page.goto('/questionnaire');
 
     await expect(page).toHaveURL(/\/questionnaire$/);
-    await expect(page.getByRole('heading', { name: 'A new link is required' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Participant access unavailable' })).toBeVisible();
     await expect(page.getByText('This participant link is missing a valid one-time access code.')).toBeVisible();
   });
 
@@ -168,7 +225,7 @@ test.describe('modern shell', () => {
     await page.goto('/chronicle/questionnaire');
 
     await expect(page).toHaveURL(/\/chronicle\/questionnaire$/);
-    await expect(page.getByRole('heading', { name: 'A new link is required' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Participant access unavailable' })).toBeVisible();
   });
 
   test('loads the study TUD route directly in the modern shell', async ({ page }) => {
@@ -177,7 +234,7 @@ test.describe('modern shell', () => {
     await expect(page).toHaveURL(/\/studies\/test-study\/time-use-diary$/);
     await expect(
       page.getByRole('heading', {
-        name: /(?:Time Use Diary exports for study test-study|Study not found or unavailable)/,
+        name: `Time Use Diary exports for ${SEEDED_STUDY.title}`,
       }),
     ).toBeVisible();
   });
@@ -186,7 +243,9 @@ test.describe('modern shell', () => {
     await page.goto('/missing-route');
 
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
-    await expect(page.getByText('The requested page could not be found.')).toBeVisible();
+    await expect(
+      page.getByText('No page matches this address. Check the link, or go back to the overview.'),
+    ).toBeVisible();
   });
 
   test.describe
@@ -213,16 +272,16 @@ test.describe('modern shell', () => {
         expect(studyListRequests[0]?.searchParams.get('offset')).toBe('0');
 
         const emptyCatalog = page.getByRole('status');
-        await expect(emptyCatalog).toContainText('No studies found.');
+        await expect(emptyCatalog).toContainText('No studies found');
         await expect(page.getByRole('button', { name: 'Create new study', exact: true })).toHaveCount(2);
         const emptyCatalogCreate = emptyCatalog.getByRole('button', { name: 'Create new study', exact: true });
         await emptyCatalogCreate.click();
 
         await expect(page.getByRole('dialog', { name: 'Create study' })).toBeVisible();
-        await expect(page.getByLabel('Study Name')).toBeVisible();
+        await expect(page.getByLabel('Study name')).toBeVisible();
         await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(page.getByRole('dialog', { name: 'Create study' })).toHaveCount(0);
-        await expect(emptyCatalog).toContainText('No studies found.');
+        await expect(emptyCatalog).toContainText('No studies found');
         await emptyCatalogCreate.click();
         await expect(page.getByRole('dialog', { name: 'Create study' })).toBeVisible();
         expect(studyListRequests).toHaveLength(1);

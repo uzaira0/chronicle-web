@@ -1,29 +1,29 @@
 import { type APIRequestContext, type PlaywrightWorkerArgs, expect, test } from '@playwright/test';
+import { INTERNAL_WEB_API_ROOT } from '../scripts/backend-api-path';
 import {
   DIRECT_BACKEND_URL,
   HEADER_CONTENT_TYPE,
   HEADER_CSRF_TOKEN,
+  HEADER_IDEMPOTENCY_KEY,
   MIME_JSON,
-  TESTING_LOGIN_PATH,
+  PROXY_BASE_URL_DEFAULT,
 } from './dsl/constants';
 
-const STUDY_PATH = `${DIRECT_BACKEND_URL}/chronicle/v3/study`;
+// Authenticated probes go through the preview proxy, as the dashboard does: the backend accepts
+// testing-login only with the proxy's internal-web marker.
+const STUDY_PATH = `${PROXY_BASE_URL_DEFAULT}${INTERNAL_WEB_API_ROOT}/study`;
 
 // A validation probe only proves the backend validates if the request gets past
 // authentication first — otherwise every malformed body "passes" on a blanket 401.
-// Cookie+CSRF, matching the DSL's auth path (see dsl/di/api-client.ts).
+// Cookie+CSRF, matching the DSL's auth path (see dsl/di/auth-strategy.ts).
 async function authenticated(
   playwright: PlaywrightWorkerArgs['playwright'],
 ): Promise<{ csrf: string; json: Record<string, string>; request: APIRequestContext }> {
   const request = await playwright.request.newContext();
-  // With no X-Forwarded-Proto the backend assumes a TLS proxy and marks the session cookies
-  // Secure (AuthTokenController.isSecureRequest), so this plain-HTTP context would never send
-  // them back and every probe would hit a blanket 401. The UI path gets the same effect from
-  // the preview proxy stripping `Secure` (scripts/preview-backend-proxy.ts).
-  const login = await request.post(`${DIRECT_BACKEND_URL}${TESTING_LOGIN_PATH}`, {
+  const login = await request.post(`${PROXY_BASE_URL_DEFAULT}${INTERNAL_WEB_API_ROOT}/auth/testing-login`, {
     data: { userId: 'test_user1' },
     failOnStatusCode: false,
-    headers: { [HEADER_CONTENT_TYPE]: MIME_JSON, 'X-Forwarded-Proto': 'http' },
+    headers: { [HEADER_CONTENT_TYPE]: MIME_JSON },
   });
   expect(login.status(), `testing-login must succeed before probing validation`).toBe(200);
   const { csrfToken } = (await login.json()) as { csrfToken?: string };
@@ -65,7 +65,7 @@ test.describe('persona: adversary (API)', () => {
     const { json, request } = await authenticated(playwright);
     const response = await request.post(STUDY_PATH, {
       data: '{not valid json',
-      headers: json,
+      headers: { ...json, [HEADER_IDEMPOTENCY_KEY]: crypto.randomUUID() },
       failOnStatusCode: false,
     });
     expect(response.status(), `Authenticated malformed JSON must be 400 Bad Request`).toBe(400);
@@ -119,7 +119,7 @@ test.describe('persona: adversary (API)', () => {
     const { json, request } = await authenticated(playwright);
     const response = await request.post(STUDY_PATH, {
       data: '',
-      headers: json,
+      headers: { ...json, [HEADER_IDEMPOTENCY_KEY]: crypto.randomUUID() },
       failOnStatusCode: false,
     });
     expect(response.status(), `Authenticated empty body must be 400 Bad Request`).toBe(400);
@@ -129,7 +129,11 @@ test.describe('persona: adversary (API)', () => {
     const { json, request } = await authenticated(playwright);
     const title = `Concurrent ${crypto.randomUUID()}`;
     const create = () =>
-      request.post(STUDY_PATH, { data: { contact: 'a@b.com', title }, failOnStatusCode: false, headers: json });
+      request.post(STUDY_PATH, {
+        data: { contact: 'a@b.com', title },
+        failOnStatusCode: false,
+        headers: { ...json, [HEADER_IDEMPOTENCY_KEY]: crypto.randomUUID() },
+      });
     const responses = await Promise.all([create(), create()]);
 
     const ids: string[] = [];

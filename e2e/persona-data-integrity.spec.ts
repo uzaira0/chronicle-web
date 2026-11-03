@@ -1,5 +1,5 @@
 import { chronicleTest as test, expect } from './fixtures/chronicle-test';
-import { fillRequiredParticipantPolicy, setStudyFeature } from './fixtures/study-form';
+import { fillRequiredParticipantPolicy, headerCreateStudyButton, setStudyFeature } from './fixtures/study-form';
 
 // Persona 5: Data Integrity Auditor — reproducibility, fidelity, persistence.
 // What you see on screen must match what gets persisted; same input → same output.
@@ -112,13 +112,13 @@ test.describe('persona: data integrity auditor', () => {
           const title = `Audit-Fidelity-${Date.now()}`;
           const description = 'Comprehensive audit verification';
           const contact = 'fidelity@chronicle.test';
-          await page.getByRole('button', { name: /create new study/i }).click();
+          await headerCreateStudyButton(page).click();
           const dialog = page.getByRole('dialog');
           await dialog.getByLabel(/study name/i).fill(title);
           await dialog.getByLabel(/description/i).fill(description);
           await dialog.getByLabel(/contact email/i).fill(contact);
           await fillRequiredParticipantPolicy(dialog, `integrity-${Date.now()}`);
-          await setStudyFeature(dialog, 'Data Collection', true);
+          await setStudyFeature(dialog, 'Data collection', true);
           await dialog.getByRole('button', { name: /^create study$/i }).click();
           await expect(dialog).toBeHidden({ timeout: 15_000 });
 
@@ -140,15 +140,14 @@ test.describe('persona: data integrity auditor', () => {
             // when a shared integration database contains many studies.
             await persona.openStudiesList();
             const { page } = persona;
-            const search = page.getByRole('textbox', { name: /search studies/i });
+            const search = page.getByRole('searchbox', { name: /search studies/i });
             await search.fill(study.title);
             const seededRow = page.getByRole('row').filter({ hasText: study.title });
             await expect(seededRow, 'Seeded study row must render').toBeVisible({
               timeout: 10_000,
             });
             const firstNav = page.waitForURL(/\/studies\/[0-9a-f-]+/, { timeout: 10_000 });
-            // StudyTableRow dropped its separate "Details →" column; the study title is the
-            // row's only link now.
+            // The study title is the row's only link.
             await seededRow.getByRole('link', { name: study.title }).click();
             await firstNav;
             const firstUrl = page.url();
@@ -156,7 +155,7 @@ test.describe('persona: data integrity auditor', () => {
             // Second navigation: back to list, click the same seeded card again.
             await page.goBack();
             await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
-            await page.getByRole('textbox', { name: /search studies/i }).fill(study.title);
+            await page.getByRole('searchbox', { name: /search studies/i }).fill(study.title);
             const seededRow2 = page.getByRole('row').filter({ hasText: study.title });
             await expect(seededRow2).toBeVisible({ timeout: 10_000 });
             const secondNav = page.waitForURL(/\/studies\/[0-9a-f-]+/, { timeout: 10_000 });

@@ -5,7 +5,6 @@ export const SEEDED_STUDY = {
   description: 'Seeded for the modern shell routing specs.',
   id: 'test-study',
   modules: { CHRONICLE_DATA_COLLECTION: {}, CHRONICLE_SURVEYS: {} },
-  notificationsEnabled: false,
   settings: {},
   title: 'Modern Shell Route Study',
   version: '1',

@@ -1,4 +1,5 @@
 import { chronicleTest as test, expect } from './fixtures/chronicle-test';
+import { headerCreateStudyButton } from './fixtures/study-form';
 
 // Persona 4: Accessibility — keyboard, screen-reader, low-vision.
 // WCAG 2.1 AA via axe-core, plus DOM semantics inspection. Driven through the DSL
@@ -125,7 +126,7 @@ test.describe('persona: accessibility', () => {
       await s.asUser('test_admin', async (auth) => {
         await auth.asPersona('accessibility', async (persona) => {
           await persona.openStudiesList();
-          await persona.page.getByRole('button', { name: /create new study/i }).click();
+          await headerCreateStudyButton(persona.page).click();
           const dialog = persona.page.getByRole('dialog');
           await expect(dialog).toBeVisible({ timeout: 5_000 });
           const ariaModal = await dialog.getAttribute('aria-modal');

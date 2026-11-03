@@ -5,7 +5,7 @@ import type {
   BrowserContext,
   Cookie,
 } from '@playwright/test';
-import { apiDeleteDurably, currentCsrfToken } from './api-client';
+import { apiDeleteDurably, apiPost, currentCsrfToken } from './api-client';
 import {
   CSRF_COOKIE_NAME,
   HEADER_CONTENT_TYPE,
@@ -84,5 +84,30 @@ describe('apiDeleteDurably', () => {
         },
       },
     );
+  });
+});
+
+describe('apiPost', () => {
+  // The server refuses create POSTs without an Idempotency-Key (HTTP 428), as the dashboard sends.
+  it('sends a fresh Idempotency-Key per call and lets the caller pin one', async () => {
+    const postMock = mock<(url: string, options: { headers: Record<string, string> }) => Promise<APIResponse>>(() =>
+      Promise.resolve({ ok: () => true, json: () => Promise.resolve('id') } as APIResponse),
+    );
+    const client = {
+      request: { post: postMock } as unknown as APIRequestContext,
+      baseUrl: 'http://127.0.0.1:4174',
+      context: fakeContext([{ ...baseCookie, name: CSRF_COOKIE_NAME, value: 'csrf' }]),
+      token: '',
+    };
+
+    await apiPost(client, '/chronicle/v3/study', {});
+    await apiPost(client, '/chronicle/v3/study', {});
+    await apiPost(client, '/chronicle/v3/study', {}, { 'Idempotency-Key': 'retry-1' });
+
+    const keys = postMock.mock.calls.map(([, options]) => options.headers['Idempotency-Key']);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[2]).toBe('retry-1');
   });
 });

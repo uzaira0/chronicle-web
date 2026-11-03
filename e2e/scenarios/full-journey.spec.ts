@@ -12,27 +12,15 @@ test.describe('Full Journey', () => {
             const device = providers.data.androidDevice();
             await part.device(device, async (dev) => {
               await dev.upload(providers.data.usageEvents(25), async (data) => {
-                expect(data.rowsWritten).toBeGreaterThanOrEqual(0);
+                // The receipt names every stored event: all 25 fresh ones.
+                expect(data.rowsWritten).toBe(25);
                 await data.flush();
-                await data.verify((d) => {
-                  expect(d.studyId).toBeTruthy();
-                  expect(d.participantId).toBe(participant.participantId);
-                  return Promise.resolve();
-                });
               });
             });
           });
 
-          await study.export(
-            { dataTypes: ['UsageEvents'], participantIds: [participant.participantId], format: 'CSV' },
-            async (exp) => {
-              const info = await exp.awaitCompletion({ timeoutMs: 30_000, intervalMs: 200 });
-              expect(info.status).toBe('COMPLETED');
-              const bytes = await exp.download();
-              expect(bytes.length).toBeGreaterThan(0);
-              ExportAssertions.assertCsvHasRows(bytes, 25);
-            },
-          );
+          const bytes = await study.exportCsv('UsageEvents', [participant.participantId]);
+          ExportAssertions.assertCsvHasRows(bytes, 25);
         });
       });
     });

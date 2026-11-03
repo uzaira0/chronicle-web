@@ -3,7 +3,7 @@ import type { ApiClient } from './api-client.js';
 import { apiPost } from './api-client.js';
 
 export interface PipelineFlusher {
-  flush(studyId: string, participantId: string): Promise<void>;
+  flush(): Promise<void>;
 }
 
 export class BackendApiFlusher implements PipelineFlusher {
@@ -13,10 +13,9 @@ export class BackendApiFlusher implements PipelineFlusher {
     this.client = client;
   }
 
-  async flush(studyId: string, participantId: string): Promise<void> {
-    // The test-only hook drains this subject's UPLOAD_BUFFER rows before
-    // returning, so another worker cannot claim the row and make an export
-    // race an uncommitted global flush.
-    await apiPost<unknown>(this.client, FLUSH_PIPELINE_PATH, { participantId, studyId });
+  async flush(): Promise<void> {
+    // The test-only hook drains the whole UPLOAD_BUFFER before returning; a
+    // background drain already holding rows commits first.
+    await apiPost<unknown>(this.client, FLUSH_PIPELINE_PATH, {});
   }
 }

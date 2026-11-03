@@ -56,5 +56,6 @@ export const PROXY_BASE_URL_DEFAULT: string =
 export const HEADER_CSRF_TOKEN = 'X-CSRF-Token';
 export const HEADER_CONTENT_TYPE = 'Content-Type';
 export const HEADER_AUTHORIZATION = 'Authorization';
+export const HEADER_IDEMPOTENCY_KEY = 'Idempotency-Key';
 
 export const MIME_JSON = 'application/json';

@@ -1,7 +1,7 @@
 import { chronicleTest as test, expect } from './fixtures/chronicle-test';
 import { TESTING_LOGIN_PATH } from './dsl/constants';
 import { expectAppRendered } from './fixtures/app-ready';
-import { fillRequiredParticipantPolicy, setStudyFeature } from './fixtures/study-form';
+import { headerCreateStudyButton } from './fixtures/study-form';
 
 // Persona 2: Novice User — predictable mistakes must produce helpful messages, not crashes.
 // Driven through the DSL: API-seeded study for the destructive-cancel exercise; UI-only
@@ -17,7 +17,7 @@ test.describe('persona: novice user', () => {
           await persona.openStudiesList();
           const fallback = persona.page.getByText(/something went wrong|stack trace|application crashed/i).first();
           expect(await fallback.isVisible({ timeout: 2_000 }).catch(() => false)).toBe(false);
-          await expect(persona.page.getByRole('heading', { name: 'Studies', exact: true }).locator('../../..').getByRole('button', { name: /create new study/i })).toBeVisible({ timeout: 10_000 });
+          await expect(headerCreateStudyButton(persona.page)).toBeVisible({ timeout: 10_000 });
           expect(errs.errors[0], `Studies page crashed with: ${errs.errors[0]?.message ?? ''}`).toBeUndefined();
         });
       });
@@ -36,29 +36,26 @@ test.describe('persona: novice user', () => {
     });
   });
 
-  test('create-study submit is disabled until required fields are valid', async ({ scenario }) => {
+  test('create-study submit names the missing fields until required fields are valid', async ({ scenario }) => {
     await scenario(async (s) => {
       await s.asUser('test_user1', async (auth) => {
         await auth.asPersona('novice-user', async (persona) => {
           await persona.openStudiesList();
           const { page } = persona;
-          await page.getByRole('heading', { name: 'Studies', exact: true }).locator('../../..').getByRole('button', { name: /create new study/i }).click();
+          await headerCreateStudyButton(page).click();
           const dialog = page.getByRole('dialog');
           await expect(dialog).toBeVisible();
           const submit = dialog.getByRole('button', { name: /^create study$/i });
+          const summary = dialog.getByRole('alert');
 
-          await expect(submit).toBeDisabled();
+          await submit.click();
+          await expect(summary).toContainText('Fix the highlighted fields before saving.');
 
           await dialog.getByLabel(/study name/i).fill('Novice-Validation');
           await dialog.getByLabel(/contact email/i).fill('novice@chronicle.test');
-          await expect(submit).toBeDisabled();
-
-          await fillRequiredParticipantPolicy(dialog, 'novice-validation');
-          await setStudyFeature(dialog, 'Data Collection', true);
-          await expect(submit).toBeEnabled({ timeout: 5_000 });
-
-          await dialog.getByRole('button', { name: /cancel/i }).click();
-          await expect(dialog).toBeHidden({ timeout: 5_000 });
+          await submit.click();
+          await expect(summary).toContainText('Fix the highlighted fields before saving.');
+          await expect(dialog).toBeVisible();
         });
       });
     });
@@ -86,7 +83,7 @@ test.describe('persona: novice user', () => {
             await expect(confirmDialog).toBeHidden({ timeout: 5_000 });
 
             await persona.openStudiesList();
-            await page.getByRole('textbox', { name: /search studies/i }).fill(study.title);
+            await page.getByRole('searchbox', { name: /search studies/i }).fill(study.title);
             await expect(page.getByRole('row').filter({ hasText: study.title })).toBeVisible({
               timeout: 5_000,
             });

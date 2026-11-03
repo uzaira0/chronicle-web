@@ -1,6 +1,6 @@
 import { chronicleTest as test, expect } from './fixtures/chronicle-test';
 import { apiGet } from './dsl/di/api-client';
-import { fillRequiredParticipantPolicy, setStudyFeature } from './fixtures/study-form';
+import { fillRequiredParticipantPolicy, headerCreateStudyButton, setStudyFeature } from './fixtures/study-form';
 
 interface StudySummary { id?: string; title: string }
 
@@ -17,7 +17,7 @@ test.describe('persona: adversary (UI)', () => {
         await auth.asPersona('adversary', async (persona) => {
           await persona.openStudiesList();
           const { page } = persona;
-          const button = page.getByRole('button', { name: /create new study/i }).first();
+          const button = headerCreateStudyButton(page);
           await expect(button).toBeVisible({ timeout: 10_000 });
           for (let i = 0; i < 25; i++) {
             await button.click({ trial: false }).catch(() => undefined);
@@ -42,13 +42,13 @@ test.describe('persona: adversary (UI)', () => {
           // millisecond. Include the project/worker identity so this assertion
           // measures one dialog's submission fence rather than a parallel test.
           const title = `Adversary-Dup-${testInfo.project.name}-${testInfo.workerIndex}-${Date.now()}`;
-          await page.getByRole('button', { name: /create new study/i }).click();
+          await headerCreateStudyButton(page).click();
           const dialog = page.getByRole('dialog');
           await expect(dialog).toBeVisible();
           await dialog.getByLabel(/study name/i).fill(title);
           await dialog.getByLabel(/contact email/i).fill('adv@chronicle.test');
           await fillRequiredParticipantPolicy(dialog, `adversary-${Date.now()}`);
-          await setStudyFeature(dialog, 'Data Collection', true);
+          await setStudyFeature(dialog, 'Data collection', true);
           const submit = dialog.getByRole('button', { name: /^create study$/i });
           // Playwright's normal click waits for a disabled button to become
           // actionable again, so two concurrent locator.click() calls can turn
