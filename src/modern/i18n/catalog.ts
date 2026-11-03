@@ -2,7 +2,7 @@ import type { Translator } from './translator';
 
 /**
  * Translatable presentation for the domain catalogs (study features, collection modules,
- * sensors, dispositions, export data types). The English labels stay in `lib/*` as the
+ * sensors, export data types). The English labels stay in `lib/*` as the
  * source of truth; a language table may override any of them under `catalog.<kind>.<slug>`.
  * `scripts/i18n-sync-catalog.ts` regenerates the English `catalog` namespace from the
  * constants so translators always see the full key list.
@@ -10,15 +10,14 @@ import type { Translator } from './translator';
 export type CatalogKind =
   | 'android_sensor'
   | 'data_type'
-  | 'disposition'
-  | 'disposition_description'
+  | 'diagnostic_family'
   | 'feature'
   | 'group'
   | 'health_connect'
-  | 'ios_sensor'
   | 'module'
   | 'module_description'
-  | 'privacy_class';
+  | 'privacy_class'
+  | 'upload_issue';
 
 export function catalogSlug(value: string): string {
   return value

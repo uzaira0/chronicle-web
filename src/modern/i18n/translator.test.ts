@@ -51,9 +51,8 @@ describe('createTranslator — i18next subset fidelity', () => {
   test('falls back to the English table for a key another language lacks', () => {
     // Only upstream-verified translations ship; a key a language table lacks renders in
     // English (upstream's fallbackLng) until a verified translator supplies it.
-    const es = createTranslator('es');
-    expect(es.t('app_usage_survey.user_options.parent_alone')).toBe('Parent alone');
-    expect(es.t('app_usage_survey.title')).toBe('Encuesta de uso de las Apps');
+    const sv = createTranslator('sv');
+    expect(sv.t('app_usage_survey.user_options.parent_alone')).toBe('Parent alone');
   });
 
   test('tArray returns option arrays verbatim and interpolates each element', () => {
@@ -139,22 +138,52 @@ describe('language-code resolution', () => {
   });
 });
 
-// Regression: `bed_time_tonight` is an empty string in the Spanish and Swedish tables, and
-// an empty value used to win over the English fallback — the today-diary bed-time question
-// rendered as a required input with no title at all.
+// `bed_time_tonight` is an empty string in the Swedish table. An empty value must not win over
+// the English fallback, or the today-diary bed-time question renders with no title.
 describe('createTranslator — empty values fall back to English', () => {
-  test('an empty Spanish value renders the English text, not a blank label', () => {
-    const es = createTranslator('es');
-    expect(es.t('bed_time_tonight')).toBe(createTranslator('en').t('bed_time_tonight'));
-    expect(es.t('bed_time_tonight')).not.toBe('');
+  test('an empty Swedish value renders the English text, not a blank label', () => {
+    const sv = createTranslator('sv');
+    expect(sv.t('bed_time_tonight')).toBe(createTranslator('en').t('bed_time_tonight'));
+    expect(sv.t('bed_time_tonight')).not.toBe('');
   });
 
   test('an empty value reached through a $t() context reference also falls back', () => {
-    const es = createTranslator('es');
-    expect(es.t('day_end_time_ctx.bed_time', { context: 'today' })).not.toBe('');
+    const sv = createTranslator('sv');
+    expect(sv.t('day_end_time_ctx.bed_time', { context: 'today' })).toBe(createTranslator('en').t('bed_time_tonight'));
   });
 
   test('a translated Spanish value still wins over English', () => {
     expect(createTranslator('es').t('button_next')).toBe('Siguiente');
+  });
+});
+
+// i18next plurals, CLDR one/other (the only split English and Spanish need): a count of 1
+// prefers `<key>_one` in the active table, then the bare key, then English.
+describe('createTranslator — _one plural forms', () => {
+  const es = createTranslator('es');
+
+  test('a count of one picks the _one row, as a number or the string the pages pass', () => {
+    expect(es.t('participants.selected_count', { count: '1' })).toBe('1 seleccionado');
+    expect(es.t('participants.selected_count', { count: 1 })).toBe('1 seleccionado');
+    expect(es.t('modules_panel.required_count', { count: '1' })).toBe('1 obligatorio');
+    expect(es.t('participants.show_more', { count: 1, hidden: 1, step: 50 })).toBe('Mostrar 50 más (1 oculto)');
+  });
+
+  test('any other count keeps the plural row', () => {
+    for (const count of ['0', '2', '11']) {
+      expect(es.t('participants.selected_count', { count })).toBe(`${count} seleccionados`);
+    }
+    expect(es.t('participants.selected_count')).toBe('{{count}} seleccionados');
+  });
+
+  test('a key without a _one row renders its bare form for a count of one', () => {
+    expect(es.t('participants.diagnostics_page', { count: 1, page: 1 })).toBe('Página 1');
+    expect(createTranslator('en').t('participants.diagnostics_page', { count: 1, page: 1 })).toBe('Page 1');
+  });
+
+  test('a language without the key falls back to the English _one row', () => {
+    expect(createTranslator('sv').t('participants.selected_count', { count: 1 })).toBe(
+      createTranslator('en').t('participants.selected_count_one', { count: 1 }),
+    );
   });
 });

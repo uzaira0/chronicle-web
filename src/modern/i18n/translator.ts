@@ -1,6 +1,6 @@
 // A contained reimplementation of the exact i18next subset the Time Use Diary
-// wording relies on — nothing more. The legacy form used the full i18next runtime;
-// the Bun build does not bundle it, so this resolver provides the four
+// wording relies on. The Bun build does not bundle the i18next runtime, so this
+// resolver provides the four
 // behaviors the translation tables actually exercise:
 //
 //   1. `$t(other.key)` cross-references (resolved recursively, inheriting options)
@@ -9,6 +9,8 @@
 //      'intro_text_today', falling back to 'intro_text'
 //   4. returning arrays/objects verbatim (i18next `returnObjects`) with the same
 //      string processing applied to every leaf
+//   5. `_one` plurals: t('k', {count: 1}) prefers 'k_one', falling back to 'k'
+//      (CLDR one/other, the only split English and Spanish need)
 //
 // Keeping this faithful is what makes the form correct-by-construction; the
 // translator.test.ts cases pin each behavior against the real tables.
@@ -56,13 +58,10 @@ function lookupPath(table: TranslationTable, dottedKey: string): unknown {
   return node;
 }
 
-// i18next context: try `${key}_${context}` first, then the bare key.
-function resolveRaw(table: TranslationTable, key: string, context?: string): unknown {
-  if (context) {
-    const contextual = lookupPath(table, `${key}_${context}`);
-    if (contextual !== undefined) return contextual;
-  }
-  return lookupPath(table, key);
+// i18next key order: `${key}_${context}_one`, `${key}_${context}`, `${key}_one`, then the bare key.
+function candidateKeys(key: string, options: TransOptions): string[] {
+  const bases = options.context ? [`${key}_${options.context}`, key] : [key];
+  return Number(options.count) === 1 ? bases.flatMap((base) => [`${base}_one`, base]) : bases;
 }
 
 export type Translator = {
@@ -86,9 +85,16 @@ export function createTranslator(effectiveCode: string): Translator {
   // An empty string in a language table is an untranslated placeholder, not a translation:
   // upstream ran with i18next's `returnEmptyString: false`, so it fell back to English
   // rather than rendering a blank label on a required question. Matched here.
-  function lookup(key: string, context?: string): unknown {
-    const raw = resolveRaw(table, key, context);
-    return raw === undefined || raw === '' ? resolveRaw(english, key, context) : raw;
+  // The active table answers with any candidate before English is consulted, as in i18next.
+  function lookup(key: string, options: TransOptions): unknown {
+    const keys = candidateKeys(key, options);
+    for (const source of [table, english]) {
+      for (const candidate of keys) {
+        const raw = lookupPath(source, candidate);
+        if (raw !== undefined && raw !== '') return raw;
+      }
+    }
+    return lookupPath(english, key);
   }
 
   function renderString(raw: string, options: TransOptions): string {
@@ -102,20 +108,20 @@ export function createTranslator(effectiveCode: string): Translator {
   }
 
   function resolve(key: string, options: TransOptions): string {
-    const raw = lookup(key, options.context);
+    const raw = lookup(key, options);
     if (typeof raw === 'string') return renderString(raw, options);
     if (raw === undefined) return key; // absent in every table -> echo the key (i18next default)
     return primitiveToString(raw) ?? key;
   }
 
   function resolveArray(key: string, options: TransOptions): string[] {
-    const raw = lookup(key, options.context);
+    const raw = lookup(key, options);
     if (!Array.isArray(raw)) return [];
     return raw.map((el) => (typeof el === 'string' ? renderString(el, options) : String(el)));
   }
 
   function resolveObject(key: string, options: TransOptions): Record<string, string> {
-    const raw = lookup(key, options.context);
+    const raw = lookup(key, options);
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { cleanup, render } from '@testing-library/react';
+import { createElement } from 'react';
+import { withBlockedStorage } from '@/test/browser-env';
 
-import { resolveInitialLanguage } from './language-context';
+import { getCurrentLanguage, LanguageProvider, resolveInitialLanguage } from './language-context';
 
 describe('resolveInitialLanguage', () => {
   test('an explicit ?lang= (with ?gender=) on the participant link wins', () => {
@@ -19,5 +22,24 @@ describe('resolveInitialLanguage', () => {
 
   test('falls back to English when nothing matches a supported table', () => {
     expect(resolveInitialLanguage('', null, 'fr-FR')).toBe('en');
+  });
+});
+
+// A participant whose browser blocks site data (private mode, strict tracking settings) makes every storage read
+// throw: the page still opens, in the link's or the browser's language, as if nothing had been stored.
+describe('LanguageProvider with blocked storage', () => {
+  test.each([
+    ['', 'en'],
+    ['?lang=es', 'es'],
+  ])('a blocked stored-language read with link %j opens in %s', (search, expected) => {
+    try {
+      withBlockedStorage(() => render(createElement(LanguageProvider, { initialSearch: search }, 'page')));
+      expect(document.documentElement.lang).toBe(expected);
+      expect(getCurrentLanguage()).toBe(expected);
+    } finally {
+      cleanup();
+      render(createElement(LanguageProvider, { initialSearch: '?lang=en' }, null));
+      cleanup();
+    }
   });
 });

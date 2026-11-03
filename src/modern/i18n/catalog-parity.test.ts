@@ -1,38 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { PARTICIPANT_DATA_TYPE_OPTIONS } from '../lib/participant-data-types';
-import {
-  ANDROID_SENSOR_TYPES,
-  COLLECTION_DISPOSITIONS,
-  COLLECTION_MODULE_GROUP_ORDER,
-  COLLECTION_MODULES,
-  HEALTH_CONNECT_RECORD_TYPES,
-  IOS_SENSOR_TYPES,
-  STUDY_FEATURES,
-} from '../lib/study-constants';
-import { catalogSlug } from './catalog';
+import { buildCatalog } from '../../../scripts/i18n-sync-catalog';
 import english from './en/translation.json';
+import spanish from './es/translation.json';
 
-// Mirror the fields emitted by scripts/i18n-sync-catalog.ts without running it.
-const pairs: Record<string, ReadonlyArray<readonly [string, string]>> = {
-  android_sensor: ANDROID_SENSOR_TYPES.map(({ label, value }) => [value, label]),
-  data_type: PARTICIPANT_DATA_TYPE_OPTIONS.map(({ label, value }) => [value, label]),
-  disposition: COLLECTION_DISPOSITIONS.map(({ label, value }) => [value, label]),
-  disposition_description: COLLECTION_DISPOSITIONS.map(({ description, value }) => [value, description]),
-  feature: STUDY_FEATURES.map(({ label, value }) => [value, label]),
-  group: COLLECTION_MODULE_GROUP_ORDER.map((group) => [group, group]),
-  health_connect: HEALTH_CONNECT_RECORD_TYPES.map(({ label, value }) => [value, label]),
-  ios_sensor: IOS_SENSOR_TYPES.map(({ label, value }) => [value, label]),
-  module: COLLECTION_MODULES.map(({ label, value }) => [value, label]),
-  module_description: COLLECTION_MODULES.map(({ description, value }) => [value, description]),
-  privacy_class: [...new Set(COLLECTION_MODULES.map(({ privacyClass }) => privacyClass))].map((cls) => [cls, cls]),
-};
-const expected = Object.fromEntries(
-  Object.entries(pairs).map(([group, entries]) => [
-    group,
-    Object.fromEntries(entries.map(([value, label]) => [catalogSlug(value), label])),
-  ]),
-);
+// The committed English catalog must be exactly what the generator writes.
+const expected = buildCatalog();
 const actual: Record<string, Record<string, string>> = english.catalog;
 const allGroups = [...new Set([...Object.keys(expected), ...Object.keys(actual)])];
 
@@ -66,3 +39,60 @@ for (const [name, groups] of [
     expect(groups.flatMap(groupDifferences)).toEqual([]);
   });
 }
+
+// Pilot participants read Spanish. Translators are volunteers, so a key missing from the Spanish
+// table falls back to English and is allowed; a Spanish string that exists must keep the English placeholders
+// and references, so the participant never sees a raw {{token}} or loses a value.
+// The namespace list is written out here, not derived from the pages under test.
+const PILOT_SPANISH_NAMESPACES: string[] = [
+  'enrollment',
+  'participant_access',
+  'participant_session',
+  'participant_shell',
+  'participant_submission',
+  'participant_landing',
+  'app_usage_survey',
+  'participants',
+  'change_enrollment',
+  'download_modal',
+  'qr_modal',
+  'participant_info',
+  'policy_fields',
+  'policy_validation',
+  'modules_panel',
+  'status',
+  'login',
+  'common',
+];
+
+type Tree = { [key: string]: unknown };
+function spanishLeaves(tree: Tree, prefix: string): [string, unknown][] {
+  return Object.entries(tree).flatMap(([key, value]) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? spanishLeaves(value as Tree, `${prefix}.${key}`)
+      : [[`${prefix}.${key}`, value] as [string, unknown]],
+  );
+}
+function at(tree: Tree, path: string): unknown {
+  return path.split('.').reduce<unknown>((node, key) => (node as Tree | undefined)?.[key], tree);
+}
+const PLACEHOLDER = /\{\{\s*[^}]+?\s*\}\}|\$t\([^)]+\)/g;
+const placeholders = (value: unknown) =>
+  (typeof value === 'string' ? (value.match(PLACEHOLDER) ?? []) : []).map((p) => p.replace(/\s+/g, '')).sort();
+
+function spanishProblems(path: string, englishValue: unknown): string[] {
+  const value = at(spanish, path);
+  if (value === undefined) return [];
+  if (Array.isArray(englishValue))
+    return Array.isArray(value) && value.length === englishValue.length ? [] : [`array ${path}`];
+  if (typeof value !== typeof englishValue) return [`type ${path}`];
+  return placeholders(value).join() === placeholders(englishValue).join() ? [] : [`placeholders ${path}`];
+}
+
+test.each(PILOT_SPANISH_NAMESPACES)('Spanish strings of %s keep the English placeholders', (namespace) => {
+  const englishTree = (english as Tree)[namespace] as Tree;
+  expect(englishTree).toBeDefined();
+  expect(
+    spanishLeaves(englishTree, namespace).flatMap(([path, englishValue]) => spanishProblems(path, englishValue)),
+  ).toEqual([]);
+});
