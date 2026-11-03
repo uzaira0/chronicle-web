@@ -88,10 +88,10 @@ export function TableSkeleton({ label, rows = 5 }: { label: string; rows?: numbe
 
 // Suspense fallback while a lazy route chunk downloads, so a slow network shows the page's
 // shape instead of a blank area.
-export function RouteSkeleton() {
+export function RouteSkeleton({ label }: { label?: string }) {
   const { t } = useTranslator();
   return (
-    <output aria-busy="true" aria-label={t('common.loading')} className="grid gap-3">
+    <output aria-busy="true" aria-label={label ?? t('common.loading')} className="grid gap-3">
       <div className="h-14 animate-pulse rounded-lg bg-muted" />
       <div className="h-20 animate-pulse rounded-lg bg-muted" />
       <div className="h-20 animate-pulse rounded-lg bg-muted" />

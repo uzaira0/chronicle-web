@@ -1,6 +1,18 @@
-import { createTranslator, getCurrentLanguage } from '@/i18n';
+import { PARTICIPANT_PROCESSING_BLOCKED_CODE } from '@/generated/chronicle-contracts';
+import { createTranslator, getCurrentLanguage, type Translator } from '@/i18n';
 
 const MAX_USER_ERROR_MESSAGE_LENGTH = 1_000;
+
+export function getBlockingParticipantIds(error: unknown): string[] {
+  if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 409 || !('data' in error))
+    return [];
+  const data = error.data;
+  if (!data || typeof data !== 'object' || !('blockingParticipantIds' in data)) return [];
+  const ids = data.blockingParticipantIds;
+  return Array.isArray(ids) && ids.every((id): id is string => typeof id === 'string' && id.length > 0)
+    ? [...new Set(ids)]
+    : [];
+}
 const HTML_RESPONSE_PATTERN = /(?:<!doctype\s+html|<\/?(?:html|head|body|script|style|iframe|main|div|form|h[1-6])\b)/i;
 
 /**
@@ -20,7 +32,11 @@ const SERVER_DIAGNOSTIC_PATTERNS: readonly RegExp[] = [
   /"(?:timestamp|trace|exception|path|errorId)"\s*:/,
   // A Java/Kotlin stack frame.
   /\n\s*at\s+[\w$.]+\(/,
-  /\b(?:java|kotlin|org\.springframework|com\.openlattice)\.[\w$.]+(?:Exception|Error)\b/,
+  /\b(?:java|javax|jakarta|kotlin|org\.springframework|org\.postgresql|com\.zaxxer|com\.openlattice)\.[\w$.]+(?:Exception|Error)\b/,
+  // A database message: the constraint it names, the stored key values it quotes, or the driver's SQL state.
+  /\bviolates (?:unique|foreign key|not-null|check|exclusion) constraint\b/i,
+  /\bKey \([^)]*\)=\(/,
+  /\bSQL ?state\b/i,
 ];
 
 function isSerializedDocument(message: string): boolean {
@@ -138,4 +154,49 @@ export function getErrorMessage(error: unknown, fallback: string): string {
   }
 
   return sanitizeErrorMessage(fallback);
+}
+
+export function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+export function isParticipantProcessingBlocked(data: unknown): boolean {
+  return !!data && typeof data === 'object' && 'code' in data && data.code === PARTICIPANT_PROCESSING_BLOCKED_CODE;
+}
+
+function httpStatusOf(error: unknown): unknown {
+  return error && typeof error === 'object' && 'status' in error ? error.status : undefined;
+}
+
+/** What a failed participant request means for the participant's session, or null when it is not about the session. */
+function participantSessionErrorMessage(error: unknown, translate: Translator['t']): string | null {
+  const status = httpStatusOf(error);
+  if (
+    status === 403 &&
+    error &&
+    typeof error === 'object' &&
+    'data' in error &&
+    isParticipantProcessingBlocked(error.data)
+  )
+    return translate('participant_access.processing_blocked');
+  if (status === 401 || status === 403) return translate('participant_session.expired_description');
+  return null;
+}
+
+/** A participant form's failed read: an ended session says how to get a fresh link, anything else stays generic. */
+export function getParticipantReadErrorMessage(error: unknown, translate: Translator['t']): string {
+  return participantSessionErrorMessage(error, translate) ?? getErrorMessage(error, translate('common.request_failed'));
+}
+
+export function getParticipantSubmissionErrorMessage(error: unknown, translate: Translator['t']): string {
+  const session = participantSessionErrorMessage(error, translate);
+  if (session) return session;
+  const status = httpStatusOf(error);
+  if (status === 400 || status === 422) return getErrorMessage(error, translate('participant_submission.validation'));
+  if (typeof status === 'number' && isRetryableHttpStatus(status)) {
+    return translate('participant_submission.temporary');
+  }
+  if (status === 'PARSING_ERROR') return translate('participant_submission.unreadable');
+  if (isNetworkFailure(error)) return getErrorMessage(error, translate('participant_submission.unconfirmed'));
+  return getErrorMessage(error, translate('participant_submission.rejected'));
 }

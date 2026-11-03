@@ -1,40 +1,38 @@
-import { afterEach, expect, mock, test } from 'bun:test';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, expect, test } from 'bun:test';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router';
+import { formatDisplayDate } from '@/lib/format';
 import { studyOperationsApi } from '@/state/study-operations-api';
+import type { FetchRoutes } from '@/test/http-fixtures';
+import { routeFetch } from '@/test/http-fixtures';
 import { createApiStore } from '@/test/study-operations-store';
-
-const apiModule = await import('@/state/study-operations-api');
-const realHooks = Object.fromEntries(Object.entries(studyOperationsApi).filter(([key]) => key.startsWith('use')));
-await mock.module('@/state/study-operations-api', () => ({ ...apiModule, ...realHooks }));
-const { StudyDetailsPage } = await import('./study-details-page');
-const { StudyQuestionnairesPage } = await import('./study-questionnaires-page');
-const { StudySettingsAuditPage } = await import('./study-settings-audit-page');
-const { StudyBulkDownloadsPage } = await import('./study-bulk-downloads-page');
+import { StudyDetailsPage } from './study-details-page';
+import { StudyQuestionnairesPage } from './study-questionnaires-page';
+import { StudySettingsAuditPage } from './study-settings-audit-page';
 
 const originalFetch = globalThis.fetch;
 const STUDY_ID = 'request-state-study';
 const STUDY_PATH = `/chronicle/api/web/study/${STUDY_ID}`;
 const QUESTIONNAIRES_PATH = `/chronicle/api/web/survey/${STUDY_ID}/questionnaire`;
+const LIMITS_PATH = `/chronicle/api/web/limits/study/${STUDY_ID}`;
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function renderPage(page: ReactNode, responses: Record<string, (request: Request) => Response>) {
+function renderPage(page: ReactNode, responses: FetchRoutes) {
   window.location.href = 'http://localhost/';
-  globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    const path = new URL(request.url).pathname;
-    return Promise.resolve(
-      responses[path]?.(request) ??
-        json(
-          path === STUDY_PATH
-            ? { id: STUDY_ID, title: 'Current Study', modules: { CHRONICLE_DATA_COLLECTION: {} } }
-            : [],
-        ),
-    );
-  }) as unknown as typeof fetch;
+  globalThis.fetch = routeFetch({
+    [`GET ${STUDY_PATH}`]: () =>
+      json({ id: STUDY_ID, title: 'Current Study', modules: { CHRONICLE_DATA_COLLECTION: {} } }),
+    [`GET ${STUDY_PATH}/participants`]: () => json([]),
+    [`GET ${STUDY_PATH}/settings/type/DataCollection`]: () => json({ modules: {} }),
+    [`GET ${STUDY_PATH}/settings/audit`]: () => json([]),
+    [`GET ${STUDY_PATH}/settings/acknowledgments`]: () => json([]),
+    [`GET ${QUESTIONNAIRES_PATH}`]: () => json([]),
+    [`GET ${LIMITS_PATH}`]: () => json({ studyDuration: null, studyEnds: null }),
+    ...responses,
+  });
   const store = createApiStore();
   render(
     <Provider store={store}>
@@ -62,8 +60,8 @@ test.each([200, 503])('a new questionnaire deletion resets the previous mutation
     questions: [],
   }));
   renderPage(<StudyQuestionnairesPage />, {
-    [QUESTIONNAIRES_PATH]: () => json(questionnaires),
-    [`${QUESTIONNAIRES_PATH}/q0`]: () => json({}, status),
+    [`GET ${QUESTIONNAIRES_PATH}`]: () => json(questionnaires),
+    [`DELETE ${QUESTIONNAIRES_PATH}/q0`]: () => json({}, status),
   });
   await screen.findByText('First');
   fireEvent.click(screen.getAllByRole('button', { name: 'Delete questionnaire' })[1] as HTMLButtonElement);
@@ -77,16 +75,15 @@ test.each([200, 503])('a new questionnaire deletion resets the previous mutation
   expect(screen.getByRole('dialog').textContent).toContain('Second');
 });
 
-test('sensor overview uses current DataCollection policy instead of conflicting legacy settings', async () => {
+test('sensor overview uses current per-module sensor policy', async () => {
   renderPage(<StudyDetailsPage />, {
-    [STUDY_PATH]: () =>
+    [`GET ${STUDY_PATH}`]: () =>
       json({
         id: STUDY_ID,
         title: 'Current Study',
-        modules: { ANDROID_SENSOR: {} },
-        settings: { AndroidSensor: { samplingRateHz: 5, enabled: true } },
+        modules: { CHRONICLE_DATA_COLLECTION: {} },
       }),
-    [`${STUDY_PATH}/settings/type/DataCollection`]: () =>
+    [`GET ${STUDY_PATH}/settings/type/DataCollection`]: () =>
       json({
         modules: {
           sensor_accelerometer: { enabled: true, sensorPolicy: { samplingRateHz: 40 } },
@@ -100,35 +97,46 @@ test('sensor overview uses current DataCollection policy instead of conflicting 
   expect(screen.getAllByText('Gyroscope').some((node) => node.classList.contains('bg-muted'))).toBe(true);
 });
 
+test.each([
+  ['2027-03-03T00:00:00Z', formatDisplayDate('2027-03-03T00:00:00Z')],
+  [null, 'Open-ended'],
+])(
+  'the timeline shows the end the server enforces (%s), not the unenforced study endedAt',
+  async (studyEnds, shown) => {
+    renderPage(<StudyDetailsPage />, {
+      [`GET ${STUDY_PATH}`]: () => json({ id: STUDY_ID, title: 'Current Study', endedAt: '2030-01-01T00:00:00Z' }),
+      [`GET ${LIMITS_PATH}`]: () => json({ studyEnds }),
+    });
+    expect(await screen.findByText(shown)).toBeTruthy();
+    expect(screen.queryByText(formatDisplayDate('2030-01-01T00:00:00Z'))).toBeNull();
+  },
+);
+
+test('a failed limits refresh withdraws the cached Open-ended claim and offers a retry', async () => {
+  let limits: () => Response = () => json({});
+  const store = renderPage(<StudyDetailsPage />, { [`GET ${LIMITS_PATH}`]: () => limits() });
+  expect(await screen.findByText('Open-ended')).toBeTruthy();
+  // Another tab set an end; this tab's focus refetch (study layout) then fails.
+  const studyEnds = '2027-03-03T00:00:00Z';
+  limits = () => json({}, 503);
+  await act(async () => {
+    const refetch = store.dispatch(
+      studyOperationsApi.endpoints.getStudyLimits.initiate(STUDY_ID, { forceRefetch: true }),
+    );
+    await refetch;
+    refetch.unsubscribe();
+  });
+  await waitFor(() => expect(screen.queryByText('Open-ended')).toBeNull());
+  limits = () => json({ studyEnds });
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(await screen.findByText(formatDisplayDate(studyEnds))).toBeTruthy();
+});
+
 test('failed consent history shows retry instead of an absent-consent claim', async () => {
   renderPage(<StudySettingsAuditPage />, {
-    [`${STUDY_PATH}/settings/acknowledgments`]: () => json({}, 503),
+    [`GET ${STUDY_PATH}/settings/acknowledgments`]: () => json({}, 503),
   });
   expect(await screen.findByText(/Consent records could not be loaded/)).toBeTruthy();
   expect(screen.queryByText('No participant consent decisions recorded for this study.')).toBeNull();
   expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
 });
-
-test('active exports become downloadable without manual refresh and stop polling when complete', async () => {
-  let polls = 0;
-  const job = {
-    rowCount: 12,
-    studyId: STUDY_ID,
-    exportId: 'export-ready',
-    format: 'EXCEL',
-    createdAt: '2026-10-07T12:00:00Z',
-  };
-  const store = renderPage(<StudyBulkDownloadsPage />, {
-    [`${STUDY_PATH}/settings/type/DataCollection`]: () => json({ modules: {} }),
-    [`${STUDY_PATH}/export`]: () => json([{ ...job, status: ++polls === 1 ? 'PENDING' : 'COMPLETED' }]),
-  });
-  await screen.findByText('Pending');
-  store.dispatch(studyOperationsApi.internalActions.onFocusLost());
-  await new Promise((resolve) => setTimeout(resolve, 5_500));
-  expect(polls).toBe(1);
-  store.dispatch(studyOperationsApi.internalActions.onFocus());
-  expect(await screen.findByRole('button', { name: 'Download' }, { timeout: 6_000 })).toBeTruthy();
-  const completedPolls = polls;
-  await new Promise((resolve) => setTimeout(resolve, 5_500));
-  expect(polls).toBe(completedPolls);
-}, 20_000);

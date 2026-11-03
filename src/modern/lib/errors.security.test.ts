@@ -49,6 +49,20 @@ describe('getErrorMessage server-diagnostic suppression', () => {
     expect(getErrorMessage(error, fallback)).toBe(`${fallback} (status 500)`);
   });
 
+  // A database or driver message names tables, constraints and stored values; the page shows
+  // only the caller's sentence.
+  it.each([
+    'ERROR: duplicate key value violates unique constraint "participants_pkey" Detail: Key (study_id, participant_id)=(s1, CL-001) already exists.',
+    'duplicate key value violates unique constraint "participants_pkey"',
+    'Detail: Key (study_id, participant_id)=(s1, CL-001) already exists.',
+    'org.postgresql.util.PSQLException: ERROR: relation "chronicle.participants" does not exist',
+    'could not execute statement; SQL [n/a]; SQL state [23505]',
+    'SQLState: 23505',
+  ])('does not render a database diagnostic: %s', (message) => {
+    const error = { status: 500, data: { message } };
+    expect(getErrorMessage(error, fallback)).toBe(`${fallback} (status 500)`);
+  });
+
   it('still renders a message written for a person', () => {
     const error = { status: 403, data: { message: 'You do not have access to this study.' } };
     expect(getErrorMessage(error, fallback)).toBe('You do not have access to this study.');

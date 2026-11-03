@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'bun:test';
 
-import { getErrorMessage } from './errors';
+import { PARTICIPANT_PROCESSING_BLOCKED_CODE } from '@/generated/chronicle-contracts';
+import english from '@/i18n/en/translation.json';
+import { createTranslator } from '@/i18n/translator';
+import { getBlockingParticipantIds, getErrorMessage, getParticipantSubmissionErrorMessage } from './errors';
+
+describe('getBlockingParticipantIds()', () => {
+  it('offers cancellation only for a 409 carrying a valid list of participant IDs', () => {
+    expect(getBlockingParticipantIds({ status: 409, data: { blockingParticipantIds: ['p1', 'p2', 'p1'] } })).toEqual([
+      'p1',
+      'p2',
+    ]);
+    for (const error of [
+      null,
+      { status: 403, data: { blockingParticipantIds: ['p1'] } },
+      { status: 409 },
+      { status: 409, data: { blockingParticipantIds: ['p1', null] } },
+      { status: 409, data: { blockingParticipantIds: [''] } },
+    ])
+      expect(getBlockingParticipantIds(error)).toEqual([]);
+  });
+});
 
 describe('getErrorMessage()', () => {
   const fallback = 'Something went wrong';
@@ -39,7 +59,7 @@ describe('getErrorMessage()', () => {
     expect(getErrorMessage({ status: 422, data: { message: '' } }, fallback)).toBe(`${fallback} (status 422)`);
   });
 
-  // production-readiness U1/U4: a network failure never shows the browser's own exception
+  // A network failure never shows the browser's own exception
   // text; it shows the caller's sentence plus a translated connection hint.
   it('replaces queryFn network error text with a connection hint', () => {
     expect(getErrorMessage({ status: 'FETCH_ERROR', error: 'TypeError: Failed to fetch' }, fallback)).toBe(
@@ -263,5 +283,38 @@ describe('getErrorMessage()', () => {
 
   it('handles status: null (not number or string)', () => {
     expect(getErrorMessage({ status: null }, fallback)).toBe(fallback);
+  });
+});
+
+// Every answer the server can give a participant's survey or diary submission maps to one sentence that tells the
+// participant what happened to their answers; a refusal no other rule names (the day or study is gone) is "rejected".
+describe('getParticipantSubmissionErrorMessage()', () => {
+  const { t } = createTranslator('en');
+  const s = english.participant_submission;
+  it.each([
+    ['an ended session', { status: 401, data: {} }, english.participant_session.expired_description],
+    [
+      'a paused participant',
+      { status: 403, data: { code: PARTICIPANT_PROCESSING_BLOCKED_CODE } },
+      english.participant_access.processing_blocked,
+    ],
+    [
+      'a validation refusal with its reason',
+      { status: 422, data: { message: 'Pick at least one user.' } },
+      'Pick at least one user.',
+    ],
+    ['a validation refusal without a reason', { status: 400, data: '' }, `${s.validation} (status 400)`],
+    ['a busy server', { status: 503, data: '' }, s.temporary],
+    ['an unreadable success', { status: 'PARSING_ERROR', data: '' }, s.unreadable],
+    ['a removed day', { status: 404, data: { message: 'Not found' } }, 'Not found'],
+    ['a refusal with an unpresentable body', { status: 410, data: '<html>gone</html>' }, `${s.rejected} (status 410)`],
+  ])('%s', (_name, error, expected) => {
+    expect(getParticipantSubmissionErrorMessage(error, t)).toBe(expected);
+  });
+
+  it('a dropped connection says the submission is unconfirmed', () => {
+    expect(getParticipantSubmissionErrorMessage({ status: 'FETCH_ERROR', error: 'TypeError' }, t)).toContain(
+      s.unconfirmed,
+    );
   });
 });

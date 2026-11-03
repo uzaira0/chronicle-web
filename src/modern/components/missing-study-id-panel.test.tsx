@@ -4,9 +4,9 @@ import { render, screen } from '@testing-library/react';
 import { MissingStudyIdPanel } from './missing-study-id-panel';
 
 describe('MissingStudyIdPanel', () => {
-  test('renders title "Missing Study ID"', () => {
+  test('renders title "Missing study ID"', () => {
     render(<MissingStudyIdPanel section="Dashboard" />);
-    expect(screen.getByText('Missing Study ID')).toBeTruthy();
+    expect(screen.getByText('Missing study ID')).toBeTruthy();
   });
 
   test('renders description with section name', () => {

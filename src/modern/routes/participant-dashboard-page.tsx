@@ -89,19 +89,23 @@ export function ParticipantDashboardPage() {
   const days = String(DAYS_BACK);
 
   const [submissions, setSubmissions] = useState<ParticipantSubmission[]>([]);
-  const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const [isSubmissionLoading, setSubmissionLoading] = useState(false);
+  // The failed read itself; its text is derived at render in the language on screen.
+  const [historyFailure, setHistoryFailure] = useState<{ error: unknown } | null>(null);
+  // A complete link starts loading: the first paint, before the read below starts, must not say "no submissions".
+  const [isSubmissionLoading, setSubmissionLoading] = useState(() => Boolean(studyId && participantId));
+  const [historyAttempt, setHistoryAttempt] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: historyAttempt changes only when the participant retries this request.
   useEffect(() => {
     if (!studyId || !participantId) {
       setSubmissions([]);
-      setSubmissionError(null);
+      setHistoryFailure(null);
       return undefined;
     }
 
     let isCancelled = false;
     setSubmissionLoading(true);
-    setSubmissionError(null);
+    setHistoryFailure(null);
 
     fetchSubmissionHistory(studyId, participantId)
       .then((result) => {
@@ -112,7 +116,7 @@ export function ParticipantDashboardPage() {
       .catch((err: unknown) => {
         if (!isCancelled) {
           setSubmissions([]);
-          setSubmissionError(historyErrorText(err, t));
+          setHistoryFailure({ error: err });
         }
       })
       .finally(() => {
@@ -124,7 +128,7 @@ export function ParticipantDashboardPage() {
     return () => {
       isCancelled = true;
     };
-  }, [studyId, participantId, t]);
+  }, [studyId, participantId, historyAttempt]);
 
   const { surveyUrl, tudUrl } = useMemo(() => {
     if (!studyId || !participantId) return { surveyUrl: '', tudUrl: '' };
@@ -178,7 +182,7 @@ export function ParticipantDashboardPage() {
             <CardTitle>{t('participant_dashboard.quick_actions')}</CardTitle>
             <CardDescription>{t('participant_dashboard.quick_actions_description')}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent spacing={3}>
             <Button asChild className="w-full justify-between" size="lg">
               <a href={tudUrl}>
                 {t('participant_dashboard.submit_tud')}
@@ -200,21 +204,26 @@ export function ParticipantDashboardPage() {
           <CardTitle>{t('participant_dashboard.history_title')}</CardTitle>
           <CardDescription>{t('participant_dashboard.history_description', { days })}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent spacing={3}>
           {isSubmissionLoading && (
             <p className="text-sm text-muted-foreground">{t('participant_dashboard.history_loading')}</p>
           )}
-          {submissionError && (
-            <p className="text-sm font-medium text-destructive" role="alert">
-              {submissionError}
-            </p>
+          {historyFailure && (
+            <div>
+              <p className="text-sm font-medium text-destructive" role="alert">
+                {historyErrorText(historyFailure.error, t)}
+              </p>
+              <Button onClick={() => setHistoryAttempt((attempt) => attempt + 1)} variant="outline">
+                {t('common.try_again')}
+              </Button>
+            </div>
           )}
-          {!isSubmissionLoading && !submissionError && submissions.length === 0 && (
+          {!isSubmissionLoading && !historyFailure && submissions.length === 0 && (
             <div className="rounded-xl border border-dashed border-border/70 bg-muted/40 p-6 text-sm text-muted-foreground">
               {t('participant_dashboard.history_empty', { days })}
             </div>
           )}
-          {!isSubmissionLoading && !submissionError && submissions.length > 0 && (
+          {!isSubmissionLoading && !historyFailure && submissions.length > 0 && (
             <div className="space-y-3">
               {submissions.map((submission) => (
                 <div
