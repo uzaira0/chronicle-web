@@ -2,7 +2,7 @@
   "name": "@eqds/react",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
+  "license": "MIT",
   "description": "Equal React primitive wrappers for the SSOT-generated CSS contract.",
   "type": "module",
   "exports": {

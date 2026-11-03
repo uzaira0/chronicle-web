@@ -7,7 +7,18 @@ packages are generated from the Equal source tree (the `ontology/` SSOT and
 `ontology/scripts/sync_packages.py` named in the package READMEs live there, not in this repo).
 The source is not published to npm or to a public repository.
 
-Upstream repository URL: not recorded yet (owner to fill in).
+Source location: `git@github.com:uzaira0/a11y-design-system-template.git`
+Source commit: `cb4002ad1dd702046cc6e3e2a78af3d3bbaf9a4d` (2026-05-19, "ci: add gitleaks secret-scanning workflow")
+
+The repository is private (owner access). At that commit the tracked `packages/*/dist/` files
+match the hashes below, with two differences, both made here: `packages/css/dist/equal.css`
+drops its first-line `@import url("../../tokens/src/tokens.css");` (the vendored copy carries only
+`tokens/dist`, and the dashboard imports `tokens.css` itself), and the `b2afd3ee` reduced-motion
+edit noted under Version. Identified by hashing each file at every commit of the
+source repository; `cb4002a` is the newest commit before the vendoring commit whose `tokens.css`,
+`react` and `icons` builds match.
+
+Author: Uzair Alam (project owner). License: MIT (see `LICENSE`).
 
 ## Version
 
@@ -18,13 +29,15 @@ Upstream repository URL: not recorded yet (owner to fill in).
 | `@eqds/react` | 0.1.0 | `9afc68c3` | `file:vendor/equal/packages/react` |
 | `@eqds/icons` | 0.1.0 | `9afc68c3` | `file:vendor/equal/packages/icons` |
 
-License metadata (`"license": "Apache-2.0"`) was added in `3b9b53af` (2026-07-04). The unused
-`@eqds/radix` package was removed in the 2026-09-24 launch-audit pass.
+The owner licenses the Equal packages under MIT. The unused
+`@eqds/radix` package is not vendored.
 
 Content hashes of the vendored build output (sha256), to tell an upstream refresh from a local edit:
 
 - `packages/tokens/dist/tokens.css` `70b12bb94827632a88e8e48c33ef2d2a82ab56d75bc001d8e14dd3e69257d03f`
-- `packages/css/dist/equal.css` `579cb5b553af706dc15f6577f2a2519ad52d428ce7fd6a90aa4f5350543a849b`
+- `packages/css/dist/equal.css` `4e17ca51621a457f529997c18e1dcdf3e87d34c5335009512d200e4c2782045f`
+  (local edit in `b2afd3ee`: the `prefers-reduced-motion` block sets `animation: none` instead of
+  `animation-duration: .01ms`; the upstream build hashed `579cb5b5…`. Re-apply after a refresh.)
 - `packages/react/dist/index.js` `e805a278cefc594773e8562eb754fe37b5e44050925809c8499ade18e7962fc1`
 - `packages/icons/dist/index.js` `08f94c0ae871e87fe88b6579225ad29f07e5147e3342d1bf37861e2559900658`
 
@@ -45,4 +58,4 @@ access for them.
 2. Copy each package's `package.json`, `README.md` and `dist/` over the matching directory in
    `vendor/equal/packages/`. Do not edit vendored files by hand.
 3. Update the version table and hashes above.
-4. In chronicle-web: `bun install`, `bun run build`, `bun run check`, `bunx size-limit`.
+4. In chronicle-web: `bun install`, `bun run build`, `bun run check`.

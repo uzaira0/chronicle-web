@@ -2,7 +2,7 @@
   "name": "@eqds/icons",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
+  "license": "MIT",
   "description": "Lucide React icon adapter generated from Equal semantic icon names.",
   "type": "module",
   "exports": {
