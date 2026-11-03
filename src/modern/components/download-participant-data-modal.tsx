@@ -1,107 +1,224 @@
 import { Download, LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
-
+import { useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SYNC_EXPORT_MAX_FILENAME_CHARS } from '@/generated/chronicle-contracts';
 import { type Translator, translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
-import { localDay } from '@/lib/format';
-import { participantDataTypesForModules } from '@/lib/participant-data-types';
-import type { StudyModule } from '@/lib/study-constants';
+import { isReversedDateRange } from '@/lib/format';
+import { participantDataTypesForAvailability } from '@/lib/participant-data-types';
+import { toSyncExportSelection } from '@/lib/sync-export-selection';
 import {
-  exportRangeExceedsLimit,
+  TIME_USE_DIARY_DATA_TYPE,
+  TIME_USE_DIARY_DATA_TYPES,
   type TimeUseDiaryDataType,
   useDownloadParticipantDataMutation,
   useDownloadParticipantTudDataMutation,
+  useGetStudyExportAvailabilityQuery,
 } from '@/state/study-operations-api';
+import { useStudyTimeZone } from '@/state/study-time-zone';
 
 type DownloadParticipantDataModalProps = {
-  modules: string[];
   onClose: () => void;
   participantIds: string[];
   studyId: string;
 };
+const TUD_TYPE = { value: 'TimeUseDiary' } as const;
+const TUD_SUB_TYPE_LABELS = {
+  DayTime: 'tud_exports.daytime',
+  NightTime: 'tud_exports.nighttime',
+  Summarized: 'tud_exports.summarized',
+} as const satisfies Record<TimeUseDiaryDataType, string>;
+const TUD_SUB_TYPES = TIME_USE_DIARY_DATA_TYPES.map((value) => ({ value, labelKey: TUD_SUB_TYPE_LABELS[value] }));
 
-// Time Use Diary is deliberately NOT a ParticipantDataType: it is served by
-// TimeUseDiaryController on its own route, with its own DayTime/NightTime/Summarized
-// enum. Typing the two families separately is what stops a TUD value being posted to the
-// StudyController endpoint, which is what used to happen.
-const TUD_TYPE = { module: 'TIME_USE_DIARY' as StudyModule, value: 'TimeUseDiary' } as const;
-
-// `value` is the wire enum (posted to TimeUseDiaryController); `labelKey` is what the
-// researcher reads. They are deliberately separate so a language switch never changes
-// what the export request carries.
-const TUD_SUB_TYPES = [
-  { labelKey: 'tud_exports.daytime', value: 'DayTime' },
-  { labelKey: 'tud_exports.nighttime', value: 'NightTime' },
-  { labelKey: 'tud_exports.summarized', value: 'Summarized' },
-] as const;
+type DownloadDraft = {
+  selectedType: string;
+  tudSubType: TimeUseDiaryDataType;
+  startDate: string;
+  endDate: string;
+  filename: string;
+};
 
 function dateRangeError(start: string, end: string, t: Translator['t']) {
   if (!start || !end) return null;
-  if (start > end) return t('download_modal.range_reversed');
-  return exportRangeExceedsLimit(start, end) ? t('download_modal.range_too_long') : null;
+  if (isReversedDateRange(start, end)) return t('download_modal.range_reversed');
+  return null;
 }
 
-export function DownloadParticipantDataModal({
-  modules,
-  onClose,
-  participantIds,
-  studyId,
-}: DownloadParticipantDataModalProps) {
-  const [downloadData, { isLoading }] = useDownloadParticipantDataMutation();
-  const [downloadTud, { isLoading: isTudLoading }] = useDownloadParticipantTudDataMutation();
+function useDownloadForm({ onClose, participantIds, studyId }: DownloadParticipantDataModalProps) {
+  const [downloadData, dataRequest] = useDownloadParticipantDataMutation();
+  const [downloadTud, tudRequest] = useDownloadParticipantTudDataMutation();
+  const typesQuery = useGetStudyExportAvailabilityQuery(studyId, { skip: !studyId });
+  const { query: studyQuery, timeZone } = useStudyTimeZone(studyId);
   const { t } = useTranslator();
-  const availableTypes = [
-    ...participantDataTypesForModules(modules),
-    ...(modules.includes(TUD_TYPE.module) ? [{ ...TUD_TYPE, label: t('download_modal.tud_label') }] : []),
+  const options = [
+    ...participantDataTypesForAvailability(typesQuery.currentData?.dataTypes ?? []),
+    ...(typesQuery.currentData?.timeUseDiary ? [{ ...TUD_TYPE, label: t('download_modal.tud_label') }] : []),
   ];
-  const [selectedType, setSelectedType] = useState(availableTypes.length === 1 ? (availableTypes[0]?.value ?? '') : '');
-  const [tudSubType, setTudSubType] = useState<TimeUseDiaryDataType>('DayTime');
-  const [startDate, setStartDate] = useState(() => localDay(new Date()));
-  const [endDate, setEndDate] = useState(() => localDay(new Date()));
-  const [filename, setFilename] = useState('');
+  const [draft, setDraft] = useState<DownloadDraft>(() => ({
+    selectedType: options.length === 1 ? (options[0]?.value ?? '') : '',
+    tudSubType: TIME_USE_DIARY_DATA_TYPE.dayTime,
+    startDate: '',
+    endDate: '',
+    filename: '',
+  }));
+  const update = <K extends keyof DownloadDraft>(field: K, value: DownloadDraft[K]) =>
+    setDraft((current) => ({ ...current, [field]: value }));
   const [error, setError] = useState<string | null>(null);
-  const rangeError = dateRangeError(startDate, endDate, t);
-  const isBatch = participantIds.length > 1;
-  const isTud = selectedType === TUD_TYPE.value;
-  const busy = isLoading || isTudLoading;
-
-  const handleDownload = async () => {
-    if (!selectedType || !startDate || !endDate || rangeError) return;
+  const rangeError = dateRangeError(draft.startDate, draft.endDate, t);
+  const selection = toSyncExportSelection(participantIds);
+  const optionsError = typesQuery.isError ? getErrorMessage(typesQuery.error, t('common.download_failed')) : null;
+  const studyError = studyQuery.isError
+    ? getErrorMessage(studyQuery.error, t('bulk_downloads.load_error_fallback'))
+    : null;
+  const busy = dataRequest.isLoading || tudRequest.isLoading;
+  const hasType = options.some(({ value }) => value === draft.selectedType);
+  const canDownload = Boolean(selection && hasType && timeZone && !rangeError && !optionsError && !busy);
+  const submit = async () => {
+    if (!selection || !timeZone || !canDownload) return;
     setError(null);
-
-    // Two endpoints, not one: TUD goes to TimeUseDiaryController with its own enum,
-    // everything else to StudyController's participants/data.
-    const args = { participantIds, studyId } as {
-      endDate?: string;
-      filename?: string;
-      participantIds: string[];
-      startDate?: string;
-      studyId: string;
+    const args = {
+      participantIds: selection,
+      studyId,
+      startDate: draft.startDate,
+      endDate: draft.endDate,
+      timeZone,
+      ...(draft.filename ? { filename: draft.filename } : {}),
     };
-    if (startDate) args.startDate = startDate;
-    if (endDate) args.endDate = endDate;
-    if (filename) args.filename = filename;
-
     try {
-      if (isTud) {
-        await downloadTud({ ...args, dataType: tudSubType }).unwrap();
-      } else {
-        await downloadData({ ...args, dataType: selectedType }).unwrap();
-      }
+      if (draft.selectedType === TUD_TYPE.value) await downloadTud({ ...args, dataType: draft.tudSubType }).unwrap();
+      else await downloadData({ ...args, dataType: draft.selectedType }).unwrap();
       onClose();
-    } catch (err) {
-      setError(getErrorMessage(err, t('common.download_failed')));
+    } catch (failure) {
+      setError(getErrorMessage(failure, t('common.download_failed')));
     }
   };
+  return {
+    timeZone,
+    draft,
+    update,
+    options,
+    rangeError,
+    busy,
+    loading: typesQuery.isFetching || (!timeZone && !studyError),
+    retry: () => {
+      if (optionsError) void typesQuery.refetch();
+      if (studyError) void studyQuery.refetch();
+    },
+    canDownload,
+    submit,
+    errors: { options: optionsError, study: studyError, request: error },
+  };
+}
+type DownloadForm = ReturnType<typeof useDownloadForm>;
 
+function DownloadTypeFields({ form }: { form: DownloadForm }) {
+  const { t } = useTranslator();
+  return (
+    <>
+      <div className="space-y-2">
+        <Label>{t('download_modal.data_type')}</Label>
+        <div className="flex flex-wrap gap-2">
+          {form.options.map((option) => (
+            <Button
+              key={option.value}
+              aria-pressed={form.draft.selectedType === option.value}
+              onClick={() => form.update('selectedType', option.value)}
+              size="sm"
+              variant={form.draft.selectedType === option.value ? 'selected' : 'outline'}
+            >
+              {option.value === TUD_TYPE.value
+                ? option.label
+                : translateCatalog(t, 'data_type', option.value, option.label)}
+            </Button>
+          ))}
+        </div>
+        {form.options.length === 0 && <p className="text-sm text-muted-foreground">{t('download_modal.no_types')}</p>}
+      </div>
+      {form.draft.selectedType === TUD_TYPE.value && (
+        <div className="space-y-2">
+          <Label>{t('download_modal.tud_type')}</Label>
+          <div className="flex gap-2">
+            {TUD_SUB_TYPES.map((option) => (
+              <Button
+                key={option.value}
+                aria-pressed={form.draft.tudSubType === option.value}
+                onClick={() => form.update('tudSubType', option.value)}
+                size="sm"
+                variant={form.draft.tudSubType === option.value ? 'selected' : 'outline'}
+              >
+                {t(option.labelKey)}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function DownloadDateInput({ field, form }: { field: 'startDate' | 'endDate'; form: DownloadForm }) {
+  const { t } = useTranslator();
+  const id = useId();
+  const start = field === 'startDate';
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{t(start ? 'common.start_date' : 'common.end_date')}</Label>
+      <Input
+        id={id}
+        name={id}
+        max={start ? form.draft.endDate || undefined : undefined}
+        min={start ? undefined : form.draft.startDate || undefined}
+        aria-invalid={Boolean(form.rangeError)}
+        onChange={(event) => form.update(field, event.target.value)}
+        type="date"
+        value={form.draft[field]}
+      />
+    </div>
+  );
+}
+
+function DownloadFileFields({ form }: { form: DownloadForm }) {
+  const { t } = useTranslator();
+  const id = useId();
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DownloadDateInput field="startDate" form={form} />
+        <DownloadDateInput field="endDate" form={form} />
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          {form.timeZone && t('download_modal.time_zone', { zone: form.timeZone })}{' '}
+          {t('download_modal.date_range_hint')}
+        </p>
+        {form.rangeError && (
+          <p className="text-sm text-destructive sm:col-span-2" role="alert">
+            {form.rangeError}
+          </p>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={id}>{t('download_modal.filename_optional')}</Label>
+        <Input
+          id={id}
+          name={id}
+          maxLength={SYNC_EXPORT_MAX_FILENAME_CHARS}
+          onChange={(event) => form.update('filename', event.target.value)}
+          value={form.draft.filename}
+        />
+      </div>
+    </>
+  );
+}
+
+export function DownloadParticipantDataModal(props: DownloadParticipantDataModalProps) {
+  const { t } = useTranslator();
+  const form = useDownloadForm(props);
   return (
     <Dialog
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) props.onClose();
       }}
       open
     >
@@ -111,121 +228,37 @@ export function DownloadParticipantDataModal({
           {t('download_modal.title')}
         </DialogTitle>
         <DialogDescription>
-          {isBatch
-            ? t('download_modal.description_many', { count: String(participantIds.length) })
-            : t('download_modal.description_one', { id: participantIds[0] ?? '' })}
+          {props.participantIds.length > 1
+            ? t('download_modal.description_many', { count: String(props.participantIds.length) })
+            : t('download_modal.description_one', { id: props.participantIds[0] ?? '' })}
         </DialogDescription>
-
         <div className="mt-4 space-y-4">
-          {/* Data type selection */}
-          <div className="space-y-2">
-            <Label>{t('download_modal.data_type')}</Label>
-            <div className="flex flex-wrap gap-2">
-              {availableTypes.map((dt) => (
-                <Button
-                  key={dt.value}
-                  aria-pressed={selectedType === dt.value}
-                  onClick={() => setSelectedType(dt.value)}
-                  size="sm"
-                  variant={selectedType === dt.value ? 'selected' : 'outline'}
-                >
-                  {dt.value === TUD_TYPE.value ? dt.label : translateCatalog(t, 'data_type', dt.value, dt.label)}
-                </Button>
-              ))}
-            </div>
-            {availableTypes.length === 0 && (
-              <p className="text-sm text-muted-foreground">{t('download_modal.no_types')}</p>
-            )}
-          </div>
-
-          {/* TUD sub-type selector */}
-          {isTud && (
-            <div className="space-y-2">
-              <Label>{t('download_modal.tud_type')}</Label>
-              <div className="flex gap-2">
-                {TUD_SUB_TYPES.map((st) => (
-                  <Button
-                    key={st.value}
-                    aria-pressed={tudSubType === st.value}
-                    onClick={() => setTudSubType(st.value)}
-                    size="sm"
-                    variant={tudSubType === st.value ? 'selected' : 'outline'}
-                  >
-                    {t(st.labelKey)}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Date range */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="download-start" required>
-                {t('common.start_date')}
-              </Label>
-              <Input
-                id="download-start"
-                max={endDate || undefined}
-                required
-                aria-invalid={Boolean(rangeError)}
-                onChange={(e) => setStartDate(e.target.value)}
-                type="date"
-                value={startDate}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="download-end" required>
-                {t('common.end_date')}
-              </Label>
-              <Input
-                id="download-end"
-                min={startDate || undefined}
-                required
-                aria-invalid={Boolean(rangeError)}
-                onChange={(e) => setEndDate(e.target.value)}
-                type="date"
-                value={endDate}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground sm:col-span-2">{t('download_modal.date_range_hint')}</p>
-            {rangeError && (
-              <p className="text-sm text-destructive sm:col-span-2" role="alert">
-                {rangeError}
-              </p>
-            )}
-          </div>
-
-          {/* Custom filename */}
-          <div className="space-y-1.5">
-            <Label htmlFor="download-filename">{t('download_modal.filename_optional')}</Label>
-            <Input
-              id="download-filename"
-              onChange={(e) => setFilename(e.target.value)}
-              placeholder="custom-filename.csv"
-              value={filename}
-            />
-          </div>
-
-          {error && (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
+          {form.loading && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t('common.loading')}
             </p>
           )}
-
+          {Object.entries(form.errors).map(
+            ([kind, message]) =>
+              message && (
+                <p key={kind} className="text-sm text-destructive" role="alert">
+                  {message}
+                </p>
+              ),
+          )}
+          {(form.errors.options || form.errors.study) && (
+            <Button variant="outline" onClick={form.retry}>
+              {t('common.try_again')}
+            </Button>
+          )}
+          <DownloadTypeFields form={form} />
+          <DownloadFileFields form={form} />
           <div className="flex justify-end gap-3 border-t border-border pt-4">
-            <Button onClick={onClose} variant="ghost">
+            <Button onClick={props.onClose} variant="ghost">
               {t('common.cancel')}
             </Button>
-            <Button
-              disabled={!selectedType || busy || !startDate || !endDate || Boolean(rangeError)}
-              onClick={() => {
-                handleDownload().catch((err) => {
-                  setError(getErrorMessage(err, t('common.download_failed')));
-                });
-              }}
-            >
-              {busy && <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />}
+            <Button disabled={!form.canDownload} onClick={() => void form.submit()}>
+              {form.busy && <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />}
               {t('common.download')}
             </Button>
           </div>

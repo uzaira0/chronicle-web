@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { toExportDateTime } from '@/state/study-operations-api';
 
 test('study IANA zone resolves both sides of Santiago skipped midnight independently of the browser zone', () => {
-  expect(toExportDateTime('2026-09-06', false, 'America/Santiago')).toBe('2026-09-06T04:00:00.000Z');
-  expect(toExportDateTime('2026-09-06', true, 'America/Santiago')).toBe('2026-09-07T03:00:00.000Z');
-  expect(toExportDateTime('2026-09-07', false, 'America/Santiago')).toBe('2026-09-07T03:00:00.000Z');
+  expect(toExportDateTime('2026-09-06', false, 'America/Santiago')).toBe('2026-09-06T01:00:00.000-03:00');
+  expect(toExportDateTime('2026-09-06', true, 'America/Santiago')).toBe('2026-09-07T00:00:00.000-03:00');
+  expect(toExportDateTime('2026-09-07', false, 'America/Santiago')).toBe('2026-09-07T00:00:00.000-03:00');
 });
 
 describe.each(['America/Santiago', 'Asia/Tokyo'])('calendar dates in %s', (timeZone) => {

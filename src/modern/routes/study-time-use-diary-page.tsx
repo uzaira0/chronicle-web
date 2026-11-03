@@ -12,14 +12,15 @@ import { Input } from '@/components/ui/input';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDate, localDay } from '@/lib/format';
-import { DEFAULT_STUDY_TIME_ZONE } from '@/lib/study-constants';
+import { useSearchParamValue } from '@/lib/use-list-search-params';
 import {
+  isCalendarDay,
   type TimeUseDiaryDataType,
   toExportDateTime,
   useDownloadStudyTudDataMutation,
-  useGetStudySummaryQuery,
   useLazyGetStudyTudSubmissionGroupsQuery,
 } from '@/state/study-operations-api';
+import { useStudyTimeZone } from '@/state/study-time-zone';
 
 const DATA_TYPES = {
   DAYTIME: 'DayTime',
@@ -40,17 +41,18 @@ function getTwoWeeksAgo() {
 export function StudyTimeUseDiaryPage() {
   const { studyId = '' } = useParams<{ studyId: string }>();
   const { t } = useTranslator();
-  const { data: study } = useGetStudySummaryQuery(studyId, { skip: !studyId });
-  const timeZone = study?.settings?.TimeUseDiary?.timeZone ?? DEFAULT_STUDY_TIME_ZONE;
-  const [selectedStartDate, setSelectedStartDate] = useState(getTwoWeeksAgo);
-  const [selectedEndDate, setSelectedEndDate] = useState(getToday);
+  const { query: studyQuery, timeZone } = useStudyTimeZone(studyId);
+  const study = studyQuery.currentData;
+  const [selectedStartDate, setSelectedStartDate] = useSearchParamValue('from', getTwoWeeksAgo());
+  const [selectedEndDate, setSelectedEndDate] = useSearchParamValue('to', getToday());
   const [fetchSubmissions, submissionsState] = useLazyGetStudyTudSubmissionGroupsQuery();
   const [downloadError, setDownloadError] = useState<string | null>(null);
   // Shares the whole-study TUD mutation with the Bulk Downloads tab rather than keeping
   // a second hand-rolled fetch() here.
   const [downloadTud, { isLoading: isDownloading }] = useDownloadStudyTudDataMutation();
 
-  const hasValidDateRange = selectedStartDate.length > 0 && selectedEndDate.length > 0;
+  // URL parameters can hold any text; only real calendar days reach the export boundary conversion.
+  const hasValidDateRange = isCalendarDay(selectedStartDate) && isCalendarDay(selectedEndDate);
 
   const headingTitle = study?.title
     ? t('tud_exports.title_for', { name: study.title })
@@ -69,6 +71,20 @@ export function StudyTimeUseDiaryPage() {
       />
     );
   }
+  if (studyQuery.isError)
+    return (
+      <StatePanel
+        className="max-w-none"
+        description={getErrorMessage(studyQuery.error, t('bulk_downloads.load_error_fallback'))}
+        eyebrow={t('common.error')}
+        icon={<CircleAlert className="h-5 w-5" />}
+        onRetry={() => void studyQuery.refetch()}
+        title={t('bulk_downloads.load_error_title')}
+        tone="destructive"
+      />
+    );
+  // Export day bounds are study-zone days, so nothing below runs until the loaded study names its zone.
+  if (!timeZone) return <TableSkeleton label={t('bulk_downloads.loading_title')} />;
 
   const handleSearch = () => {
     if (!hasValidDateRange) {
@@ -116,14 +132,15 @@ export function StudyTimeUseDiaryPage() {
           <CardTitle>{t('tud_exports.search_title')}</CardTitle>
           <CardDescription>{t('tud_exports.search_description')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid gap-4 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
+        <CardContent spacing={5}>
+          <div className="grid gap-4 xl:grid-cols-date-search xl:items-end">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted-foreground">
                 {t('common.start_date')}
               </p>
               <Input
                 aria-label={t('common.start_date')}
+                name="from"
                 onChange={(event) => setSelectedStartDate(event.target.value)}
                 type="date"
                 value={selectedStartDate}
@@ -135,6 +152,7 @@ export function StudyTimeUseDiaryPage() {
               </p>
               <Input
                 aria-label={t('common.end_date')}
+                name="to"
                 onChange={(event) => setSelectedEndDate(event.target.value)}
                 type="date"
                 value={selectedEndDate}
@@ -198,7 +216,7 @@ export function StudyTimeUseDiaryPage() {
           ) : (
             submissionGroups.map((group) => (
               <Card key={group.date}>
-                <CardContent className="grid gap-4 md:grid-cols-[1.1fr_0.75fr_1.5fr] md:items-center">
+                <CardContent gap={4} layout="diary-export" className="md:items-center">
                   <div className="space-y-1">
                     <p className="text-base font-semibold text-foreground">{formatDisplayDate(group.date)}</p>
                     <p className="text-sm text-muted-foreground">{t('tud_exports.daily_group')}</p>

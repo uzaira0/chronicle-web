@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { formatDisplayDate, formatDisplayDateTime, getEndOfDayIso, getStartOfDayIso } from './format';
+import { formatDisplayDate, formatDisplayDateTime } from './format';
 
 // These tests exercise the private `memoize` helper's bounded-cache eviction
 // logic via the public formatters. The cache cap (MAX_CACHE_SIZE) is 1000, so
@@ -24,44 +24,6 @@ function distinctDates(count: number): string[] {
 }
 
 describe('format memoize — bounded cache stays correct across eviction', () => {
-  it('getStartOfDayIso is correct for 1200 distinct keys (exceeds MAX_CACHE_SIZE)', () => {
-    // 1200 > 1000 forces the eviction branch to run repeatedly.
-    for (const key of distinctDates(1200)) {
-      expect(getStartOfDayIso(key)).toBe(`${key}T00:00:00.000Z`);
-    }
-  });
-
-  it('getEndOfDayIso is correct for 1200 distinct keys (exceeds MAX_CACHE_SIZE)', () => {
-    for (const key of distinctDates(1200)) {
-      expect(getEndOfDayIso(key)).toBe(`${key}T23:59:59.999Z`);
-    }
-  });
-
-  it('returns the cached result on a repeated call (memoization hit branch)', () => {
-    // First call populates the cache; second call must hit it and return the
-    // identical, correct value. A mutant that flips the `cached !== undefined`
-    // guard would either recompute-as-undefined or skip caching, breaking this.
-    const key = '2024-05-20';
-    const first = getStartOfDayIso(key);
-    const second = getStartOfDayIso(key);
-    expect(first).toBe('2024-05-20T00:00:00.000Z');
-    expect(second).toBe(first);
-  });
-
-  it('an early key still returns the correct value after the cache overflows', () => {
-    // Compute one value, overflow the cache, then re-request the early value.
-    // Whether or not it was evicted, the recomputation/cache-hit must be correct.
-    const early = '1999-07-04';
-    const earlyExpected = '1999-07-04T00:00:00.000Z';
-    expect(getStartOfDayIso(early)).toBe(earlyExpected);
-
-    for (const key of distinctDates(1100)) {
-      getStartOfDayIso(key);
-    }
-
-    expect(getStartOfDayIso(early)).toBe(earlyExpected);
-  });
-
   it('formatDisplayDate memoizes correctly across many distinct inputs', () => {
     for (const key of distinctDates(1100)) {
       const result = formatDisplayDate(key);

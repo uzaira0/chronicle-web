@@ -1,44 +1,32 @@
 import { describe, expect, test } from 'bun:test';
-import { exportRangeExceedsLimit, toExportDateTime } from './study-operations-api';
+import { isCalendarDay, toExportDateTime } from './study-operations-api';
 
-describe('toExportDateTime', () => {
-  test('turns a start day into local midnight as an ISO date-time', () => {
-    expect(toExportDateTime('2026-09-01')).toMatch(/^2026-09-01T00:00:00[+-]\d\d:\d\d$/);
+describe('study calendar boundaries', () => {
+  test.each([
+    ['UTC', '2026-09-06', '2026-09-06T00:00:00.000Z', '2026-09-07T00:00:00.000Z'],
+    ['America/Santiago', '2026-09-05', '2026-09-05T00:00:00.000-04:00', '2026-09-06T00:00:00.000-04:00'],
+    ['America/Santiago', '2026-09-06', '2026-09-06T01:00:00.000-03:00', '2026-09-07T00:00:00.000-03:00'],
+    ['Asia/Kolkata', '2026-09-06', '2026-09-06T00:00:00.000+05:30', '2026-09-07T00:00:00.000+05:30'],
+  ])('resolves %s without consulting the browser zone', (zone, day, start, end) => {
+    expect(toExportDateTime(day, false, zone)).toBe(start);
+    expect(toExportDateTime(day, true, zone)).toBe(end);
   });
 
-  test('turns an end day into the following local midnight so the day is included', () => {
-    expect(toExportDateTime('2026-09-07', true)).toMatch(/^2026-09-08T00:00:00[+-]\d\d:\d\d$/);
+  test('treats a URL day that is not on the calendar as invalid instead of throwing', () => {
+    for (const day of ['2026-99-99', '2026-02-30', '2026-13-01']) {
+      expect(isCalendarDay(day)).toBe(false);
+      expect(() => toExportDateTime(day, false, 'UTC')).not.toThrow();
+    }
+    expect(isCalendarDay('2028-02-29')).toBe(true);
   });
 
-  test('expresses the skipped-midnight exclusive end with the preceding offset at the same instant', () => {
-    if (process.env.TZ !== 'America/Santiago') return;
-    const end = toExportDateTime('2026-09-05', true);
-    expect(end).toBe('2026-09-06T00:00:00-04:00');
-    expect(new Date(end).getTime()).toBe(new Date(2026, 8, 6).getTime());
-    expect(toExportDateTime('2026-09-06')).toBe('2026-09-06T01:00:00-03:00');
+  test('keeps an existing instant unchanged', () => {
+    expect(toExportDateTime('2026-09-01T00:00:00Z', false, 'America/Chicago')).toBe('2026-09-01T00:00:00Z');
   });
+});
 
-  test('keeps the boundary offset for an ordinary exclusive end day', () => {
-    if (process.env.TZ !== 'America/Santiago') return;
-    expect(toExportDateTime('2026-09-07', true)).toBe('2026-09-08T00:00:00-03:00');
-    expect(toExportDateTime('2026-09-08')).toBe('2026-09-08T00:00:00-03:00');
-  });
-
-  test('passes an existing date-time through unchanged', () => {
-    expect(toExportDateTime('2026-09-01T00:00:00Z')).toBe('2026-09-01T00:00:00Z');
-  });
-
-  test('rejects a 31-calendar-day range when autumn clock change makes it over 31 days', () => {
-    const hasAutumnShift =
-      new Date('2026-10-10T00:00:00').getTimezoneOffset() !== new Date('2026-11-10T00:00:00').getTimezoneOffset();
-    expect(exportRangeExceedsLimit('2026-10-10', '2026-11-09')).toBe(hasAutumnShift);
-  });
-
-  test('preserves the selected local day and its offset', () => {
-    const start = toExportDateTime('2026-09-08');
-    const end = toExportDateTime('2026-09-08', true);
-    expect(start).toMatch(/^2026-09-08T00:00:00[+-]\d\d:\d\d$/);
-    expect(end).toMatch(/^2026-09-09T00:00:00[+-]\d\d:\d\d$/);
-    expect(start.endsWith('Z')).toBe(false);
-  });
+test('skipped-midnight exclusive bounds preserve both instant and diagnostic calendar day', () => {
+  const end = toExportDateTime('2026-09-05', true, 'America/Santiago');
+  expect(new Date(end).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+  expect(end.slice(0, 19)).toBe('2026-09-06T00:00:00');
 });

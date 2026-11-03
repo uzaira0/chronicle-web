@@ -1,268 +1,192 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, expect, it, spyOn } from 'bun:test';
 import { getErrorMessage } from '@/lib/errors';
-import { DOWNLOAD_TIMEOUT_MS } from '@/lib/request-timeout';
+import { toSyncExportSelection } from '@/lib/sync-export-selection';
+import { installRelativeRequest } from '@/test/http-fixtures';
 import { createApiStore } from '@/test/study-operations-store';
+import { studyOperationsApi } from './study-operations-api';
 
-import { studyOperationsApi, toExportDateTime } from './study-operations-api';
+beforeEach(() => {
+  window.location.href = 'http://localhost/';
+});
 
-type FetchCall = {
-  init: RequestInit | undefined;
-  input: RequestInfo | URL;
-};
+const savedFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = savedFetch;
+});
 
-function requestUrl(input: RequestInfo | URL): string {
-  if (typeof input === 'string') return input;
-  return input instanceof URL ? input.href : input.url;
-}
-
-let savedDocument: typeof globalThis.document | undefined;
-let savedFetch: typeof globalThis.fetch | undefined;
-let savedUrl: typeof globalThis.URL;
-
-function installDownloadDom(cookie = 'ol_csrf_token=csrf-value') {
-  savedDocument = globalThis.document;
-  savedUrl = globalThis.URL;
-
-  const anchor = {
-    click() {},
-    download: '',
-    href: '',
-    remove() {},
-  };
-  const document = {
-    body: {
-      appendChild() {},
-    },
-    cookie,
-    createElement(tag: string) {
-      if (tag !== 'a') throw new Error(`unexpected element: ${tag}`);
-      return anchor;
-    },
-  } as unknown as Document;
-
-  Object.defineProperty(globalThis, 'document', {
-    configurable: true,
-    value: document,
-    writable: true,
-  });
-  Object.defineProperty(globalThis, 'URL', {
-    configurable: true,
-    value: {
-      ...savedUrl,
-      createObjectURL: () => 'blob:chronicle-download',
-      revokeObjectURL() {},
-    },
-    writable: true,
-  });
-}
-
-function uninstallDownloadDom() {
-  if (savedDocument !== undefined) {
-    Object.defineProperty(globalThis, 'document', {
-      configurable: true,
-      value: savedDocument,
-      writable: true,
-    });
-  }
-  Object.defineProperty(globalThis, 'URL', {
-    configurable: true,
-    value: savedUrl,
-    writable: true,
-  });
-  savedDocument = undefined;
-}
-
-describe('downloadStudyExport', () => {
-  beforeEach(() => {
-    installDownloadDom();
-    savedFetch = globalThis.fetch;
-  });
-
-  afterEach(() => {
-    // Flush queued browser tasks before restoring the clock; Happy DOM groups zero-delay timers.
-    if (jest.isFakeTimers()) jest.runOnlyPendingTimers();
-    jest.useRealTimers();
-    if (savedFetch) {
-      Object.defineProperty(globalThis, 'fetch', {
-        configurable: true,
-        value: savedFetch,
-        writable: true,
-      });
-    }
-    uninstallDownloadDom();
-  });
-
-  it('allows an export body to finish after the header deadline', async () => {
-    // Let any existing browser timer batch finish before replacing its clock.
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    jest.useFakeTimers();
-    let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-    let signal: AbortSignal | null | undefined;
-    let readingBody: () => void = () => {};
-    const bodyStarted = new Promise<void>((resolve) => {
-      readingBody = resolve;
-    });
-    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
-      signal = init?.signal;
-      const body = new ReadableStream<Uint8Array>({
-        start(streamController) {
-          controller = streamController;
-          signal?.addEventListener('abort', () => streamController.error(signal?.reason), { once: true });
-        },
-      });
-      const response = new Response(body);
-      const readBlob = response.blob.bind(response);
-      response.blob = () => {
-        readingBody();
-        return readBlob();
-      };
-      return Promise.resolve(response);
-    }) as typeof fetch;
+it.each(['access-code', 'compliance', 'limits'])(
+  'classifies unreadable %s responses after HTTP success',
+  async (endpoint) => {
+    globalThis.fetch = (() => Promise.resolve(new Response('not-json', { status: 200 }))) as unknown as typeof fetch;
     const store = createApiStore();
-    const download = store.dispatch(
-      studyOperationsApi.endpoints.downloadStudyExport.initiate({
-        exportId: 'slow-export',
-        format: 'CSV',
-        studyId: 'study-1',
-      }),
+    const operation =
+      endpoint === 'access-code'
+        ? store.dispatch(
+            studyOperationsApi.endpoints.issueParticipantAccessCode.initiate({
+              formKind: 'APP_USAGE',
+              participantId: 'p1',
+              studyId: 'study-1',
+            }),
+          )
+        : endpoint === 'compliance'
+          ? store.dispatch(studyOperationsApi.endpoints.getComplianceViolations.initiate('study-1'))
+          : store.dispatch(studyOperationsApi.endpoints.getStudyLimits.initiate('study-1'));
+    const result = await operation;
+    expect(result.error).toMatchObject({ status: 'PARSING_ERROR' });
+    expect(getErrorMessage(result.error, 'Request failed')).toBe(
+      'The server returned an unreadable response. Contact the study team or server operator.',
     );
-    await bodyStarted;
-    jest.advanceTimersByTime(DOWNLOAD_TIMEOUT_MS + 1);
-    expect(signal?.aborted).toBe(false);
-    controller?.enqueue(new TextEncoder().encode('csv'));
-    controller?.close();
-    await download.unwrap();
     store.dispatch(studyOperationsApi.util.resetApiState());
-  });
+  },
+);
 
-  it('restores real browser timers after the export deadline check', async () => {
-    expect(jest.isFakeTimers()).toBe(false);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  });
+it('preserves the supported empty limits response', async () => {
+  globalThis.fetch = (() => Promise.resolve(new Response('', { status: 200 }))) as unknown as typeof fetch;
+  const store = createApiStore();
+  expect(await store.dispatch(studyOperationsApi.endpoints.getStudyLimits.initiate('study-1')).unwrap()).toEqual({});
+  store.dispatch(studyOperationsApi.util.resetApiState());
+});
 
-  it('downloads with the authenticated session and CSRF token, without bearer download tokens', async () => {
-    const calls: FetchCall[] = [];
-    Object.defineProperty(globalThis, 'fetch', {
-      configurable: true,
-      value: (input: RequestInfo | URL, init?: RequestInit) => {
-        calls.push({ init, input });
-        return Promise.resolve(new Response(new Blob(['csv']), { status: 200 }));
-      },
-      writable: true,
-    });
-    const store = createApiStore();
+// A dropped connection on the study page's own reads and the limits save is a network failure the page explains
+// (check the connection), never an unhandled rejection or a misleading server error.
+it.each([
+  [
+    'study limits',
+    (store: ReturnType<typeof createApiStore>) =>
+      store.dispatch(studyOperationsApi.endpoints.getStudyLimits.initiate('study-1')),
+  ],
+  [
+    'study lifecycle',
+    (store: ReturnType<typeof createApiStore>) =>
+      store.dispatch(studyOperationsApi.endpoints.getStudyLifecycleStatus.initiate('study-1')),
+  ],
+  [
+    'the limits save',
+    (store: ReturnType<typeof createApiStore>) =>
+      store.dispatch(
+        studyOperationsApi.endpoints.setStudyLimits.initiate({ studyId: 'study-1', limits: { durationDays: 30 } }),
+      ),
+  ],
+] as const)('a dropped connection on %s is reported as a network failure', async (_name, start) => {
+  globalThis.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as unknown as typeof fetch;
+  const store = createApiStore();
+  const result = await start(store);
+  expect(result.error).toMatchObject({ status: 'FETCH_ERROR' });
+  expect(getErrorMessage(result.error, 'Request failed')).toContain('could not reach the server');
+  store.dispatch(studyOperationsApi.util.resetApiState());
+});
 
+// The participant diagnostics panel narrows the server's history by query string: each filter reaches the server
+// under its API name, blank ones are left out (a blank device id must not match "no device"), and ids are encoded.
+it('sends participant diagnostics filters as query parameters and omits blank ones', async () => {
+  const restoreRequest = installRelativeRequest();
+  const urls: URL[] = [];
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    urls.push(new URL(input instanceof Request ? input.url : String(input), 'http://localhost'));
+    return Promise.resolve(Response.json({ items: [], nextCursor: null }));
+  }) as unknown as typeof fetch;
+  const store = createApiStore();
+  try {
     await store
       .dispatch(
-        studyOperationsApi.endpoints.downloadStudyExport.initiate({
-          exportId: 'export-123',
-          format: 'CSV',
-          studyId: 'study-456',
+        studyOperationsApi.endpoints.getAndroidDiagnostics.initiate({
+          studyId: 'study 1/ñ',
+          participantId: 'p-1',
+          randomDeviceId: '',
+          fromDay: '2026-09-01',
+          toDay: '2026-09-30',
+          moduleFamily: 'USAGE_LIFECYCLE',
+          cursor: 'page-2',
+          limit: 25,
         }),
       )
       .unwrap();
-
-    expect(calls).toHaveLength(1);
-    const requestInput = calls[0]?.input;
-    expect(requestInput).toBeDefined();
-    expect(requestInput && requestUrl(requestInput)).toBe(
-      '/chronicle/api/web/study/study-456/export/export-123/download',
+    expect(urls).toHaveLength(1);
+    expect(urls[0]?.pathname).toBe(
+      `/chronicle/api/web/study/${encodeURIComponent('study 1/ñ')}/participants/android/diagnostics`,
     );
-    expect(requestInput && requestUrl(requestInput)).not.toContain('token=');
-    const headers = calls[0]?.init?.headers as Headers;
-    expect(headers.has('X-Chronicle-Download-Token')).toBe(false);
-    expect(headers.get('X-CSRF-Token')).toBe('csrf-value');
-  });
+    expect(Object.fromEntries(urls[0]?.searchParams ?? [])).toEqual({
+      participantId: 'p-1',
+      from: '2026-09-01',
+      to: '2026-09-30',
+      moduleFamily: 'USAGE_LIFECYCLE',
+      cursor: 'page-2',
+      limit: '25',
+    });
+  } finally {
+    store.dispatch(studyOperationsApi.util.resetApiState());
+    restoreRequest();
+  }
+});
 
-  it.each([
-    [
-      'application/json',
-      JSON.stringify({ message: 'Select at most 100 participants.' }),
-      'Select at most 100 participants.',
-    ],
-    ['text/plain', 'Export expired; create a new export', 'Export expired; create a new export'],
-    ['text/html', '<html><body>proxy failure</body></html>', 'Download failed (status 400)'],
-  ])('displays safe download errors from %s responses', async (contentType, body, expected) => {
-    globalThis.fetch = (() => {
-      return Promise.resolve(
-        new Response(body, {
-          status: 400,
-          headers: { 'content-type': contentType },
-        }),
-      );
-    }) as unknown as typeof fetch;
+function selection(ids: string[]) {
+  const selected = toSyncExportSelection(ids);
+  if (!selected) throw new Error('empty selection');
+  return selected;
+}
+
+function submittedForms() {
+  const forms: { action: string; fields: Record<string, string> }[] = [];
+  const submit = spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(function (this: HTMLFormElement) {
+    const fields = Object.fromEntries(
+      [...this.querySelectorAll('input')].map((input) => [input.name, input.value] as const),
+    );
+    forms.push({ action: new URL(this.action, window.location.origin).pathname, fields });
+  });
+  return { forms, submit };
+}
+
+it.each([
+  ['2026-04-05', '2026-04-05', '2026-04-05T00:00:00.000-04:00', '2026-04-06T00:00:00.000-04:00'],
+  ['2026-09-06', '2026-09-06', '2026-09-06T01:00:00.000-03:00', '2026-09-07T00:00:00.000-03:00'],
+])(
+  'posts one native form whose %s..%s days are the study zone across a clock change',
+  async (startDate, endDate, start, end) => {
+    const fetched = spyOn(globalThis, 'fetch');
+    const { forms, submit } = submittedForms();
     const store = createApiStore();
+    try {
+      await store
+        .dispatch(
+          studyOperationsApi.endpoints.downloadParticipantData.initiate({
+            dataType: 'UploadDiagnostics',
+            participantIds: selection(['p1', 'p2']),
+            studyId: 's1',
+            startDate,
+            endDate,
+            timeZone: 'America/Santiago',
+          }),
+        )
+        .unwrap();
+      expect(fetched).not.toHaveBeenCalled();
+      expect(forms).toHaveLength(1);
+      expect(forms[0]?.action).toBe('/chronicle/api/web/study/s1/participants/data');
+      expect(forms[0]?.fields).toMatchObject({ dataType: 'UploadDiagnostics', startDate: start, endDate: end });
+    } finally {
+      fetched.mockRestore();
+      submit.mockRestore();
+      store.dispatch(studyOperationsApi.util.resetApiState());
+    }
+  },
+);
+
+it('reports browser download refusal in the mutation', async () => {
+  const create = spyOn(document, 'createElement').mockImplementation(() => {
+    throw new TypeError('Browser blocked');
+  });
+  const store = createApiStore();
+  try {
     const result = await store.dispatch(
       studyOperationsApi.endpoints.downloadParticipantData.initiate({
-        studyId: 'study-1',
-        participantIds: ['p1'],
-        dataType: 'DeviceSettings',
-        startDate: '2026-10-05',
-        endDate: '2026-10-06',
+        dataType: 'UsageEvents',
+        participantIds: selection(['p1']),
+        studyId: 's1',
+        timeZone: 'UTC',
       }),
     );
-    expect(getErrorMessage(result.error, 'Download failed')).toBe(expected);
+    expect(result.error).toMatchObject({ status: 'CUSTOM_ERROR' });
+  } finally {
+    create.mockRestore();
     store.dispatch(studyOperationsApi.util.resetApiState());
-  });
-
-  it('downloads questionnaire responses from the backend data route as CSV', async () => {
-    const calls: FetchCall[] = [];
-    Object.defineProperty(globalThis, 'fetch', {
-      configurable: true,
-      value: (input: RequestInfo | URL, init?: RequestInit) => {
-        calls.push({ init, input });
-        return Promise.resolve(new Response(new Blob(['csv']), { status: 200 }));
-      },
-      writable: true,
-    });
-    const store = createApiStore();
-
-    await store
-      .dispatch(
-        studyOperationsApi.endpoints.downloadQuestionnaireResponses.initiate({
-          questionnaireId: 'questionnaire/1',
-          studyId: 'study/1',
-        }),
-      )
-      .unwrap();
-
-    expect(calls).toHaveLength(1);
-    const requestInput = calls[0]?.input;
-    expect(requestInput).toBeDefined();
-    expect(requestInput && requestUrl(requestInput)).toBe(
-      '/chronicle/v3/survey/study%2F1/questionnaire/questionnaire%2F1/data?type=csv',
-    );
-  });
-
-  it.each([
-    { endpoint: studyOperationsApi.endpoints.downloadParticipantData, prefix: '/chronicle/api/web/study' },
-    { endpoint: studyOperationsApi.endpoints.downloadParticipantTudData, prefix: '/chronicle/v3/time-use-diary' },
-  ])('downloads participant data from $prefix with the same local-day boundaries', async ({ endpoint, prefix }) => {
-    const calls: FetchCall[] = [];
-    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ input, init });
-      return Promise.resolve(new Response('csv', { status: 200 }));
-    }) as typeof fetch;
-    const store = createApiStore();
-    await store
-      .dispatch(
-        endpoint.initiate({
-          studyId: 'study/1',
-          participantIds: ['p/1', 'p2'],
-          dataType: 'DayTime',
-          startDate: '2026-10-05',
-          endDate: '2026-10-06',
-        }),
-      )
-      .unwrap();
-    expect(calls).toHaveLength(1);
-    const url = new savedUrl(requestUrl(calls[0]?.input ?? ''), 'http://localhost');
-    expect(url.pathname).toBe(`${prefix}/study%2F1/participants/data`);
-    expect(url.searchParams.getAll('participantId')).toEqual(['p/1', 'p2']);
-    expect(url.searchParams.get('startDate')).toBe(toExportDateTime('2026-10-05'));
-    expect(url.searchParams.get('endDate')).toBe(toExportDateTime('2026-10-06', true));
-    expect(url.searchParams.get('dataType')).toBe('DayTime');
-    expect(calls[0]?.init?.signal).toBeDefined();
-    store.dispatch(studyOperationsApi.util.resetApiState());
-  });
+  }
 });

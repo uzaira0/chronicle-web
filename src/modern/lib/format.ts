@@ -7,8 +7,6 @@ const mediumDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 const MAX_CACHE_SIZE = 1000;
 const dateCache = new Map<string, string>();
 const dateTimeCache = new Map<string, string>();
-const startOfDayCache = new Map<string, string>();
-const endOfDayCache = new Map<string, string>();
 
 /**
  * Memoizes results to avoid expensive operations.
@@ -33,12 +31,14 @@ export function parseDisplayDate(value: string): Date {
   return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
 }
 
-export function formatDisplayDate(value: string) {
+/** A medium date in the browser's locale, or in [locale] when a page renders in the picked language. */
+export function formatDisplayDate(value: string, locale?: string) {
   return memoize(
-    value,
-    (v) => {
-      const parsed = parseDisplayDate(v);
-      return Number.isNaN(parsed.getTime()) ? v : mediumDateFormatter.format(parsed);
+    `${locale ?? ''}|${value}`,
+    () => {
+      const parsed = parseDisplayDate(value);
+      if (Number.isNaN(parsed.getTime())) return value;
+      return (locale ? new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }) : mediumDateFormatter).format(parsed);
     },
     dateCache,
   );
@@ -55,35 +55,11 @@ export function formatDisplayDateTime(value: string) {
   );
 }
 
-const SENTINEL_DATE_REGEX = /^[+-]?\d{5,}[0-9T:Z.+-]*$/;
-
-/**
- * Detects Java sentinel dates (LocalDateTime.MAX/MIN) that the backend uses
- * for "no end date" or "no start date". These are unparseable by JS Date
- * and look like "+999999999-12-31T23:59:59..." or "-999999999-01-01T00:00:00...".
- */
-export function isSentinelDate(value: string): boolean {
-  return SENTINEL_DATE_REGEX.test(value);
-}
-
-function toValidDate(iso: string): Date {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new RangeError(`Invalid date value: "${iso}"`);
-  }
-  return parsed;
-}
-
 /** `YYYY-MM-DD` in the viewer's time zone, the format date inputs use. */
 export function localDay(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
-
-export function getStartOfDayIso(dateValue: string) {
-  return memoize(dateValue, (v) => toValidDate(`${v}T00:00:00.000Z`).toISOString(), startOfDayCache);
-}
-
-export function getEndOfDayIso(dateValue: string) {
-  return memoize(dateValue, (v) => toValidDate(`${v}T23:59:59.999Z`).toISOString(), endOfDayCache);
+export function isReversedDateRange(start: string, end: string): boolean {
+  return Boolean(start && end && start > end);
 }

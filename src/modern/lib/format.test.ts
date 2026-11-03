@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { formatDisplayDate, formatDisplayDateTime, getEndOfDayIso, getStartOfDayIso, isSentinelDate } from './format';
+import { formatDisplayDate, formatDisplayDateTime } from './format';
 
 describe('formatDisplayDate()', () => {
   it('formats a valid ISO date string', () => {
@@ -30,50 +30,6 @@ describe('formatDisplayDateTime()', () => {
 
   it('returns the original value for an invalid datetime', () => {
     expect(formatDisplayDateTime('garbage')).toBe('garbage');
-  });
-});
-
-describe('isSentinelDate()', () => {
-  it('detects Java LocalDateTime.MAX sentinel', () => {
-    expect(isSentinelDate('+999999999-12-31T23:59:59.999999999')).toBe(true);
-  });
-
-  it('detects Java LocalDateTime.MIN sentinel', () => {
-    expect(isSentinelDate('-999999999-01-01T00:00:00')).toBe(true);
-  });
-
-  it('detects unsigned large-year dates', () => {
-    expect(isSentinelDate('99999-12-31')).toBe(true);
-  });
-
-  it('rejects normal 4-digit year dates', () => {
-    expect(isSentinelDate('2024-03-15')).toBe(false);
-    expect(isSentinelDate('1999-01-01')).toBe(false);
-  });
-
-  it('rejects non-date strings', () => {
-    expect(isSentinelDate('hello')).toBe(false);
-    expect(isSentinelDate('')).toBe(false);
-  });
-});
-
-describe('getStartOfDayIso()', () => {
-  it('returns the start of day in ISO format', () => {
-    expect(getStartOfDayIso('2024-03-15')).toBe('2024-03-15T00:00:00.000Z');
-  });
-
-  it('throws RangeError for invalid date', () => {
-    expect(() => getStartOfDayIso('not-a-date')).toThrow(RangeError);
-  });
-});
-
-describe('getEndOfDayIso()', () => {
-  it('returns the end of day in ISO format', () => {
-    expect(getEndOfDayIso('2024-03-15')).toBe('2024-03-15T23:59:59.999Z');
-  });
-
-  it('throws RangeError for invalid date', () => {
-    expect(() => getEndOfDayIso('invalid')).toThrow(RangeError);
   });
 });
 
@@ -152,101 +108,5 @@ describe('formatDisplayDateTime() — exhaustive edge cases', () => {
 
   it.each(invalidCases)('returns original value for invalid "%s"', (input) => {
     expect(formatDisplayDateTime(input)).toBe(input);
-  });
-});
-
-describe('isSentinelDate() — exhaustive edge cases', () => {
-  const trueCases: [string, string][] = [
-    ['+999999999-12-31T23:59:59.999999999', 'Java MAX'],
-    ['-999999999-01-01T00:00:00', 'Java MIN'],
-    ['99999-12-31', 'unsigned 5-digit year'],
-    ['10000-01-01', '5-digit year boundary'],
-    ['100000-01-01', '6-digit year'],
-    ['+10000-01-01', 'signed 5-digit year'],
-    ['-10000-01-01', 'negative 5-digit year'],
-    ['12345-06-15', '5-digit year'],
-    ['99999999-01-01', '8-digit year'],
-    ['+12345', 'signed digits only'],
-    ['-12345', 'negative digits only'],
-    ['12345', 'bare 5 digits'],
-    ['123456789', 'bare 9 digits'],
-    ['+99999-12-31T23:59:59', 'signed sentinel with time'],
-  ];
-
-  it('rejects sentinel date with invalid trailing content (e.g. SQL injection attempt)', () => {
-    expect(isSentinelDate('99999-01-01; DROP TABLE users;')).toBe(false);
-  });
-
-  it.each(trueCases)('detects sentinel: "%s" (%s)', (input) => {
-    expect(isSentinelDate(input)).toBe(true);
-  });
-
-  const falseCases: [string, string][] = [
-    ['2024-03-15', 'normal 4-digit date'],
-    ['1999-01-01', 'normal year'],
-    ['0001-01-01', '4-digit year with leading zeros'],
-    ['9999-12-31', '4-digit max year'],
-    ['hello', 'alphabetic string'],
-    ['', 'empty string'],
-    ['abc12345', 'alpha before digits'],
-    ['date:12345', 'colon before digits'],
-    ['2024', '4 bare digits'],
-    ['12', '2 digits'],
-    ['1234', '4 digits'],
-    [' 12345', 'leading space before 5 digits'],
-  ];
-
-  it.each(falseCases)('rejects non-sentinel: "%s" (%s)', (input) => {
-    expect(isSentinelDate(input)).toBe(false);
-  });
-});
-
-describe('getStartOfDayIso() — exhaustive edge cases', () => {
-  const validCases: [string, string][] = [
-    ['2024-03-15', '2024-03-15T00:00:00.000Z'],
-    ['2024-01-01', '2024-01-01T00:00:00.000Z'],
-    ['2024-12-31', '2024-12-31T00:00:00.000Z'],
-    ['2024-02-29', '2024-02-29T00:00:00.000Z'], // leap day
-    ['2023-02-28', '2023-02-28T00:00:00.000Z'], // last Feb non-leap
-    ['2024-06-30', '2024-06-30T00:00:00.000Z'], // month end
-    ['2024-07-01', '2024-07-01T00:00:00.000Z'], // month start
-    ['1970-01-01', '1970-01-01T00:00:00.000Z'], // epoch
-    ['2000-01-01', '2000-01-01T00:00:00.000Z'],
-    ['2024-11-30', '2024-11-30T00:00:00.000Z'],
-  ];
-
-  it.each(validCases)('getStartOfDayIso("%s") => "%s"', (input, expected) => {
-    expect(getStartOfDayIso(input)).toBe(expected);
-  });
-
-  const invalidCases = ['not-a-date', 'invalid', 'abc', '', '----'];
-
-  it.each(invalidCases)('throws RangeError for "%s"', (input) => {
-    expect(() => getStartOfDayIso(input)).toThrow(RangeError);
-  });
-});
-
-describe('getEndOfDayIso() — exhaustive edge cases', () => {
-  const validCases: [string, string][] = [
-    ['2024-03-15', '2024-03-15T23:59:59.999Z'],
-    ['2024-01-01', '2024-01-01T23:59:59.999Z'],
-    ['2024-12-31', '2024-12-31T23:59:59.999Z'],
-    ['2024-02-29', '2024-02-29T23:59:59.999Z'], // leap day
-    ['2023-02-28', '2023-02-28T23:59:59.999Z'],
-    ['2024-06-30', '2024-06-30T23:59:59.999Z'],
-    ['2024-07-01', '2024-07-01T23:59:59.999Z'],
-    ['1970-01-01', '1970-01-01T23:59:59.999Z'],
-    ['2000-01-01', '2000-01-01T23:59:59.999Z'],
-    ['2024-11-30', '2024-11-30T23:59:59.999Z'],
-  ];
-
-  it.each(validCases)('getEndOfDayIso("%s") => "%s"', (input, expected) => {
-    expect(getEndOfDayIso(input)).toBe(expected);
-  });
-
-  const invalidCases = ['not-a-date', 'invalid', 'abc', '', '----'];
-
-  it.each(invalidCases)('throws RangeError for "%s"', (input) => {
-    expect(() => getEndOfDayIso(input)).toThrow(RangeError);
   });
 });
