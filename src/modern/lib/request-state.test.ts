@@ -38,11 +38,12 @@ describe('getMutationRequestState()', () => {
       [true, true, true, 'PENDING'],
     ] as const;
 
-    it.each(
-      allCombinations,
-    )('isLoading=%s, isSuccess=%s, isError=%s => %s', (isLoading, isSuccess, isError, expected) => {
-      expect(getMutationRequestState({ isLoading, isSuccess, isError })).toBe(expected);
-    });
+    it.each(allCombinations)(
+      'isLoading=%s, isSuccess=%s, isError=%s => %s',
+      (isLoading, isSuccess, isError, expected) => {
+        expect(getMutationRequestState({ isLoading, isSuccess, isError })).toBe(expected);
+      },
+    );
   });
 
   describe('priority ordering', () => {

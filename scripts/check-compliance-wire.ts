@@ -14,7 +14,7 @@ const focusedPaths = new Set([
   'src/modern/state/study-operations-api.ts',
   'src/modern/state/study-operations-api-shapes.test.ts',
   'src/modern/routes/study-compliance-page.tsx',
-  'src/modern/routes/study-compliance-page.W26.test.tsx',
+  'src/modern/routes/study-compliance-page-wire-shape.test.tsx',
 ].map((path) => resolve(root, path)));
 const focused = diagnostics.filter((diagnostic) => !diagnostic.file || focusedPaths.has(resolve(diagnostic.file.fileName)));
 if (focused.length) {
@@ -25,4 +25,4 @@ if (focused.length) {
   }));
   process.exit(1);
 }
-console.log(`W26 compliance wire fixture typechecks; ${diagnostics.length} unrelated diagnostic(s) deferred to the full typecheck.`);
+console.log(`Compliance wire fixture typechecks; ${diagnostics.length} unrelated diagnostic(s) deferred to the full typecheck.`);

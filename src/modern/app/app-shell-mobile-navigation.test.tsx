@@ -5,16 +5,13 @@ import { MemoryRouter } from 'react-router';
 
 import { AppShell } from '@/app/app-shell';
 import { store } from '@/state/store';
-import { useUiShellStore } from '@/stores/ui-shell-store';
 
 afterEach(() => {
   cleanup();
-  useUiShellStore.getState().setMobileNavOpen(false);
 });
 
-describe('mobile application navigation (W36)', () => {
+describe('mobile application navigation', () => {
   test('contains focus, closes on Escape, and returns focus to its trigger', async () => {
-    useUiShellStore.getState().setMobileNavOpen(false);
     render(
       <Provider store={store}>
         <MemoryRouter initialEntries={['/dashboard']}>
