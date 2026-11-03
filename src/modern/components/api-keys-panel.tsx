@@ -23,7 +23,7 @@ import {
 } from '@/state/study-operations-api';
 
 // The server caps a key's lifetime by scope (ApiKeyService.maxTtlDaysForScope).
-export const MAX_EXPIRY_DAYS: Record<ApiKeyScope, number> = { ADMIN: 30, READ_ONLY: 365, WRITE: 90 };
+const MAX_EXPIRY_DAYS: Record<ApiKeyScope, number> = { ADMIN: 30, READ_ONLY: 365, WRITE: 90 };
 const SCOPE_LABEL_KEYS: Record<ApiKeyScope, string> = {
   ADMIN: 'api_keys.scope_admin',
   READ_ONLY: 'api_keys.scope_read_only',
@@ -135,13 +135,20 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
             <div className="grid gap-4 sm:grid-cols-4">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="api-key-name">{t('api_keys.name')}</Label>
-                <Input id="api-key-name" maxLength={255} onChange={(e) => setName(e.target.value)} value={name} />
+                <Input
+                  id="api-key-name"
+                  name="api-key-name"
+                  maxLength={255}
+                  onChange={(e) => setName(e.target.value)}
+                  value={name}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="api-key-scope">{t('api_keys.scope')}</Label>
                 <select
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                   id="api-key-scope"
+                  name="api-key-scope"
                   onChange={(e) => {
                     const next = e.target.value as ApiKeyScope;
                     setScope(next);
@@ -160,6 +167,7 @@ export function ApiKeysPanel({ studyId }: { studyId: string }) {
                 <Label htmlFor="api-key-expiry">{t('api_keys.expiry_days', { max: String(maxDays) })}</Label>
                 <Input
                   id="api-key-expiry"
+                  name="api-key-expiry"
                   max={maxDays}
                   min={1}
                   onChange={(e) => setExpiresInDays(e.target.value)}

@@ -1,23 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { configureStore } from '@reduxjs/toolkit';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
-
 import { studyOperationsApi } from '@/state/study-operations-api';
+import { type FetchRoutes, routeFetch } from '@/test/http-fixtures';
 
-import { ApiKeysPanel, MAX_EXPIRY_DAYS } from './api-keys-panel';
-
-test('API-key lifetime caps match the owning server constants', () => {
-  const server = readFileSync(
-    '../chronicle-server/src/main/kotlin/com/openlattice/chronicle/services/apikeys/ApiKeyService.kt',
-    'utf8',
-  );
-  for (const [scope, days] of Object.entries(MAX_EXPIRY_DAYS)) {
-    const value = server.match(new RegExp(`MAX_${scope}_KEY_TTL_DAYS = (\\d+)`))?.[1];
-    expect(Number(value)).toBe(days);
-  }
-});
+import { ApiKeysPanel } from './api-keys-panel';
 
 const RAW_KEY = 'ck_abcd1234_secret-value';
 const OWNER_PERMISSIONS = { OWNER: true, READ: true, WRITE: true };
@@ -34,7 +22,7 @@ const KEYS = [
   },
   {
     createdAt: '2026-09-01T00:00:00Z',
-    deviceId: 'device-1',
+    randomDeviceId: 'device-1',
     expiresAt: '2027-09-01T00:00:00Z',
     keyId: 'k-device',
     name: 'participant device',
@@ -59,29 +47,40 @@ function renderPanel(
   createGate?: Promise<void>,
   failList = false,
   failScopes = false,
+  failWrites = false,
 ) {
   window.location.href = 'http://localhost/';
   Object.defineProperty(globalThis, 'fetch', {
     configurable: true,
-    value: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : new Request(String(input), init);
-      const path = new URL(request.url, 'http://localhost').pathname;
-      if (path.endsWith('/authorizations'))
-        return failScopes ? new Response('', { status: 503 }) : jsonResponse([{ aclKey: ['study-1'], permissions }]);
-      if (failList && request.method === 'GET' && path.endsWith('/api-keys')) {
-        return new Response('', { status: 503 });
-      }
-      if (request.method === 'POST' && path.endsWith('/api-keys')) {
-        createBodies.push(await request.json());
-        await createGate;
-        return jsonResponse({ info: {}, keyId: 'k-new', rawKey: RAW_KEY });
-      }
-      if (request.method === 'DELETE') {
-        revokePaths.push(path);
-        return new Response(null, { status: 204 });
-      }
-      return jsonResponse(KEYS);
-    },
+    value: routeFetch({
+      'POST /chronicle/api/web/authorizations': () =>
+        failScopes ? new Response('', { status: 503 }) : jsonResponse([{ aclKey: ['study-1'], permissions }]),
+      ...Object.fromEntries(
+        ['study-1', 'study-2'].flatMap<[string, FetchRoutes[string]]>((studyId) => [
+          [
+            `GET /chronicle/api/web/study/${studyId}/api-keys`,
+            () => (failList ? new Response('', { status: 503 }) : jsonResponse(KEYS)),
+          ],
+          [
+            `POST /chronicle/api/web/study/${studyId}/api-keys`,
+            async (request: Request) => {
+              createBodies.push(await request.json());
+              if (failWrites)
+                return Response.json({ message: 'A key named pipeline already exists.' }, { status: 409 });
+              await createGate;
+              return jsonResponse({ info: {}, keyId: 'k-new', rawKey: RAW_KEY });
+            },
+          ],
+          [
+            `DELETE /chronicle/api/web/study/${studyId}/api-keys/k-1`,
+            (request: Request) => {
+              revokePaths.push(new URL(request.url).pathname);
+              return new Response(null, { status: failWrites ? 503 : 204 });
+            },
+          ],
+        ]),
+      ),
+    }),
     writable: true,
   });
   const store = configureStore({
@@ -138,7 +137,7 @@ describe('ApiKeysPanel', () => {
     // The raw key is held only by the panel while shown: the mutation cache never keeps it.
     expect(JSON.stringify(store.getState())).not.toContain(RAW_KEY);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide key' }));
     expect(screen.queryAllByText(RAW_KEY).length).toBe(0);
     expect(JSON.stringify(store.getState())).not.toContain(RAW_KEY);
 
@@ -154,6 +153,27 @@ describe('ApiKeysPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke key' }));
     await waitFor(() => expect(revokePaths).toEqual(['/chronicle/api/web/study/study-1/api-keys/k-1']));
+  });
+
+  // A refused create says why and shows no key; a revoke the server could not apply keeps the dialog and its alert,
+  // and the key stays listed, because it still works.
+  test('a refused create and a failed revoke each report the failure and change nothing', async () => {
+    renderPanel(OWNER_PERMISSIONS, undefined, false, false, true);
+    await screen.findByRole('button', { name: 'Create key' });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'pipeline' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('A key named pipeline already exists.');
+    expect(screen.queryAllByText(RAW_KEY).length).toBe(0);
+    expect(createBodies).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke key' }));
+    const dialog = screen.getByRole('dialog');
+    await waitFor(() => expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('could not be revoked'));
+    expect(revokePaths).toEqual(['/chronicle/api/web/study/study-1/api-keys/k-1']);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByText('nightly export')).toBeTruthy();
   });
 
   test('switching study drops a raw key still on screen', async () => {

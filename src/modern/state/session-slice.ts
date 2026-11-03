@@ -1,4 +1,5 @@
 import { createAsyncThunk, createListenerMiddleware, createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { SESSION_IDLE_WINDOW_MS_FIELD } from '@/generated/chronicle-contracts';
 import { logoutSession as performLogout, SIGN_OUT_FAILED_MESSAGE } from '@/lib/auth-utils';
 import {
   type BootstrapSession,
@@ -6,6 +7,7 @@ import {
   requestDashboardLogin,
   type SessionUser,
 } from '@/lib/bootstrap-auth';
+import { REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
 
 // Rendered by `SessionBootstrap`, which maps these English sentences to translated copy.
 // State stays serializable and language-agnostic, so the stored value is the English one.
@@ -23,13 +25,18 @@ export const SESSION_STATUS = {
   signingOut: 'signing-out',
 } as const;
 
+export type UserActivitySignal = { activityAt: number; attemptStartedAt: number };
+
 type SessionState = {
   authMode: 'cookie-bootstrap' | 'institutional-sso';
-  backendCompatibility: 'legacy' | 'operational';
   csrfToken: string | null;
   errorMessage: string | null;
   expiresAt: number | null;
   idleExpiresAt: number | null;
+  idleWindowMs: number | null;
+  pendingUserActivityAt: number | null;
+  lastReportedActivityAt: number | null;
+  userActivityRetryAt: number | null;
   hasAppShell: boolean;
   loginUrl: string | null;
   providerLabel: string;
@@ -41,11 +48,14 @@ type SessionState = {
 
 const initialState: SessionState = {
   authMode: 'institutional-sso',
-  backendCompatibility: 'operational',
   csrfToken: null,
   errorMessage: null,
   expiresAt: null,
   idleExpiresAt: null,
+  idleWindowMs: null,
+  pendingUserActivityAt: null,
+  lastReportedActivityAt: null,
+  userActivityRetryAt: null,
   hasAppShell: true,
   loginUrl: null,
   providerLabel: 'Institutional SSO',
@@ -115,6 +125,12 @@ function applySession(state: SessionState, payload: BootstrapSession): void {
   state.errorMessage = null;
   state.expiresAt = payload.expiresAt;
   state.idleExpiresAt = payload.idleExpiresAt ?? null;
+  const idleWindow = payload[SESSION_IDLE_WINDOW_MS_FIELD];
+  state.idleWindowMs =
+    typeof idleWindow === 'number' && Number.isFinite(idleWindow) && idleWindow > 0 ? idleWindow : null;
+  state.pendingUserActivityAt = null;
+  state.lastReportedActivityAt = null;
+  state.userActivityRetryAt = null;
   state.loginUrl = payload.loginUrl;
   state.providerLabel = payload.providerLabel;
   state.status = payload.status;
@@ -127,9 +143,33 @@ const sessionSlice = createSlice({
   name: 'session',
   initialState,
   reducers: {
-    updateIdleDeadline(state, action: PayloadAction<number>) {
-      if (state.status === SESSION_STATUS.authenticated && Number.isFinite(action.payload))
-        state.idleExpiresAt = Math.max(state.idleExpiresAt ?? action.payload, action.payload);
+    recordUserActivity: {
+      prepare(at: number) {
+        return { payload: { at, observedAt: performance.now() } };
+      },
+      reducer(state, action: PayloadAction<{ at: number; observedAt: number }>) {
+        if (state.status !== SESSION_STATUS.authenticated || !Number.isFinite(action.payload.at)) return;
+        if ((sessionDeadline(state) ?? Infinity) <= action.payload.at) return;
+        state.pendingUserActivityAt = action.payload.observedAt;
+        if (state.idleWindowMs !== null) state.idleExpiresAt = action.payload.at + state.idleWindowMs;
+      },
+    },
+    consumeUserActivity(state, action: PayloadAction<number>) {
+      if (state.pendingUserActivityAt === action.payload) state.pendingUserActivityAt = null;
+      state.lastReportedActivityAt = Math.max(state.lastReportedActivityAt ?? -Infinity, action.payload);
+      state.userActivityRetryAt = null;
+    },
+    requeueUserActivity: {
+      prepare(signal: UserActivitySignal) {
+        return { payload: { ...signal, retryAt: signal.attemptStartedAt + REQUEST_TIMEOUT_MS } };
+      },
+      reducer(state, action: PayloadAction<UserActivitySignal & { retryAt: number }>) {
+        if (state.status !== SESSION_STATUS.authenticated) return;
+        if ((state.lastReportedActivityAt ?? -Infinity) > action.payload.activityAt) return;
+        state.pendingUserActivityAt = Math.max(state.pendingUserActivityAt ?? -Infinity, action.payload.activityAt);
+        state.lastReportedActivityAt = null;
+        state.userActivityRetryAt = action.payload.retryAt;
+      },
     },
     expireSession(state) {
       if (state.status !== SESSION_STATUS.authenticated) return;
@@ -176,6 +216,10 @@ const sessionSlice = createSlice({
         state.csrfToken = null;
         state.expiresAt = null;
         state.idleExpiresAt = null;
+        state.idleWindowMs = null;
+        state.pendingUserActivityAt = null;
+        state.lastReportedActivityAt = null;
+        state.userActivityRetryAt = null;
         state.loginUrl = null;
         state.tokenSource = null;
       });
@@ -183,7 +227,7 @@ const sessionSlice = createSlice({
 });
 
 export const sessionReducer = sessionSlice.reducer;
-export const { expireSession, updateIdleDeadline } = sessionSlice.actions;
+export const { consumeUserActivity, expireSession, recordUserActivity, requeueUserActivity } = sessionSlice.actions;
 
 export function sessionDeadline(session: Pick<SessionState, 'expiresAt' | 'idleExpiresAt'>): number | null {
   const deadlines = [session.expiresAt, session.idleExpiresAt].filter((value): value is number => value != null);

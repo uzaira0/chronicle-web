@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { ParticipantLandingCard } from '@/components/participant-landing-card';
+import { LanguageProvider } from '@/i18n';
 import { storeParticipantSessionContext } from '@/lib/participant-access';
 
 import { ParticipantShell } from './participant-shell';
@@ -67,5 +68,35 @@ describe('ParticipantShell policy footer', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Chronicle' })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 2, name: 'Take the survey' })).toBeTruthy();
     expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
+  });
+
+  // The Spanish footer names the same saved policy links, and a non-https link is still dropped.
+  test('links the saved privacy and withdrawal policies in Spanish', () => {
+    storeParticipantSessionContext({
+      ...CONTEXT,
+      privacyPolicyUrl: 'https://study.example.org/privacidad',
+      withdrawalUrl: 'http://study.example.org/retiro',
+    });
+    try {
+      render(
+        <LanguageProvider initialSearch="?lang=es">
+          <MemoryRouter initialEntries={['/survey']}>
+            <Routes>
+              <Route element={<ParticipantShell />}>
+                <Route element={<p>form</p>} path="survey" />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>,
+      );
+      expect(screen.getByText('Formulario seguro para participantes')).toBeTruthy();
+      expect(screen.getByRole('link', { name: /Política de privacidad del estudio/ }).getAttribute('href')).toBe(
+        'https://study.example.org/privacidad',
+      );
+      expect(screen.queryByRole('link', { name: /Instrucciones para retirarse del estudio/ })).toBeNull();
+      expect(screen.queryByRole('link', { name: /Study privacy policy/ })).toBeNull();
+    } finally {
+      render(<LanguageProvider initialSearch="?lang=en">{null}</LanguageProvider>);
+    }
   });
 });

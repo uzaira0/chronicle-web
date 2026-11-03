@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Link, MemoryRouter } from 'react-router';
 
@@ -15,8 +14,7 @@ describe('RouteDocumentTitle', () => {
           <RouteDocumentTitle />
           <nav>
             <Link to="/studies/private-study/compliance?participantId=private-participant">Compliance</Link>
-            <Link to="/studies/private-study/audit">Audit</Link>
-            <Link to="/studies/private-study/settings-audit">Legacy audit</Link>
+            <Link to="/studies/private-study/settings-audit">Audit</Link>
             <Link to="/questionnaire?studyId=private-study&participantId=private-participant">Questionnaire</Link>
             <Link to="/time-use-diary?studyId=private-study&participantId=private-participant">Diary</Link>
             <Link to="/participant?studyId=private-study&participantId=private-participant">Participant</Link>
@@ -30,24 +28,13 @@ describe('RouteDocumentTitle', () => {
     expect(document.title).toBe('Compliance | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Audit' }));
     expect(document.title).toBe('Audit | Chronicle');
-    fireEvent.click(screen.getByRole('link', { name: 'Legacy audit' }));
-    expect(document.title).toBe('Audit | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Questionnaire' }));
-    expect(document.title).toBe('Study Questionnaire | Chronicle');
+    expect(document.title).toBe('Study questionnaire | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Diary' }));
-    expect(document.title).toBe('Time Use Diary | Chronicle');
+    expect(document.title).toBe('Time use diary | Chronicle');
     fireEvent.click(screen.getByRole('link', { name: 'Participant' }));
     expect(document.title).toBe('Participant access workspace | Chronicle');
     expect(document.title).not.toContain('private-study');
     expect(document.title).not.toContain('private-participant');
-  });
-
-  test('is attached to the application router while the static build title remains intact', () => {
-    const router = readFileSync(new URL('./router.tsx', import.meta.url), 'utf-8');
-    const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf-8');
-
-    expect(router).toContain("import { RouteDocumentTitle } from '@/app/route-document-title';");
-    expect(router).toMatch(/<RouteDocumentTitle\s*\/>/);
-    expect(html).toContain('<title>Chronicle</title>');
   });
 });

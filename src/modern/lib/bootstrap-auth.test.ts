@@ -1,13 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { SESSION_IDLE_WINDOW_MS_FIELD } from '@/generated/chronicle-contracts';
 
 import { installBrowserEnv, uninstallBrowserEnv } from '../test/browser-env';
 import { AUTH_DASHBOARD_LOGIN_ENDPOINT, AUTH_SESSION_ENDPOINT } from './auth-endpoints';
-
-let importCtr = 0;
-function nextId() {
-  importCtr += 1;
-  return importCtr;
-}
+import * as auth from './bootstrap-auth';
 
 async function messageFromRejection(promise: Promise<unknown>): Promise<string> {
   try {
@@ -48,6 +44,7 @@ describe('requestDashboardLogin()', () => {
             csrfToken: 'server-csrf-token',
             expiresAt: 1_900_000_000_000,
             idleExpiresAt: 1_800_000_000_000,
+            [SESSION_IDLE_WINDOW_MS_FIELD]: 900_000,
             providerLabel: 'Chronicle dashboard',
             status: 'authenticated',
             tokenSource: 'dashboard-login',
@@ -58,11 +55,10 @@ describe('requestDashboardLogin()', () => {
       );
     });
 
-    const { requestDashboardLogin } = (await import(
-      `./bootstrap-auth.ts?dashboard=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { requestDashboardLogin } = auth;
     const session = await requestDashboardLogin('hunter2');
     expect(session.idleExpiresAt).toBe(1_800_000_000_000);
+    expect(session[SESSION_IDLE_WINDOW_MS_FIELD]).toBe(900_000);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.input).toBe('/chronicle/v3/auth/dashboard-login');
@@ -85,17 +81,21 @@ describe('requestDashboardLogin()', () => {
       stubFetch(() =>
         Promise.resolve(
           Response.json(
-            { authenticated: true, expiresAt: serverNow + sessionWindow, idleExpiresAt: serverNow + idleWindow },
+            {
+              authenticated: true,
+              expiresAt: serverNow + sessionWindow,
+              idleExpiresAt: serverNow + idleWindow / 3,
+              [SESSION_IDLE_WINDOW_MS_FIELD]: idleWindow,
+            },
             { headers: { Date: new Date(serverNow).toUTCString() } },
           ),
         ),
       );
-      const { initializeBootstrapSession, requestDashboardLogin } = (await import(
-        `./bootstrap-auth.ts?skew=${nextId()}`
-      )) as typeof import('./bootstrap-auth');
+      const { initializeBootstrapSession, requestDashboardLogin } = auth;
       for (const session of [await requestDashboardLogin('password'), await initializeBootstrapSession()]) {
         expect(session.expiresAt).toBe(clientNow + sessionWindow);
-        expect(session.idleExpiresAt).toBe(clientNow + idleWindow);
+        expect(session.idleExpiresAt).toBe(clientNow + idleWindow / 3);
+        expect(session[SESSION_IDLE_WINDOW_MS_FIELD]).toBe(idleWindow);
       }
     } finally {
       clock.mockRestore();
@@ -111,9 +111,7 @@ describe('requestDashboardLogin()', () => {
       ),
     );
 
-    const { DASHBOARD_LOGIN_REJECTED_MESSAGE, requestDashboardLogin } = (await import(
-      `./bootstrap-auth.ts?dashboard=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { DASHBOARD_LOGIN_REJECTED_MESSAGE, requestDashboardLogin } = auth;
 
     expect(await messageFromRejection(requestDashboardLogin('nope'))).toBe(DASHBOARD_LOGIN_REJECTED_MESSAGE);
   });
@@ -121,9 +119,7 @@ describe('requestDashboardLogin()', () => {
   it('rejects with a distinct rate-limit message on a 429', async () => {
     stubFetch(() => Promise.resolve(new Response('', { status: 429 })));
 
-    const { DASHBOARD_LOGIN_RATE_LIMITED_MESSAGE, requestDashboardLogin } = (await import(
-      `./bootstrap-auth.ts?dashboard=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { DASHBOARD_LOGIN_RATE_LIMITED_MESSAGE, requestDashboardLogin } = auth;
 
     expect(await messageFromRejection(requestDashboardLogin('nope'))).toBe(DASHBOARD_LOGIN_RATE_LIMITED_MESSAGE);
   });
@@ -131,21 +127,37 @@ describe('requestDashboardLogin()', () => {
   it('rejects when a 200 response is not authenticated', async () => {
     stubFetch(() => Promise.resolve(new Response(JSON.stringify({ authenticated: false }), { status: 200 })));
 
-    const { DASHBOARD_LOGIN_REJECTED_MESSAGE, requestDashboardLogin } = (await import(
-      `./bootstrap-auth.ts?dashboard=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { DASHBOARD_LOGIN_REJECTED_MESSAGE, requestDashboardLogin } = auth;
 
     expect(await messageFromRejection(requestDashboardLogin('nope'))).toBe(DASHBOARD_LOGIN_REJECTED_MESSAGE);
+  });
+
+  // A 5xx from a restarting backend or a proxy is "temporarily unavailable", never "wrong password".
+  it.each([500, 502, 503])('rejects a %i with the unavailable message', async (status) => {
+    stubFetch(() => Promise.resolve(Response.json({ authenticated: false, error: 'Bad gateway' }, { status })));
+    expect(await messageFromRejection(auth.requestDashboardLogin('right-password'))).toBe(
+      auth.DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE,
+    );
   });
 
   it('rejects with the unavailable message when the request itself fails', async () => {
     stubFetch(() => Promise.reject(new Error('network down')));
 
-    const { DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE, requestDashboardLogin } = (await import(
-      `./bootstrap-auth.ts?dashboard=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE, requestDashboardLogin } = auth;
 
     expect(await messageFromRejection(requestDashboardLogin('nope'))).toBe(DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE);
+  });
+});
+
+describe('getResearcherCsrfToken()', () => {
+  afterEach(() => uninstallBrowserEnv());
+
+  it('reads the encoded CSRF cookie among others, and is null without one', () => {
+    installBrowserEnv({ cookie: 'theme=dark; ol_csrf_token=a%2Bb%3D; other=1' });
+    expect(auth.getResearcherCsrfToken()).toBe('a+b=');
+    uninstallBrowserEnv();
+    installBrowserEnv({ cookie: 'x_ol_csrf_token=spoof' });
+    expect(auth.getResearcherCsrfToken()).toBeNull();
   });
 });
 
@@ -173,9 +185,7 @@ describe('initializeBootstrapSession()', () => {
       writable: true,
     });
 
-    const { initializeBootstrapSession } = (await import(
-      `./bootstrap-auth.ts?sso=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { initializeBootstrapSession } = auth;
     const session = await initializeBootstrapSession();
 
     expect(session).toEqual({
@@ -191,6 +201,18 @@ describe('initializeBootstrapSession()', () => {
     });
   });
 
+  // Opening the dashboard offline, or behind a proxy that answers with its own HTML page, says the session service
+  // could not be reached; it never shows a sign-in form as if the researcher were signed out.
+  it.each([
+    ['no connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['an unreadable session body', () => Promise.resolve(new Response('<html>proxy</html>', { status: 200 }))],
+  ] as const)('rejects with the session network message on %s', async (_name, respond) => {
+    stubFetch(respond);
+    expect(await messageFromRejection(auth.initializeBootstrapSession())).toBe(
+      auth.AUTH_SESSION_NETWORK_FAILED_MESSAGE,
+    );
+  });
+
   it('requires a password when an unauthenticated session advertises testing login', async () => {
     const calls: Array<{ init: RequestInit | undefined; input: RequestInfo | URL }> = [];
     stubFetch((input, init) => {
@@ -201,9 +223,7 @@ describe('initializeBootstrapSession()', () => {
       return Promise.resolve(Response.json({ authenticated: true, tokenSource: 'dashboard-login' }));
     });
 
-    const { initializeBootstrapSession, requestDashboardLogin } = (await import(
-      `./bootstrap-auth.ts?bootstrap=${nextId()}`
-    )) as typeof import('./bootstrap-auth');
+    const { initializeBootstrapSession, requestDashboardLogin } = auth;
     const awaiting = await initializeBootstrapSession();
     expect(calls.map((call) => call.input)).toEqual([AUTH_SESSION_ENDPOINT]);
     expect(awaiting.status).toBe('awaiting-sso');

@@ -1,26 +1,28 @@
 import { AlertTriangle, LoaderCircle, RefreshCcw } from 'lucide-react';
-import { Activity, type PropsWithChildren, useEffect, useState } from 'react';
+import { Activity, type PropsWithChildren, useEffect, useLayoutEffect, useState } from 'react';
 import { StatePanel } from '@/components/state-panel';
 import { Button } from '@/components/ui/button';
 import { PortalContainerContext } from '@/components/ui/dialog';
 import { useTranslator } from '@/i18n';
-import { SIGN_OUT_FAILED_MESSAGE } from '@/lib/auth-utils';
+import { SESSION_LOGOUT_CHANNEL, SIGN_OUT_FAILED_MESSAGE } from '@/lib/auth-utils';
 import {
   AUTH_SESSION_FAILED_PREFIX,
   AUTH_SESSION_NETWORK_FAILED_MESSAGE,
   TESTING_LOGIN_FAILED_PREFIX,
 } from '@/lib/bootstrap-auth';
+import { retainUnsavedEdits } from '@/lib/use-confirm-leave';
 import { LoginPage } from '@/routes/login-page';
 import {
   bootstrapSession,
   expireSession,
   logoutSession,
+  recordUserActivity,
   SESSION_INIT_FAILED_MESSAGE,
   SESSION_STATUS,
   sessionDeadline,
   UNKNOWN_BOOTSTRAP_FAILURE_MESSAGE,
 } from '@/state/session-slice';
-import { type RootState, store, useAppSelector } from '@/state/store';
+import { type AppStore, type RootState, useAppSelector, useAppStore } from '@/state/store';
 import { studyOperationsApi } from '@/state/study-operations-api';
 
 // The session slice and the auth transport store their English fallback sentences (state
@@ -54,8 +56,9 @@ function sessionErrorText(
   return message;
 }
 
-function runBootstrap(): void {
-  bootstrapSession()(store.dispatch, () => store.getState(), undefined)
+function runBootstrap(store: AppStore): void {
+  store
+    .dispatch(bootstrapSession())
     .unwrap()
     .catch(() => {
       // The session slice owns the rejected state and renders its error panel.
@@ -63,6 +66,7 @@ function runBootstrap(): void {
 }
 
 function useSessionDeadline(session: RootState['session']): void {
+  const store = useAppStore();
   const expiresAt = sessionDeadline(session);
   useEffect(() => {
     if (session.status !== SESSION_STATUS.authenticated || expiresAt === null) return;
@@ -82,16 +86,83 @@ function useSessionDeadline(session: RootState['session']): void {
       window.removeEventListener('focus', checkExpiry);
       document.removeEventListener('visibilitychange', checkExpiry);
     };
-  }, [session.status, expiresAt]);
+  }, [store, session.status, expiresAt]);
+}
+
+function useUserActivity(status: RootState['session']['status']): void {
+  const store = useAppStore();
+  useEffect(() => {
+    if (status !== SESSION_STATUS.authenticated) return;
+    let inFlight = false;
+    let queued = false;
+    let active = true;
+    let timer: number | undefined;
+    const queueSignal = () => {
+      if (queued) return;
+      queued = true;
+      // Let the same input's normal API call carry the signal first.
+      queueMicrotask(() => {
+        queued = false;
+        window.clearTimeout(timer);
+        const current = store.getState().session;
+        if (
+          !active ||
+          inFlight ||
+          current.pendingUserActivityAt === null ||
+          current.status !== SESSION_STATUS.authenticated ||
+          current.idleWindowMs === null
+        )
+          return;
+        const due = Math.max(
+          current.lastReportedActivityAt === null ? 0 : current.lastReportedActivityAt + current.idleWindowMs / 2,
+          current.userActivityRetryAt ?? 0,
+        );
+        const remaining = due - performance.now();
+        if (remaining > 0) {
+          timer = window.setTimeout(queueSignal, Math.min(remaining, MAX_BROWSER_TIMEOUT_MS));
+          return;
+        }
+        inFlight = true;
+        const request = store.dispatch(studyOperationsApi.endpoints.refreshSessionActivity.initiate());
+        void request
+          .unwrap()
+          .catch(() => undefined)
+          .finally(() => {
+            inFlight = false;
+            request.reset();
+            queueSignal();
+          });
+      });
+    };
+    const unsubscribe = store.subscribe(queueSignal);
+    const record = (event: Event) => {
+      if (event.isTrusted) store.dispatch(recordUserActivity(Date.now()));
+    };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'input', 'click'] as const;
+    // React must read controlled inputs before a session render restores their value.
+    for (const event of events) document.addEventListener(event, record, { passive: true });
+    return () => {
+      active = false;
+      unsubscribe();
+      window.clearTimeout(timer);
+      for (const event of events) document.removeEventListener(event, record);
+    };
+  }, [store, status]);
 }
 
 function SessionViews({ children, session }: PropsWithChildren<{ session: RootState['session'] }>) {
   const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
+  const store = useAppStore();
   const { t } = useTranslator();
   const isLocked =
     session.status !== SESSION_STATUS.authenticated || (sessionDeadline(session) ?? Infinity) <= Date.now();
   const signOutFailed = session.errorMessage === SIGN_OUT_FAILED_MESSAGE;
   useSessionDeadline(session);
+  useUserActivity(session.status);
+
+  useLayoutEffect(() => {
+    if (isLocked) return retainUnsavedEdits();
+  }, [isLocked]);
 
   useEffect(() => {
     if (session.status !== SESSION_STATUS.locked && session.status !== SESSION_STATUS.signingOut) return;
@@ -109,7 +180,7 @@ function SessionViews({ children, session }: PropsWithChildren<{ session: RootSt
     return () => {
       for (const subscription of subscriptions) subscription.unsubscribe();
     };
-  }, [session.status]);
+  }, [store, session.status]);
 
   return (
     <>
@@ -151,13 +222,20 @@ function SessionViews({ children, session }: PropsWithChildren<{ session: RootSt
 
 export function SessionBootstrap({ children }: PropsWithChildren) {
   const session = useAppSelector((state) => state.session);
+  const store = useAppStore();
   const { t } = useTranslator();
 
   useEffect(() => {
+    const channel = new BroadcastChannel(SESSION_LOGOUT_CHANNEL);
+    channel.onmessage = () => store.dispatch(expireSession());
+    return () => channel.close();
+  }, [store]);
+
+  useEffect(() => {
     if (session.status === SESSION_STATUS.idle) {
-      runBootstrap();
+      runBootstrap(store);
     }
-  }, [session.status]);
+  }, [store, session.status]);
 
   if (session.status === SESSION_STATUS.bootstrapping || session.status === SESSION_STATUS.idle) {
     return (
@@ -179,7 +257,7 @@ export function SessionBootstrap({ children }: PropsWithChildren) {
           actions={
             <Button
               onClick={() => {
-                runBootstrap();
+                runBootstrap(store);
               }}
               variant="default"
             >
@@ -197,11 +275,24 @@ export function SessionBootstrap({ children }: PropsWithChildren) {
     );
   }
 
-  // No session: render the login page *instead of* the dashboard. Rendering the dashboard
-  // behind a banner used to expose every authenticated view to an unauthenticated visitor.
+  // No session: render the login page *instead of* the dashboard, so no authenticated view
+  // reaches an unauthenticated visitor.
   if (session.status === SESSION_STATUS.awaitingSso) {
     return <LoginPage loginUrl={session.loginUrl} providerLabel={session.providerLabel} />;
   }
 
   return <SessionViews session={session}>{children}</SessionViews>;
+}
+
+/**
+ * The /login route sits outside SessionBootstrap so it renders without a session, but it still reads the
+ * server's sign-in options: an SSO-only deployment has no dashboard password to offer.
+ */
+export function StandaloneLoginPage() {
+  const session = useAppSelector((state) => state.session);
+  const store = useAppStore();
+  useEffect(() => {
+    if (session.status === SESSION_STATUS.idle) runBootstrap(store);
+  }, [store, session.status]);
+  return <LoginPage loginUrl={session.loginUrl} providerLabel={session.providerLabel} redirectTo="/" />;
 }

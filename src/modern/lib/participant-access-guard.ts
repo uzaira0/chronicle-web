@@ -8,6 +8,7 @@ import {
   readParticipantSessionContext,
 } from '@/lib/participant-access';
 import { timeoutSignal } from '@/lib/request-timeout';
+import { useConfirmLeave } from '@/lib/use-confirm-leave';
 
 /** Well inside the server's 30-minute idle timeout. */
 export const PARTICIPANT_KEEP_ALIVE_MS = 5 * 60_000;
@@ -54,6 +55,7 @@ export function useUnsavedParticipantAnswers(unsaved: boolean): {
   const [status, setStatus] = useState<ParticipantKeepAliveStatus>('idle');
   const [retryCount, setRetryCount] = useState(0);
   const retry = useCallback(() => setRetryCount((count) => count + 1), []);
+  useConfirmLeave(unsaved);
 
   useEffect(() => {
     if (!unsaved) {
@@ -62,7 +64,6 @@ export function useUnsavedParticipantAnswers(unsaved: boolean): {
     }
     let cancelled = false;
     let checking = false;
-    const confirmLeave = (event: BeforeUnloadEvent) => event.preventDefault();
     const checkSession = async () => {
       if (checking) return;
       checking = true;
@@ -71,13 +72,11 @@ export function useUnsavedParticipantAnswers(unsaved: boolean): {
       checking = false;
       if (!cancelled) setStatus(next);
     };
-    window.addEventListener('beforeunload', confirmLeave);
     // Refresh now too: the last request may already be most of an idle period ago.
     void checkSession();
     const keepAlive = window.setInterval(() => void checkSession(), PARTICIPANT_KEEP_ALIVE_MS);
     return () => {
       cancelled = true;
-      window.removeEventListener('beforeunload', confirmLeave);
       window.clearInterval(keepAlive);
     };
   }, [retryCount, unsaved]);

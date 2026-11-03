@@ -21,6 +21,7 @@ const bootstrapSessionArb = fc.record({
   csrfToken: fc.option(fc.string({ minLength: 10, maxLength: 64 }), { nil: null }),
   expiresAt: fc.option(fc.integer({ min: 1_000_000_000_000, max: 2_000_000_000_000 }), { nil: null }),
   idleExpiresAt: fc.option(fc.integer({ min: 1_000_000_000_000, max: 2_000_000_000_000 }), { nil: null }),
+  idleWindowMs: fc.option(fc.integer({ min: 1, max: 2 ** 31 - 1 }), { nil: null }),
   loginUrl: fc.option(fc.webUrl(), { nil: null }),
   providerLabel: fc.string({ minLength: 1, maxLength: 40 }),
   status: fc.constantFrom('authenticated' as const, 'awaiting-sso' as const),
@@ -57,6 +58,7 @@ describe('sessionReducer properties', () => {
         expect(next.csrfToken).toBe(payload.csrfToken);
         expect(next.expiresAt).toBe(payload.expiresAt);
         expect(next.idleExpiresAt).toBe(payload.idleExpiresAt);
+        expect(next.idleWindowMs).toBe(payload.idleWindowMs);
         expect(next.providerLabel).toBe(payload.providerLabel);
         expect(next.status).toBe(payload.status);
         expect(next.tokenSource).toBe(payload.tokenSource);

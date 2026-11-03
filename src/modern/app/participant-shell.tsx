@@ -23,7 +23,9 @@ export function ParticipantShell() {
       <header className="border-b border-border bg-background px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
           <div>
-            <h1 className="text-xs font-bold uppercase tracking-eyebrow text-primary">Chronicle</h1>
+            <h1 className="text-xs font-bold uppercase tracking-eyebrow text-primary" translate="no">
+              Chronicle
+            </h1>
             <p className="text-sm text-muted-foreground">{t('participant_shell.subtitle')}</p>
           </div>
           <LanguageSwitcher />

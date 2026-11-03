@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
-import { bootstrapSession, loginWithPassword, sessionReducer } from './session-slice';
+import {
+  bootstrapSession,
+  consumeUserActivity,
+  loginWithPassword,
+  recordUserActivity,
+  requeueUserActivity,
+  sessionReducer,
+} from './session-slice';
 
 const INIT_ACTION = { type: '@@INIT' } as const;
 
@@ -52,6 +59,54 @@ const awaitingSsoPayload = {
   user: null,
 };
 
+it('renews the full configured idle window after a reload with only five minutes remaining', () => {
+  const now = Date.now();
+  const minute = 60_000;
+  const fullWindow = 15 * minute;
+  const reloaded = sessionReducer(
+    initialState(),
+    fulfilledAction({
+      ...authenticatedPayload,
+      expiresAt: now + 60 * minute,
+      idleExpiresAt: now + 5 * minute,
+      idleWindowMs: fullWindow,
+    }),
+  );
+  expect(reloaded.idleExpiresAt).toBe(now + 5 * minute);
+  const renewed = sessionReducer(reloaded, recordUserActivity(now + 4 * minute));
+  expect(renewed.idleExpiresAt).toBe(now + 19 * minute);
+});
+
+it('requeues failed signals without losing newer input or extending the local deadline', () => {
+  const now = Date.now();
+  let state = sessionReducer(
+    initialState(),
+    fulfilledAction({
+      ...authenticatedPayload,
+      expiresAt: now + 60_000,
+      idleExpiresAt: now + 10_000,
+      idleWindowMs: 10_000,
+    }),
+  );
+  const first = recordUserActivity(now);
+  const firstSignal = { activityAt: first.payload.observedAt, attemptStartedAt: first.payload.observedAt };
+  state = sessionReducer(state, first);
+  state = sessionReducer(state, consumeUserActivity(first.payload.observedAt));
+  const second = recordUserActivity(now + 1);
+  second.payload.observedAt = first.payload.observedAt + 1;
+  state = sessionReducer(state, second);
+  const deadline = state.idleExpiresAt;
+  state = sessionReducer(state, requeueUserActivity(firstSignal));
+  expect(state.pendingUserActivityAt).toBe(second.payload.observedAt);
+  expect(state.lastReportedActivityAt).toBeNull();
+  expect(state.userActivityRetryAt).toBeGreaterThan(first.payload.observedAt);
+  expect(state.idleExpiresAt).toBe(deadline);
+  state = sessionReducer(state, consumeUserActivity(second.payload.observedAt));
+  state = sessionReducer(state, requeueUserActivity(firstSignal));
+  expect(state.pendingUserActivityAt).toBeNull();
+  expect(state.lastReportedActivityAt).toBe(second.payload.observedAt);
+});
+
 // ─── Initial state ───────────────────────────────────────────────────────────
 
 describe('sessionReducer — initial state', () => {
@@ -61,10 +116,6 @@ describe('sessionReducer — initial state', () => {
 
   it('has authMode set to institutional-sso', () => {
     expect(initialState().authMode).toBe('institutional-sso');
-  });
-
-  it('has backendCompatibility set to operational', () => {
-    expect(initialState().backendCompatibility).toBe('operational');
   });
 
   it('has csrfToken set to null', () => {
@@ -102,11 +153,14 @@ describe('sessionReducer — initial state', () => {
   it('matches the full initial state snapshot', () => {
     expect(initialState()).toEqual({
       authMode: 'institutional-sso',
-      backendCompatibility: 'operational',
       csrfToken: null,
       errorMessage: null,
       expiresAt: null,
       idleExpiresAt: null,
+      idleWindowMs: null,
+      pendingUserActivityAt: null,
+      lastReportedActivityAt: null,
+      userActivityRetryAt: null,
       hasAppShell: true,
       loginUrl: null,
       providerLabel: 'Institutional SSO',
@@ -141,11 +195,6 @@ describe('sessionReducer — pending action', () => {
   it('preserves authMode', () => {
     const state = sessionReducer(initialState(), pendingAction());
     expect(state.authMode).toBe('institutional-sso');
-  });
-
-  it('preserves backendCompatibility', () => {
-    const state = sessionReducer(initialState(), pendingAction());
-    expect(state.backendCompatibility).toBe('operational');
   });
 
   it('preserves csrfToken', () => {
@@ -246,11 +295,6 @@ describe('sessionReducer — fulfilled action', () => {
   it('sets expiresAt to null when payload expiresAt is null', () => {
     const state = sessionReducer(initialState(), fulfilledAction(awaitingSsoPayload));
     expect(state.expiresAt).toBeNull();
-  });
-
-  it('preserves backendCompatibility (not in payload)', () => {
-    const state = sessionReducer(initialState(), fulfilledAction(authenticatedPayload));
-    expect(state.backendCompatibility).toBe('operational');
   });
 
   it('preserves hasAppShell (not in payload)', () => {

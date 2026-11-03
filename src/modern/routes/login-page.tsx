@@ -13,7 +13,7 @@ import {
   DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE,
 } from '@/lib/bootstrap-auth';
 import { DASHBOARD_SIGN_IN_FAILED_MESSAGE, loginWithPassword } from '@/state/session-slice';
-import { store } from '@/state/store';
+import { useAppDispatch } from '@/state/store';
 
 type LoginPageProps = {
   /** SSO entry point, when the backend advertises one. Rendered as a secondary affordance. */
@@ -41,6 +41,7 @@ function loginFailureMessage(cause: string, t: (key: string) => string): string 
 
 export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginPageProps) {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const { t } = useTranslator();
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
     setErrorMessage(null);
 
     try {
-      await store.dispatch(loginWithPassword(password)).unwrap();
+      await dispatch(loginWithPassword(password)).unwrap();
       setPassword('');
       setIsSubmitting(false);
       if (redirectTo) void navigate(redirectTo, { replace: true });
@@ -80,7 +81,9 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
         <CardHeader>
           <div className="flex items-center gap-3 text-primary">
             <ShieldCheck className="h-5 w-5" />
-            <span className="text-xs font-semibold uppercase tracking-eyebrow-wide">Chronicle</span>
+            <span className="text-xs font-semibold uppercase tracking-eyebrow-wide" translate="no">
+              Chronicle
+            </span>
           </div>
           <CardTitle as="h1">{t('login.title')}</CardTitle>
           <CardDescription>{t('login.description')}</CardDescription>
@@ -97,6 +100,7 @@ export function LoginPage({ loginUrl = null, providerLabel, redirectTo }: LoginP
                 {t('login.password_label')}
               </Label>
               <Input
+                aria-required
                 autoComplete="current-password"
                 id="dashboard-password"
                 name="password"

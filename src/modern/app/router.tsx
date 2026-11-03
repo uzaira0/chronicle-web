@@ -1,16 +1,18 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router';
+import { lazy, Suspense, useState } from 'react';
+import { createBrowserRouter, createRoutesFromElements, Outlet, Route, RouterProvider } from 'react-router';
 
 import { AppShell } from '@/app/app-shell';
 import { ParticipantAccessBootstrap } from '@/app/participant-access-bootstrap';
 import { ParticipantShell } from '@/app/participant-shell';
 import { RouteDocumentTitle } from '@/app/route-document-title';
-import { SessionBootstrap } from '@/app/session-bootstrap';
+import { SessionBootstrap, StandaloneLoginPage } from '@/app/session-bootstrap';
+import { ObservabilityErrorBoundary } from '@/components/error-boundary';
 import { RouteSkeleton } from '@/components/state-panel';
-import { pickModernBase } from '@/lib/route-links';
+import { BROWSER_DOWNLOAD_REAUTHENTICATION_PATH } from '@/generated/chronicle-contracts';
+import { PARTICIPANT_ROUTE_PATHS, pickModernBase } from '@/lib/route-links';
+import { UnsavedEditsGuard } from '@/lib/use-confirm-leave';
 
 // Lazy-loaded route pages for code splitting
-const LoginPage = lazy(() => import('@/routes/login-page').then((m) => ({ default: m.LoginPage })));
 const NotFoundPage = lazy(() => import('@/routes/not-found-page').then((m) => ({ default: m.NotFoundPage })));
 const OverviewPage = lazy(() => import('@/routes/overview-page').then((m) => ({ default: m.OverviewPage })));
 const ParticipantDashboardPage = lazy(() =>
@@ -34,9 +36,6 @@ const StudyBulkDownloadsPage = lazy(() =>
 const StudyParticipantsPage = lazy(() =>
   import('@/routes/study-participants-page').then((m) => ({ default: m.StudyParticipantsPage })),
 );
-const StudyPreprocessingPage = lazy(() =>
-  import('@/routes/study-preprocessing-page').then((m) => ({ default: m.StudyPreprocessingPage })),
-);
 const StudyQuestionnairesPage = lazy(() =>
   import('@/routes/study-questionnaires-page').then((m) => ({ default: m.StudyQuestionnairesPage })),
 );
@@ -50,60 +49,72 @@ const TimeUseDiaryPage = lazy(() =>
   import('@/routes/time-use-diary-page').then((m) => ({ default: m.TimeUseDiaryPage })),
 );
 
-export function ModernRouter() {
-  const basename = pickModernBase() || '/';
-
+function RouterRoot() {
   return (
-    <BrowserRouter basename={basename}>
+    <>
       <RouteDocumentTitle />
-      <Suspense fallback={<RouteSkeleton />}>
-        <Routes>
-          <Route
-            element={
-              <ParticipantAccessBootstrap>
-                <ParticipantShell />
-              </ParticipantAccessBootstrap>
-            }
-          >
-            <Route element={<QuestionnaireRoutePage />} path="questionnaire" />
-            <Route element={<SurveyRoutePage />} path="survey" />
-            <Route element={<TimeUseDiaryPage />} path="time-use-diary" />
-            <Route element={<ParticipantDashboardPage />} path="participant" />
-          </Route>
-
-          {/* Deliberately outside <SessionBootstrap>: the login page must be reachable with
-              no session, and gating it behind the bootstrap loader would make it recurse. */}
-          <Route element={<LoginPage redirectTo="/" />} path="login" />
-
-          <Route
-            element={
-              <SessionBootstrap>
-                <AppShell />
-              </SessionBootstrap>
-            }
-            path="/"
-          >
-            <Route element={<OverviewPage />} index />
-            <Route element={<OverviewPage />} path="dashboard" />
-            <Route element={<StudiesPage />} path="studies" />
-
-            {/* Study sub-routes wrapped in StudyLayout (tab navigation + actions) */}
-            <Route element={<StudyLayout />} path="studies/:studyId">
-              <Route element={<StudyDetailsPage />} index />
-              <Route element={<StudyParticipantsPage />} path="participants" />
-              <Route element={<StudyPreprocessingPage />} path="preprocessing" />
-              <Route element={<StudyBulkDownloadsPage />} path="downloads" />
-              <Route element={<StudyQuestionnairesPage />} path="questionnaires" />
-              <Route element={<StudyCompliancePage />} path="compliance" />
-              <Route element={<StudyTimeUseDiaryPage />} path="time-use-diary" />
-              <Route element={<StudySettingsAuditPage />} path="settings-audit" />
-              <Route element={<StudySettingsAuditPage />} path="audit" />
-            </Route>
-
-            <Route element={<NotFoundPage />} path="*" />
-          </Route>
-        </Routes>
-      </Suspense>
-    </BrowserRouter>
+      <UnsavedEditsGuard />
+      {/* Inside the data router, the app's boundary must sit below its root to see route errors. */}
+      <ObservabilityErrorBoundary>
+        <Suspense fallback={<RouteSkeleton />}>
+          <Outlet />
+        </Suspense>
+      </ObservabilityErrorBoundary>
+    </>
   );
+}
+
+/** The route table; tests read it through test/route-fixtures.ts. */
+export const modernRouteElements = (
+  <Route element={<RouterRoot />}>
+    <Route
+      element={
+        <ParticipantAccessBootstrap>
+          <ParticipantShell />
+        </ParticipantAccessBootstrap>
+      }
+    >
+      <Route element={<QuestionnaireRoutePage />} path={PARTICIPANT_ROUTE_PATHS.QUESTIONNAIRE} />
+      <Route element={<SurveyRoutePage />} path={PARTICIPANT_ROUTE_PATHS.APP_USAGE} />
+      <Route element={<TimeUseDiaryPage />} path={PARTICIPANT_ROUTE_PATHS.TIME_USE_DIARY} />
+      <Route element={<ParticipantDashboardPage />} path={PARTICIPANT_ROUTE_PATHS.PORTAL} />
+    </Route>
+
+    {/* Deliberately outside <SessionBootstrap>: the login page must be reachable with
+        no session, and gating it behind the bootstrap loader would make it recurse. */}
+    <Route element={<StandaloneLoginPage />} path={BROWSER_DOWNLOAD_REAUTHENTICATION_PATH} />
+
+    <Route
+      element={
+        <SessionBootstrap>
+          <AppShell />
+        </SessionBootstrap>
+      }
+      path="/"
+    >
+      <Route element={<OverviewPage />} index />
+      <Route element={<OverviewPage />} path="dashboard" />
+      <Route element={<StudiesPage />} path="studies" />
+
+      {/* Study sub-routes wrapped in StudyLayout (tab navigation + actions) */}
+      <Route element={<StudyLayout />} path="studies/:studyId">
+        <Route element={<StudyDetailsPage />} index />
+        <Route element={<StudyParticipantsPage />} path="participants" />
+        <Route element={<StudyBulkDownloadsPage />} path="downloads" />
+        <Route element={<StudyQuestionnairesPage />} path="questionnaires" />
+        <Route element={<StudyCompliancePage />} path="compliance" />
+        <Route element={<StudyTimeUseDiaryPage />} path="time-use-diary" />
+        <Route element={<StudySettingsAuditPage />} path="settings-audit" />
+      </Route>
+
+      <Route element={<NotFoundPage />} path="*" />
+    </Route>
+  </Route>
+);
+
+export function ModernRouter() {
+  const [router] = useState(() =>
+    createBrowserRouter(createRoutesFromElements(modernRouteElements), { basename: pickModernBase() || '/' }),
+  );
+  return <RouterProvider router={router} />;
 }

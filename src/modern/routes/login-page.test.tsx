@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { chromium } from '@playwright/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { store } from '@/state/store';
@@ -26,12 +28,14 @@ const AUTHENTICATED_BODY = JSON.stringify({
 
 function renderLogin() {
   return render(
-    <MemoryRouter initialEntries={['/login']}>
-      <Routes>
-        <Route element={<div>DASHBOARD</div>} path="/" />
-        <Route element={<LoginPage redirectTo="/" />} path="/login" />
-      </Routes>
-    </MemoryRouter>,
+    <Provider store={store}>
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route element={<div>DASHBOARD</div>} path="/" />
+          <Route element={<LoginPage redirectTo="/" />} path="/login" />
+        </Routes>
+      </MemoryRouter>
+    </Provider>,
   );
 }
 
@@ -58,19 +62,45 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: /sign in/i })).toBeTruthy();
   });
 
+  // The required marker is decoration, so a browser finds the field by its exact name.
+  test('a real browser finds the password field by its exact accessible name', async () => {
+    const view = renderLogin();
+    const form = view.container.querySelector('form');
+    if (!form) throw new Error('Login form was not rendered.');
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.route('**/*', (route) => route.abort());
+      await page.setContent(form.outerHTML);
+      // The same accessible-name locator the deployed journey signs in with (selfhost-journey.spec.ts); a browser
+      // exposes the password input as a textbox. Label-text matching (getByLabel) would also read the hidden mark.
+      const field = page.getByRole('textbox', { name: 'Dashboard password', exact: true });
+      expect(await field.count()).toBe(1);
+      expect(await field.getAttribute('type')).toBe('password');
+      await field.fill('dashboard-secret');
+      expect(await field.inputValue()).toBe('dashboard-secret');
+    } finally {
+      await browser.close();
+    }
+  }, 20_000);
+
   test('offers the SSO affordance only when a login URL is supplied', () => {
     const { unmount } = render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>,
+      <Provider store={store}>
+        <MemoryRouter>
+          <LoginPage />
+        </MemoryRouter>
+      </Provider>,
     );
     expect(screen.queryByText(/continue with/i)).toBeNull();
     unmount();
 
     render(
-      <MemoryRouter>
-        <LoginPage loginUrl="/chronicle/v3/auth/oidc/login" providerLabel="Institutional SSO" />
-      </MemoryRouter>,
+      <Provider store={store}>
+        <MemoryRouter>
+          <LoginPage loginUrl="/chronicle/v3/auth/oidc/login" providerLabel="Institutional SSO" />
+        </MemoryRouter>
+      </Provider>,
     );
     const ssoLink = screen.getByRole('link', { name: /continue with institutional sso/i });
     expect(ssoLink.getAttribute('href')).toBe('/chronicle/v3/auth/oidc/login');
@@ -106,7 +136,7 @@ describe('LoginPage', () => {
 
     // The translated rejection, never the untranslated server text.
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toBe('That password was not accepted. Check it and try again.');
+    expect(alert.textContent).toBe('The server rejected that password. Check it and try again.');
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(screen.queryByText('Incorrect dashboard password.')).toBeNull();
     expect(screen.queryByText('DASHBOARD')).toBeNull();

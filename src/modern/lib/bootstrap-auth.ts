@@ -1,3 +1,4 @@
+import { SESSION_IDLE_WINDOW_MS_FIELD } from '@/generated/chronicle-contracts';
 import { AUTH_DASHBOARD_LOGIN_ENDPOINT, AUTH_SESSION_ENDPOINT } from '@/lib/auth-endpoints';
 import { getErrorMessage } from '@/lib/errors';
 import { timeoutSignal } from '@/lib/request-timeout';
@@ -8,7 +9,7 @@ const DASHBOARD_PROVIDER_LABEL = 'Chronicle dashboard';
 
 // User-facing copy for every way the dashboard password exchange can fail. These are read
 // verbatim by the login page, so they must stay free of internal detail.
-export const DASHBOARD_LOGIN_REJECTED_MESSAGE = 'That password was not accepted. Check it and try again.';
+export const DASHBOARD_LOGIN_REJECTED_MESSAGE = 'The server rejected that password. Check it and try again.';
 export const DASHBOARD_LOGIN_RATE_LIMITED_MESSAGE = 'Too many sign-in attempts. Wait a minute before trying again.';
 export const DASHBOARD_LOGIN_UNAVAILABLE_MESSAGE = 'Sign-in is temporarily unavailable. Try again in a moment.';
 export const AUTH_SESSION_NETWORK_FAILED_MESSAGE =
@@ -40,6 +41,7 @@ export type BootstrapSession = {
   csrfToken: string | null;
   expiresAt: number | null;
   idleExpiresAt?: number | null;
+  [SESSION_IDLE_WINDOW_MS_FIELD]?: number | null;
   loginUrl: string | null;
   providerLabel: string;
   status: 'authenticated' | 'awaiting-sso';
@@ -53,6 +55,10 @@ function getCookie(name: string): string | null {
   const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
   const cookieValue = match?.[1];
   return cookieValue ? decodeURIComponent(cookieValue) : null;
+}
+
+export function getResearcherCsrfToken(): string | null {
+  return getCookie(CSRF_COOKIE);
 }
 
 function toSessionUser(payload: JwtPayload | SessionUser | null): SessionUser | null {
@@ -82,6 +88,7 @@ type ServerSessionResponse = {
   csrfToken?: string | null;
   expiresAt?: number | null;
   idleExpiresAt?: number | null;
+  [SESSION_IDLE_WINDOW_MS_FIELD]?: number | null;
   loginUrl?: string | null;
   providerLabel?: string;
   status?: BootstrapSession['status'];
@@ -133,7 +140,7 @@ async function readJsonObject(
 }
 
 /** Keep server deadlines in the same clock as the dashboard's expiry timer. */
-export function browserSessionDeadline(value: number | null | undefined, headers: Headers): number | null {
+function browserSessionDeadline(value: number | null | undefined, headers: Headers): number | null {
   if (value == null || !Number.isFinite(value)) return null;
   const serverNow = Date.parse(headers.get('Date') ?? '');
   return Number.isFinite(serverNow) ? Date.now() + (value - serverNow) : value;
@@ -196,6 +203,7 @@ function toAuthenticatedBootstrapSession(
     csrfToken: session.csrfToken ?? getCookie(CSRF_COOKIE),
     expiresAt: session.expiresAt ?? null,
     idleExpiresAt: session.idleExpiresAt ?? null,
+    [SESSION_IDLE_WINDOW_MS_FIELD]: session[SESSION_IDLE_WINDOW_MS_FIELD] ?? null,
     loginUrl: null,
     providerLabel: session.providerLabel ?? providerLabel,
     status: session.status ?? 'authenticated',
