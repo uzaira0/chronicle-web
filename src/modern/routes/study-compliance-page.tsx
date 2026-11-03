@@ -1,5 +1,5 @@
 import { CircleAlert, RefreshCcw, ShieldAlert } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useParams } from 'react-router';
 
 import { MissingStudyIdPanel } from '@/components/missing-study-id-panel';
@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
+import { useListSearchParams } from '@/lib/use-list-search-params';
 import {
   type ComplianceViolationsMap,
   useGetComplianceViolationsQuery,
@@ -73,7 +74,8 @@ export function StudyCompliancePage() {
   } = useGetComplianceViolationsQuery(studyId, { skip: !studyId });
 
   const violations = useMemo(() => flattenComplianceViolations(studyId, complianceMap), [complianceMap, studyId]);
-  const [visibleCount, setVisibleCount] = useState(COMPLIANCE_PAGE_SIZE);
+  const { page, showMore } = useListSearchParams(['participantId'], 'participantId');
+  const visibleCount = page * COMPLIANCE_PAGE_SIZE;
 
   if (!studyId) {
     return <MissingStudyIdPanel section={t('compliance.section')} />;
@@ -129,14 +131,16 @@ export function StudyCompliancePage() {
             <TableBody>
               {violations.length === 0 ? (
                 <TableRow>
-                  <TableCell className="h-24 text-center text-muted-foreground" colSpan={3}>
+                  <TableCell tone="muted" className="h-24 text-center" colSpan={3}>
                     {t('compliance.none')}
                   </TableCell>
                 </TableRow>
               ) : (
                 violations.slice(0, visibleCount).map((violation) => (
                   <TableRow key={violationKey(violation)}>
-                    <TableCell className="font-medium">{violation.participantId}</TableCell>
+                    <TableCell weight="medium" translate="no">
+                      {violation.participantId}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={getViolationVariant(violation.reason)}>
                         {REASON_KEYS[violation.reason]
@@ -144,7 +148,9 @@ export function StudyCompliancePage() {
                           : violation.reason.replace(/_/g, ' ')}
                       </Badge>
                     </TableCell>
-                    <TableCell className="max-w-md text-muted-foreground">{violation.description}</TableCell>
+                    <TableCell tone="muted" className="max-w-md">
+                      {violation.description}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -152,7 +158,7 @@ export function StudyCompliancePage() {
           </Table>
           {violations.length > visibleCount && (
             <div className="flex justify-center border-t border-border p-3">
-              <Button onClick={() => setVisibleCount((count) => count + COMPLIANCE_PAGE_SIZE)} variant="outline">
+              <Button onClick={showMore} variant="outline">
                 {t('compliance.show_more', {
                   hidden: String(violations.length - visibleCount),
                   step: String(Math.min(COMPLIANCE_PAGE_SIZE, violations.length - visibleCount)),
