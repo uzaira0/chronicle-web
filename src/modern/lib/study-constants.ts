@@ -1,27 +1,29 @@
-// Canonical domain value sets (module ids, dispositions, feature ids, sensor types and
+// Canonical domain value sets (module ids, feature ids, sensor types and
 // their ordering/defaults) come from the generated LinkML contract module. This file owns
 // ONLY web presentation: labels, descriptions, grouping, and which values the UI offers.
 import {
   type ActiveCollectionModuleId,
   ANDROID_SENSOR_MAPPINGS,
+  type ANDROID_UPLOAD_ISSUE_CATEGORIES,
   type AndroidSensorType,
-  COLLECTION_DATA_DISPOSITIONS,
+  COLLECTION_DEFAULT_INTERVAL_SECONDS,
+  COLLECTION_DEFAULT_SENSOR_DUTY_ACTIVE_SECONDS,
+  COLLECTION_DEFAULT_SENSOR_DUTY_PERIOD_SECONDS,
+  COLLECTION_DEFAULT_SENSOR_RATE_HZ,
   COLLECTION_MODULE_CONTRACTS,
-  type CollectionDataDisposition as ContractCollectionDataDisposition,
+  COLLECTION_MODULE_ID,
   INTERVAL_GATED_COLLECTION_MODULE_IDS,
-  type IosSensorType,
+  PLAY_STORE_BUILD_COLLECTION_MODULE_IDS,
+  STUDY_DEFAULT_WITHDRAWAL_MODE,
   type StudyFeature,
+  type WithdrawalMode,
 } from '@/generated/chronicle-contracts';
 
 // The study features the web UI offers as toggles. Web-owned selection (presentation),
 // but every literal must be a generated StudyFeature — `satisfies` breaks the build if
 // the contract renames or drops one.
-// ANDROID_SENSOR and IOS_SENSOR are deliberately absent. Both wrote a legacy
-// SensorSetting whose job is now done by the per-sensor CollectionModuleId modules
-// under CHRONICLE_DATA_COLLECTION, which carry their own rate and duty cycle and are
-// consented individually. Offering them alongside the modules gave the form two
-// competing sensor pickers. The feature values still exist in the contract, so
-// studies that already carry them keep deserializing.
+// Per-sensor modules under CHRONICLE_DATA_COLLECTION carry their own sampling policy
+// and participant consent.
 const OFFERED_STUDY_FEATURES = [
   'CHRONICLE_DATA_COLLECTION',
   'CHRONICLE_SURVEYS',
@@ -31,12 +33,12 @@ const OFFERED_STUDY_FEATURES = [
 export type StudyModule = (typeof OFFERED_STUDY_FEATURES)[number];
 
 // Web-owned labels for the offered study features (exhaustive by construction).
-// "Data Collection", not "Android Data Collection": the DataCollection setting is
+// "Data collection", not "Android data collection": the DataCollection setting is
 // read by both platforms, each realizing the modules it can.
 const STUDY_FEATURE_LABELS: Record<StudyModule, string> = {
-  CHRONICLE_DATA_COLLECTION: 'Data Collection',
-  CHRONICLE_SURVEYS: 'Custom Surveys',
-  TIME_USE_DIARY: 'Time Use Diary',
+  CHRONICLE_DATA_COLLECTION: 'Data collection',
+  CHRONICLE_SURVEYS: 'Custom surveys',
+  TIME_USE_DIARY: 'Time use diary',
 };
 
 export const STUDY_FEATURES: ReadonlyArray<{ label: string; value: StudyModule }> = OFFERED_STUDY_FEATURES.map(
@@ -84,17 +86,16 @@ export function healthConnectRecordTypeLabel(value: string): string {
 
 // Active data collection module ids — the generated ActiveCollectionModuleId union from
 // chronicle-models. Each is the stable lowercase snake_case wire id used as a key in
-// AndroidDataCollectionSetting.modules; never a raw display string. Reserved/retired ids
-// (Samsung vendor sensors, hardware_sensors umbrella, location, …) are excluded from this
-// selectable union by the contract itself (legacy persisted keys still arrive via the
-// generated API types and are simply not rendered as toggles).
+// AndroidDataCollectionSetting.modules; never a raw display string. Planned inactive
+// modules are excluded from this selectable union by the contract itself.
 export type CollectionModuleId = ActiveCollectionModuleId;
 
 export type CollectionModuleDescriptor = {
   // Operational module the study cannot switch off: the Play and Amazon apps refuse to
   // enroll a study that does not disclose it (server rejects the write too, see
-  // StudyController.validatePlayCollectionPolicy). Rendered as "Always on" in the form.
+  // validateClientSupportedCollectionPolicy). Rendered as "Always on" in the form.
   alwaysOn?: boolean;
+  consentGated: boolean;
   defaultEnabled: boolean;
   description: string;
   // The collapsible signal group this module is rendered under in the study form
@@ -127,28 +128,28 @@ export const COLLECTION_MODULE_GROUP_ORDER: ReadonlyArray<string> = [
 // modules, mirroring the generated ANDROID_SENSOR_MAPPINGS displayOrder).
 const COLLECTION_MODULE_PRESENTATION = [
   {
-    value: 'usage_events',
+    value: COLLECTION_MODULE_ID.usage_events,
     label: 'App Usage Events',
     group: 'Usage & Behavior',
     privacyClass: 'Behavioral metadata',
     description: 'Foreground app usage and interaction events.',
   },
   {
-    value: 'device_lifecycle',
+    value: COLLECTION_MODULE_ID.device_lifecycle,
     label: 'Device Lifecycle',
     group: 'Device State',
     privacyClass: 'Device-state metadata',
     description: 'Power, boot, and shutdown lifecycle events.',
   },
   {
-    value: 'user_identification',
+    value: COLLECTION_MODULE_ID.user_identification,
     label: 'User Identification',
     group: 'Diagnostics & Capability',
     privacyClass: 'Local participant label',
     description: 'On-device participant labelling for shared devices.',
   },
   {
-    value: 'upload_telemetry',
+    value: COLLECTION_MODULE_ID.upload_telemetry,
     label: 'Upload Telemetry',
     group: 'Diagnostics & Capability',
     privacyClass: 'Operational diagnostics',
@@ -156,28 +157,28 @@ const COLLECTION_MODULE_PRESENTATION = [
     alwaysOn: true,
   },
   {
-    value: 'sensor_availability',
+    value: COLLECTION_MODULE_ID.sensor_availability,
     label: 'Sensor Availability',
     group: 'Diagnostics & Capability',
     privacyClass: 'Device capability',
     description: 'Which sensors the device hardware exposes.',
   },
   {
-    value: 'questionnaire',
+    value: COLLECTION_MODULE_ID.questionnaire,
     label: 'Questionnaire',
     group: 'Usage & Behavior',
     privacyClass: 'Behavioral metadata',
     description: 'Scheduling of questionnaire deep-link notifications.',
   },
   {
-    value: 'battery_telemetry',
+    value: COLLECTION_MODULE_ID.battery_telemetry,
     label: 'Battery Telemetry',
     group: 'Device State',
     privacyClass: 'Device-state metadata',
     description: 'Battery level, charging state, and power events.',
   },
   {
-    value: 'interaction_events',
+    value: COLLECTION_MODULE_ID.interaction_events,
     label: 'Interaction Events',
     group: 'Usage & Behavior',
     privacyClass: 'Interaction metadata',
@@ -185,7 +186,7 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Where taps, scrolls, and focus changes land — the on-screen bounds of the element, a derived screen region, the element role, and the foreground app — via an Accessibility service. Content-free: never the text of what you tap, and not the exact finger position.',
   },
   {
-    value: 'in_app_activity_class',
+    value: COLLECTION_MODULE_ID.in_app_activity_class,
     label: 'In-App Activity',
     group: 'Usage & Behavior',
     privacyClass: 'Behavioral metadata',
@@ -193,7 +194,7 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Which screen within an app is open (the app activity/screen name), added to the app-usage log at the same resolution. Opt-in. Content-free — the screen name, never on-screen text.',
   },
   {
-    value: 'audio_activity',
+    value: COLLECTION_MODULE_ID.audio_activity,
     label: 'Audio Status',
     group: 'Audio',
     privacyClass: 'Behavioral metadata',
@@ -201,15 +202,15 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Which app is producing audio, plus playback state, headphone/output route, and volume. Mic-free — never any audio content or microphone capture.',
   },
   {
-    value: 'audio_content',
+    value: COLLECTION_MODULE_ID.audio_content,
     label: 'Audio Metadata',
     group: 'Audio',
     privacyClass: 'Media content',
     description:
-      "The playing track's title, artist, and album from the active media session. Opt-in — track metadata only, never the audio itself.",
+      'The playing track’s title, artist, and album from the active media session. Opt-in — track metadata only, never the audio itself.',
   },
   {
-    value: 'notification_activity',
+    value: COLLECTION_MODULE_ID.notification_activity,
     label: 'Notification Activity',
     group: 'Usage & Behavior',
     privacyClass: 'Behavioral metadata',
@@ -217,31 +218,23 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Per-app notification counts and categories (posted/removed). Content-free — never the text or title of a notification.',
   },
   {
-    value: 'ambient_audio',
-    label: 'Ambient Sound Type',
-    group: 'Audio',
-    privacyClass: 'Ambient audio context',
-    description:
-      'The type of sound in the environment (music, speech, television…) classified on the device in short microphone windows. Labels only — the audio itself is discarded on-device and never recorded, stored, or uploaded. iOS only.',
-  },
-  {
-    value: 'sleep',
+    value: COLLECTION_MODULE_ID.sleep,
     label: 'Sleep',
     group: 'Health',
     privacyClass: 'Health metrics',
     description:
-      "Sleep periods and confidence from Android's on-device Sleep API. Content-free and mic-free — a sleep label plus coarse light/motion levels, never raw sensor data.",
+      'Sleep periods and confidence from Android’s on-device Sleep API. Content-free and mic-free — a sleep label plus coarse light/motion levels, never raw sensor data.',
   },
   {
-    value: 'activity_recognition',
+    value: COLLECTION_MODULE_ID.activity_recognition,
     label: 'Activity Recognition',
     group: 'Usage & Behavior',
     privacyClass: 'Behavioral metadata',
     description:
-      "The detected activity (still, walking, running, in-vehicle…) from Android's on-device classifier. Content-free — an activity label plus confidence, never raw sensors or location.",
+      'The detected activity (still, walking, running, in-vehicle…) from Android’s on-device classifier. Content-free — an activity label plus confidence, never raw sensors or location.',
   },
   {
-    value: 'health_connect',
+    value: COLLECTION_MODULE_ID.health_connect,
     label: 'Health Connect',
     group: 'Health',
     privacyClass: 'Health metrics',
@@ -249,7 +242,7 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Health metrics (steps, distance, heart rate…) the participant’s own apps/wearables have written to the system Health Connect store. Read-only; nothing is written back.',
   },
   {
-    value: 'connectivity_state',
+    value: COLLECTION_MODULE_ID.connectivity_state,
     label: 'Connectivity State',
     group: 'Device State',
     privacyClass: 'Device-state metadata',
@@ -257,7 +250,7 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Network transport (Wi-Fi/cellular) plus metered/validated flags. No SSID, BSSID, IP, or cell identifiers — never a location proxy.',
   },
   {
-    value: 'app_network_usage',
+    value: COLLECTION_MODULE_ID.app_network_usage,
     label: 'App Network Usage',
     group: 'Usage & Behavior',
     privacyClass: 'Behavioral metadata',
@@ -265,7 +258,7 @@ const COLLECTION_MODULE_PRESENTATION = [
       'Per-app data volume (bytes sent/received) over time buckets. Volume counts only — never payloads, destinations, domains, or URLs.',
   },
   {
-    value: 'device_settings',
+    value: COLLECTION_MODULE_ID.device_settings,
     label: 'Device Settings',
     group: 'Device State',
     privacyClass: 'Device-state metadata',
@@ -279,84 +272,84 @@ const COLLECTION_MODULE_PRESENTATION = [
   // ANDROID_SENSOR_MAPPINGS.displayOrder below, so a chronicle-models reorder
   // propagates without touching this file.
   {
-    value: 'sensor_accelerometer',
+    value: COLLECTION_MODULE_ID.sensor_accelerometer,
     label: 'Accelerometer',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
-    description: 'Device motion and acceleration along three axes.',
+    description: 'Device motion and acceleration along 3 axes.',
   },
   {
-    value: 'sensor_light',
+    value: COLLECTION_MODULE_ID.sensor_light,
     label: 'Light Sensor',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'The ambient light level around the device.',
   },
   {
-    value: 'sensor_proximity',
+    value: COLLECTION_MODULE_ID.sensor_proximity,
     label: 'Proximity Sensor',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'Whether something is near the screen.',
   },
   {
-    value: 'sensor_screen_orientation',
+    value: COLLECTION_MODULE_ID.sensor_screen_orientation,
     label: 'Screen Orientation',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'The screen orientation (portrait or landscape).',
   },
   {
-    value: 'sensor_step_counter',
+    value: COLLECTION_MODULE_ID.sensor_step_counter,
     label: 'Step Counter',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'The number of steps taken.',
   },
   {
-    value: 'sensor_gyroscope',
+    value: COLLECTION_MODULE_ID.sensor_gyroscope,
     label: 'Gyroscope',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'Rotation and angular velocity.',
   },
   {
-    value: 'sensor_magnetometer',
+    value: COLLECTION_MODULE_ID.sensor_magnetometer,
     label: 'Magnetometer',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'Magnetic field and compass heading.',
   },
   {
-    value: 'sensor_gravity',
+    value: COLLECTION_MODULE_ID.sensor_gravity,
     label: 'Gravity Sensor',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'The direction and magnitude of gravity.',
   },
   {
-    value: 'sensor_linear_acceleration',
+    value: COLLECTION_MODULE_ID.sensor_linear_acceleration,
     label: 'Linear Acceleration',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'Acceleration with gravity removed.',
   },
   {
-    value: 'sensor_rotation_vector',
+    value: COLLECTION_MODULE_ID.sensor_rotation_vector,
     label: 'Rotation Vector',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
-    description: "The device's orientation in space.",
+    description: 'The device’s orientation in space.',
   },
   {
-    value: 'sensor_significant_motion',
+    value: COLLECTION_MODULE_ID.sensor_significant_motion,
     label: 'Significant Motion',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
     description: 'When the device undergoes significant motion.',
   },
   {
-    value: 'sensor_tilt_detector',
+    value: COLLECTION_MODULE_ID.sensor_tilt_detector,
     label: 'Tilt Detector',
     group: 'Hardware Sensors',
     privacyClass: 'Physical telemetry',
@@ -381,17 +374,11 @@ export type _EveryActiveModuleHasPresentation = AssertNever<Exclude<ActiveCollec
 const CONTRACT_BY_MODULE_ID = new Map(COLLECTION_MODULE_CONTRACTS.map((contract) => [contract.id, contract]));
 
 const SENSOR_TYPE_BY_MODULE_ID = new Map<string, AndroidSensorType>(
-  ANDROID_SENSOR_MAPPINGS.filter((mapping) => mapping.active).map((mapping) => [
-    mapping.collectionModuleId,
-    mapping.androidSensorType,
-  ]),
+  ANDROID_SENSOR_MAPPINGS.map((mapping) => [mapping.collectionModuleId, mapping.androidSensorType]),
 );
 
 const SENSOR_DISPLAY_ORDER = new Map<string, number>(
-  ANDROID_SENSOR_MAPPINGS.filter((mapping) => mapping.active).map((mapping) => [
-    mapping.collectionModuleId,
-    mapping.displayOrder,
-  ]),
+  ANDROID_SENSOR_MAPPINGS.map((mapping) => [mapping.collectionModuleId, mapping.displayOrder]),
 );
 
 // Render order: non-sensor modules in declaration order, then the per-sensor modules
@@ -415,6 +402,7 @@ export const COLLECTION_MODULES: ReadonlyArray<CollectionModuleDescriptor> = ORD
     const sensorType = SENSOR_TYPE_BY_MODULE_ID.get(presentation.value);
     return {
       ...presentation,
+      consentGated: contract.consentGated,
       defaultEnabled: contract.activeDefaultEnabled,
       ...(sensorType ? { sensorType } : {}),
     };
@@ -429,15 +417,10 @@ export function collectionModuleEnabled(
   return settings[module.value]?.enabled ?? module.defaultEnabled;
 }
 
-// Per-sensor module ids (every COLLECTION_MODULES entry that carries a sensorType).
-export const SENSOR_MODULE_IDS: ReadonlySet<CollectionModuleId> = new Set<CollectionModuleId>(
-  COLLECTION_MODULES.filter((m) => m.sensorType).map((m) => m.value),
-);
-
-// Default per-sensor sampling policy (mirrors the model's AndroidSensorSetting defaults).
-export const DEFAULT_SENSOR_RATE_HZ = '5';
-export const DEFAULT_SENSOR_DUTY_ACTIVE = '30';
-export const DEFAULT_SENSOR_DUTY_PERIOD = '300';
+// Default per-sensor sampling policy, as form strings (generated from the LinkML contract).
+export const DEFAULT_SENSOR_RATE_HZ = String(COLLECTION_DEFAULT_SENSOR_RATE_HZ);
+export const DEFAULT_SENSOR_DUTY_ACTIVE = String(COLLECTION_DEFAULT_SENSOR_DUTY_ACTIVE_SECONDS);
+export const DEFAULT_SENSOR_DUTY_PERIOD = String(COLLECTION_DEFAULT_SENSOR_DUTY_PERIOD_SECONDS);
 
 // The pull/periodic modules whose collection interval (CollectionCadence.intervalSeconds)
 // the Android side actually honors. Only these get the per-module "Collection interval"
@@ -447,62 +430,8 @@ export const INTERVAL_CONFIGURABLE_MODULES: ReadonlySet<CollectionModuleId> = ne
   INTERVAL_GATED_COLLECTION_MODULE_IDS,
 );
 
-// Default collection interval (seconds) for an interval-configurable module — 15 minutes,
-// matching the device's effective sampling floor (WorkManager's ~15 min minimum cadence).
-export const DEFAULT_COLLECTION_INTERVAL_SECONDS = '900';
-
-// Disposition for a module's already-collected-but-unsent on-device data when a
-// researcher disables it mid-study. The generated CollectionDataDisposition from
-// chronicle-models is canonical. The device acts on it only on the ACTIVE -> INACTIVE
-// transition (see the collection loop closure design); a module that never collected
-// has nothing to dispose.
-export type CollectionDataDisposition = ContractCollectionDataDisposition;
-
-export const DEFAULT_DISPOSITION: CollectionDataDisposition = 'flush_then_stop';
-
-// Web-owned labels/descriptions for each disposition (exhaustive by construction).
-const DISPOSITION_PRESENTATION: Record<CollectionDataDisposition, { description: string; label: string }> = {
-  flush_then_stop: {
-    label: 'Flush then stop',
-    description: 'Upload data already collected on-device, then stop. No data loss.',
-  },
-  discard_and_stop: {
-    label: 'Discard & stop',
-    description: 'Drop unsent on-device data, then stop. Intentional data loss.',
-  },
-  hold_pending: {
-    label: 'Hold pending',
-    description: 'Stop, but keep unsent data on-device until the module is re-enabled.',
-  },
-};
-
-export const COLLECTION_DISPOSITIONS: ReadonlyArray<{
-  description: string;
-  label: string;
-  value: CollectionDataDisposition;
-}> = COLLECTION_DATA_DISPOSITIONS.map((value) => ({ value, ...DISPOSITION_PRESENTATION[value] }));
-
-// Modules whose pending on-device data lives in the SHARED `dataQueue` table (usage rows
-// and device-state rows are merged into one queue with no per-module tag). DISCARD cannot
-// be honored for these: the device upload worker drains `dataQueue` module-blind, so the
-// rows upload regardless, and selectively clearing one module's rows is impossible without
-// destroying the sibling module's data. The picker therefore omits "Discard & stop" for
-// them — only flush/hold are outcomes the device can actually keep. See the collection
-// loop closure design §7.1. Honoring DISCARD here needs a per-module tag on `dataQueue`.
-export const SHARED_QUEUE_MODULES: ReadonlySet<CollectionModuleId> = new Set<CollectionModuleId>([
-  'usage_events',
-  'device_lifecycle',
-]);
-
-// The dispositions a given module can actually honor. Shared-queue modules cannot honor
-// DISCARD (see SHARED_QUEUE_MODULES), so it is filtered out for them.
-export function dispositionsForModule(
-  moduleId: CollectionModuleId,
-): ReadonlyArray<{ description: string; label: string; value: CollectionDataDisposition }> {
-  return SHARED_QUEUE_MODULES.has(moduleId)
-    ? COLLECTION_DISPOSITIONS.filter((d) => d.value !== 'discard_and_stop')
-    : COLLECTION_DISPOSITIONS;
-}
+// Default collection interval (seconds) for an interval-configurable module, as a form string.
+export const DEFAULT_COLLECTION_INTERVAL_SECONDS = String(COLLECTION_DEFAULT_INTERVAL_SECONDS);
 
 // Web-owned display labels for Android sensor types (exhaustive over the generated
 // AndroidSensorType union, including retired vendor sensors that are never offered).
@@ -519,39 +448,94 @@ const ANDROID_SENSOR_LABELS: Record<AndroidSensorType, string> = {
   significantMotion: 'Significant Motion',
   tiltDetector: 'Tilt Detector',
   screenOrientation: 'Screen Orientation',
-  samsungGripWifi: 'Samsung Grip Wi-Fi',
-  samsungMotion: 'Samsung Motion',
 };
 
 // Active sensors in generated relevance order (ANDROID_SENSOR_MAPPINGS.displayOrder, which
-// mirrors SensorCollectionModules.byType). Retired Samsung vendor sensors are excluded by
-// their contract active flag — never hand-filtered here.
+// mirrors SensorCollectionModules.byType).
 export const ANDROID_SENSOR_TYPES: ReadonlyArray<{ label: string; value: AndroidSensorType }> =
-  ANDROID_SENSOR_MAPPINGS.filter((mapping) => mapping.active)
-    .slice()
+  ANDROID_SENSOR_MAPPINGS.slice()
     .sort((left, right) => left.displayOrder - right.displayOrder)
     .map((mapping) => ({
       label: ANDROID_SENSOR_LABELS[mapping.androidSensorType],
       value: mapping.androidSensorType,
     }));
 
-const OFFERED_IOS_SENSOR_TYPES = [
-  'accelerometer',
-  'pedometer',
-  'motionActivity',
-] as const satisfies readonly IosSensorType[];
+export type { WithdrawalMode };
+export const DEFAULT_WITHDRAWAL_MODE: WithdrawalMode = STUDY_DEFAULT_WITHDRAWAL_MODE;
+export const DEFAULT_STUDY_TIME_ZONE = 'UTC';
 
-const IOS_SENSOR_LABELS: Record<(typeof OFFERED_IOS_SENSOR_TYPES)[number], string> = {
-  accelerometer: 'Accelerometer',
-  pedometer: 'Steps & Distance',
-  motionActivity: 'Motion Activity',
+const PLAY_STORE_BUILD_MODULES = new Set<string>(PLAY_STORE_BUILD_COLLECTION_MODULE_IDS);
+
+/** Whether the Play Store Android app collects this module; a study enabling one it does not cannot enroll Play participants. */
+export function isPlayStoreBuildModule(moduleId: string): boolean {
+  return PLAY_STORE_BUILD_MODULES.has(moduleId);
+}
+
+export const STUDY_SETTING_CLASSES = {
+  AppUsageSurvey: 'com.openlattice.chronicle.study.AppUsageSurveySetting',
+  Withdrawal: 'com.openlattice.chronicle.study.StudyWithdrawalSetting',
+  TimeUseDiary: 'com.openlattice.chronicle.timeusediary.TimeUseDiarySettings',
+  AndroidSensor: 'com.openlattice.chronicle.android.AndroidSensorSetting',
+  InteractionPolicy: 'com.openlattice.chronicle.collection.InteractionPolicy',
+  DataCollection: 'com.openlattice.chronicle.collection.AndroidDataCollectionSetting',
+  ParticipantPolicy: 'com.openlattice.chronicle.study.StudyParticipantPolicy',
+} as const;
+
+// Android diagnostics module families, in the phone's Uploads-screen wording
+// (uploads_issue_family_*), for the participants page filter.
+export const ANDROID_DIAGNOSTIC_FAMILIES: ReadonlyArray<{ label: string; value: string }> = [
+  { value: 'USAGE_LIFECYCLE', label: 'Usage/lifecycle' },
+  { value: 'BATTERY', label: 'Battery' },
+  { value: 'DEVICE_TELEMETRY', label: 'Device telemetry' },
+  { value: 'SENSOR', label: 'Sensors' },
+  { value: 'APP_RUNTIME', label: 'App runtime' },
+  { value: 'INTERACTION', label: 'Interaction' },
+  { value: 'AUDIO_ACTIVITY', label: 'Audio activity' },
+  { value: 'AUDIO_CONTENT', label: 'Audio content' },
+  { value: 'NOTIFICATION', label: 'Notifications' },
+  { value: 'SLEEP', label: 'Sleep' },
+  { value: 'ACTIVITY_RECOGNITION', label: 'Activity recognition' },
+  { value: 'HEALTH', label: 'Health' },
+  { value: 'CONNECTIVITY', label: 'Connectivity' },
+  { value: 'APP_NETWORK', label: 'App network usage' },
+  { value: 'DEVICE_SETTINGS', label: 'Device settings' },
+  { value: 'LOCAL_STORE', label: 'Local storage' },
+];
+
+// Android diagnostics issue codes in the phone's Uploads-screen wording (uploads_issue_*),
+// exhaustive over the generated code list.
+const ANDROID_UPLOAD_ISSUE_LABELS: Record<keyof typeof ANDROID_UPLOAD_ISSUE_CATEGORIES, string> = {
+  DESTINATION_MISSING: 'Destination missing',
+  DESTINATION_IDENTITY_MISMATCH: 'Destination identity mismatch',
+  DESTINATION_SOURCE_DEVICE_MISSING: 'Source device missing',
+  DESTINATION_SETUP_INCOMPLETE: 'Enrollment setup incomplete',
+  DESTINATION_DISABLED: 'Destination disabled',
+  DESTINATION_NONCANONICAL: 'Destination address rejected',
+  DESTINATION_CREDENTIAL_INCOMPLETE: 'Destination credential incomplete',
+  HTTP_SERVER_ERROR: 'Server error',
+  HTTP_CLIENT_ERROR: 'Request rejected',
+  TIMEOUT: 'Connection timed out',
+  DNS_FAILURE: 'Server address unavailable',
+  TLS_FAILURE: 'Secure connection failed',
+  CONNECTION_FAILURE: 'Connection failed',
+  UPLOAD_FAILURE: 'Upload failed',
+  APP_CRASH: 'App crash',
+  APP_CRASH_NATIVE: 'Native app crash',
+  APP_ANR: 'App not responding',
+  SAMPLE_QUARANTINED: 'Sample quarantined',
+  LOCAL_BUFFER_OVERFLOW: 'Local buffer full',
+  LOCAL_REQUEUE_OVERFLOW: 'Local retry buffer full',
+  LOCAL_WRITE_FAILED: 'Local write failed',
+  LOCAL_SHUTDOWN_DROPPED: 'Sample dropped during shutdown',
+  COLLECTION_GATE_DROPPED: 'Collection unavailable',
+  MODULE_POLICY_ERASED: 'Data removed by module policy',
+  DIRECT_BOOT_CAPACITY_DROPPED: 'Before-unlock buffer full',
+  DIRECT_BOOT_CORRUPT_RECORD: 'Before-unlock record unreadable',
+  COLLECTION_PAUSED_STORAGE: 'Collection paused for storage',
+  COLLECTION_ACCESS_MISSING: 'Collection access missing',
+  UNRECOGNIZED_ISSUE: 'Unrecognized issue',
 };
 
-export const IOS_SENSOR_TYPES: ReadonlyArray<{
-  label: string;
-  value: (typeof OFFERED_IOS_SENSOR_TYPES)[number];
-}> = OFFERED_IOS_SENSOR_TYPES.map((value) => ({ label: IOS_SENSOR_LABELS[value], value }));
-
-export const WITHDRAWAL_MODES = { keepPriorData: 'KEEP_PRIOR_DATA', erase: 'ERASE' } as const;
-export type WithdrawalMode = (typeof WITHDRAWAL_MODES)[keyof typeof WITHDRAWAL_MODES];
-export const DEFAULT_STUDY_TIME_ZONE = 'UTC';
+export const ANDROID_UPLOAD_ISSUES: ReadonlyArray<{ label: string; value: string }> = Object.entries(
+  ANDROID_UPLOAD_ISSUE_LABELS,
+).map(([value, label]) => ({ label, value }));

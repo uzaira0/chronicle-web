@@ -6,6 +6,24 @@ import {
   useResearcherCreateIntent,
 } from './use-researcher-create-intent';
 
+test('expires abandoned edited intents while retaining live and unbounded retries', async () => {
+  const now = Date.now();
+  const clock = spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    const abandoned = await researcherCreateIntent('/sweep-abandoned', { title: 'old' });
+    const unbounded = await researcherCreateIntent('/sweep-unbounded', { invitation: 'opaque' }, null);
+    clock.mockReturnValue(now + RESEARCHER_CREATE_RETRY_WINDOW_MS);
+    const live = await researcherCreateIntent('/sweep-abandoned', { title: 'edited' });
+    expect(localStorage.getItem(abandoned.storageKey)).toBeNull();
+    expect(await researcherCreateIntent('/sweep-unbounded', { invitation: 'opaque' }, null)).toEqual(unbounded);
+    expect(await researcherCreateIntent('/sweep-abandoned', { title: 'edited' })).toEqual(live);
+    await acknowledgeResearcherCreate(live);
+    await acknowledgeResearcherCreate(unbounded);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
 test('response-loss retries expire without extending the retry window or clearing a newer intent', async () => {
   const createdAt = Date.now();
   const clock = spyOn(Date, 'now').mockReturnValue(createdAt);

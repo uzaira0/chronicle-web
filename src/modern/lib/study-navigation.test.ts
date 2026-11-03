@@ -2,18 +2,20 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   PARTIAL_STUDY_CONFIGURATION_ERROR,
-  saveStep,
-  settingWrites,
-  studyConfigurationNavigationState,
   studyNavigationActionError,
   studyNavigationFailedSteps,
-  writeSettingsInOrder,
 } from './study-navigation';
+import { saveStep, settingWrites, writeSettingsInOrder } from './study-save';
 
 describe('settingWrites', () => {
   test('keeps write order and skips settings the form does not produce', () => {
     expect(
-      settingWrites({ DataCollection: { a: 1 }, Sensor: null, ParticipantPolicy: { p: 1 }, AndroidSensor: undefined }),
+      settingWrites({
+        DataCollection: { a: 1 },
+        TimeUseDiary: null,
+        ParticipantPolicy: { p: 1 },
+        Withdrawal: undefined,
+      }),
     ).toEqual([
       { setting: { p: 1 }, settingType: 'ParticipantPolicy' },
       { setting: { a: 1 }, settingType: 'DataCollection' },
@@ -24,8 +26,8 @@ describe('settingWrites', () => {
 describe('writeSettingsInOrder', () => {
   const writes = [
     { settingType: 'ParticipantPolicy' },
-    { settingType: 'AndroidSensor' },
-    { settingType: 'Sensor' },
+    { settingType: 'Withdrawal' },
+    { settingType: 'TimeUseDiary' },
     { settingType: 'DataCollection' },
   ] as const;
 
@@ -36,7 +38,7 @@ describe('writeSettingsInOrder', () => {
       attempted.push(w.settingType);
       return w.settingType === 'ParticipantPolicy' ? Promise.reject(locked) : Promise.resolve();
     });
-    expect(attempted).toEqual(['ParticipantPolicy', 'AndroidSensor', 'Sensor', 'DataCollection']);
+    expect(attempted).toEqual(['ParticipantPolicy', 'Withdrawal', 'TimeUseDiary', 'DataCollection']);
     expect(result.failures).toEqual([{ step: 'ParticipantPolicy', error: locked }]);
     expect(result.stopped).toBe(false);
   });
@@ -45,10 +47,10 @@ describe('writeSettingsInOrder', () => {
     const conflict = Object.assign(new Error('conflict'), { status: 412 });
     const result = await writeSettingsInOrder(
       writes,
-      (w) => (w.settingType === 'AndroidSensor' ? Promise.reject(conflict) : Promise.resolve()),
+      (w) => (w.settingType === 'Withdrawal' ? Promise.reject(conflict) : Promise.resolve()),
       (err) => err === conflict,
     );
-    expect(result.failures.map((f) => f.step)).toEqual(['AndroidSensor', 'Sensor', 'DataCollection']);
+    expect(result.failures.map((f) => f.step)).toEqual(['Withdrawal', 'TimeUseDiary', 'DataCollection']);
     expect(result.stopped).toBe(true);
   });
 
@@ -61,16 +63,11 @@ describe('writeSettingsInOrder', () => {
 });
 
 describe('study creation navigation state', () => {
-  test('omits an error when every post-create write succeeds', () => {
-    expect(studyConfigurationNavigationState([])).toBeUndefined();
-  });
-
   test('surfaces partial configuration after the durable study create succeeds', () => {
-    const state = studyConfigurationNavigationState(['Sensor', 'limits']);
+    const state = { actionError: PARTIAL_STUDY_CONFIGURATION_ERROR, failedSteps: ['TimeUseDiary', 'limits'] };
 
-    expect(state).toEqual({ actionError: PARTIAL_STUDY_CONFIGURATION_ERROR, failedSteps: ['Sensor', 'limits'] });
     expect(studyNavigationActionError(state)).toBe(PARTIAL_STUDY_CONFIGURATION_ERROR);
-    expect(studyNavigationFailedSteps(state)).toEqual(['Sensor', 'limits']);
+    expect(studyNavigationFailedSteps(state)).toEqual(['TimeUseDiary', 'limits']);
   });
 
   test('ignores malformed navigation state', () => {

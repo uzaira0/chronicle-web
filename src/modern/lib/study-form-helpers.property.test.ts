@@ -1,52 +1,21 @@
 import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
+import { STUDY_FEATURES } from '@/generated/chronicle-contracts';
+import type { StudyFormData } from '@/lib/study-form-model';
+import { moduleDraftsWith } from '@/test/module-drafts';
 
 import exactDayLimits from '../test/golden/exact-day-study-limits.json';
-import {
-  buildSensorSetting,
-  buildStudyLimits,
-  buildStudyPayload,
-  daysToStudyDuration,
-  studyDurationToDays,
-} from './study-form-helpers';
+import { buildStudyLimits, buildStudyPayload, daysToStudyDuration, studyDurationToDays } from './study-form-helpers';
 
 const MAX_TEST_DURATION_DAYS = Math.max(...exactDayLimits.map(({ duration }) => duration.days));
 
-type StudyFormData = {
-  contact: string;
-  dataRetentionDays: string;
-  description: string;
-  dutyCycleActiveSeconds: string;
-  dutyCyclePeriodSeconds: string;
-  features: string[];
-  group: string;
-  notificationsEnabled: boolean;
-  participantLimit: string;
-  samplingRateHz: string;
-  selectedSensors: string[];
-  studyDurationDays: string;
-  title: string;
-  version: string;
-};
-
 const formArb: fc.Arbitrary<StudyFormData> = fc.record({
+  modules: fc.constant(moduleDraftsWith()),
   contact: fc.string({ maxLength: 50 }),
   dataRetentionDays: fc.oneof(fc.constant(''), fc.nat({ max: 10000 }).map(String)),
   description: fc.string({ maxLength: 100 }),
-  dutyCycleActiveSeconds: fc.oneof(fc.constant(''), fc.nat({ max: 1000 }).map(String)),
-  dutyCyclePeriodSeconds: fc.oneof(fc.constant(''), fc.nat({ max: 1000 }).map(String)),
-  features: fc.subarray([
-    'ANDROID_SENSOR',
-    'CHRONICLE_DATA_COLLECTION',
-    'CHRONICLE_SURVEYS',
-    'IOS_SENSOR',
-    'TIME_USE_DIARY',
-  ]),
+  features: fc.subarray([...STUDY_FEATURES]),
   group: fc.string({ maxLength: 50 }),
-  notificationsEnabled: fc.boolean(),
-  participantLimit: fc.oneof(fc.constant(''), fc.nat({ max: 10000 }).map(String)),
-  samplingRateHz: fc.oneof(fc.constant(''), fc.nat({ max: 1000 }).map(String)),
-  selectedSensors: fc.subarray(['accelerometer', 'gyroscope', 'magnetometer', 'gravity', 'linearAcceleration']),
   studyDurationDays: fc.oneof(fc.constant(''), fc.nat({ max: 10000 }).map(String)),
   title: fc.string({ maxLength: 100 }),
   version: fc.string({ maxLength: 20 }),
@@ -68,6 +37,7 @@ describe('study-form-helpers properties', () => {
     expect(limits.studyDuration).toEqual(duration);
     expect(limits.dataRetentionDuration).toEqual(duration);
   });
+
   // Existing tests
   it('daysToStudyDuration produces non-negative components', () => {
     fc.assert(
@@ -98,26 +68,12 @@ describe('study-form-helpers properties', () => {
     );
   });
 
-  it('buildSensorSetting never produces NaN in numeric fields', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const result = buildSensorSetting(form);
-        if (result) {
-          expect(Number.isNaN(result.samplingRateHz)).toBe(false);
-          expect(Number.isNaN(result.dutyCycleActiveSeconds)).toBe(false);
-          expect(Number.isNaN(result.dutyCyclePeriodSeconds)).toBe(false);
-        }
-      }),
-    );
-  });
-
   it('resends an untouched calendar duration as stored and converts only edited day fields', () => {
     const [sample] = fc.sample(formArb, 1);
     if (!sample) throw new Error('form arbitrary produced no sample');
     const year = { years: 1, months: 0, days: 0 };
     const quarter = { years: 0, months: 3, days: 0 };
     const loadedLimits = {
-      participantLimit: '10',
       studyDurationDays: '365',
       dataRetentionDays: '90',
       studyDuration: year,
@@ -125,13 +81,11 @@ describe('study-form-helpers properties', () => {
     };
     const untouched = {
       ...sample,
-      participantLimit: '12',
       studyDurationDays: '365',
       dataRetentionDays: '90',
       loadedLimits,
     };
     expect(buildStudyLimits(untouched)).toEqual({
-      participantLimit: 12,
       studyDuration: year,
       dataRetentionDuration: quarter,
     });
@@ -139,22 +93,11 @@ describe('study-form-helpers properties', () => {
     expect(buildStudyLimits(edited)?.studyDuration).toEqual({ years: 0, months: 0, days: 400 });
   });
 
-  it('buildStudyLimits returns null or a plain object (never throws)', () => {
+  it('buildStudyLimits returns a plain object (never throws)', () => {
     fc.assert(
       fc.property(formArb, (form) => {
         const result = buildStudyLimits(form);
-        expect(result === null || typeof result === 'object').toBe(true);
-      }),
-    );
-  });
-
-  it('buildStudyLimits never produces NaN in participantLimit', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const result = buildStudyLimits(form);
-        if (result && 'participantLimit' in result) {
-          expect(Number.isNaN(result.participantLimit)).toBe(false);
-        }
+        expect(typeof result).toBe('object');
       }),
     );
   });
@@ -335,15 +278,6 @@ describe('study-form-helpers properties', () => {
     );
   });
 
-  it('buildStudyPayload notificationsEnabled matches input', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const result = buildStudyPayload(form);
-        expect(result.notificationsEnabled).toBe(form.notificationsEnabled);
-      }),
-    );
-  });
-
   it('buildStudyPayload modules values are all empty objects', () => {
     fc.assert(
       fc.property(formArb, (form) => {
@@ -355,142 +289,20 @@ describe('study-form-helpers properties', () => {
     );
   });
 
-  it('buildSensorSetting returns null when features does not include ANDROID_SENSOR', () => {
+  it('buildStudyLimits sends an empty body when all limit fields are empty strings', () => {
     fc.assert(
       fc.property(formArb, (form) => {
-        const noSensorForm = { ...form, features: form.features.filter((f) => f !== 'ANDROID_SENSOR') };
-        expect(buildSensorSetting(noSensorForm)).toBeNull();
+        const emptyForm = { ...form, studyDurationDays: '', dataRetentionDays: '' };
+        expect(buildStudyLimits(emptyForm)).toEqual({});
       }),
     );
   });
 
-  it('buildSensorSetting returns null when selectedSensors is empty', () => {
+  it('buildStudyLimits sends an empty body when all limit fields are 0', () => {
     fc.assert(
       fc.property(formArb, (form) => {
-        const emptySensors = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: [] };
-        expect(buildSensorSetting(emptySensors)).toBeNull();
-      }),
-    );
-  });
-
-  it('buildSensorSetting samplingRateHz is always a positive integer when result is non-null', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const sensorForm = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: ['accelerometer'] };
-        const result = buildSensorSetting(sensorForm);
-        if (result) {
-          expect(result.samplingRateHz).toBeGreaterThan(0);
-          expect(Number.isInteger(result.samplingRateHz)).toBe(true);
-        }
-      }),
-    );
-  });
-
-  it('buildSensorSetting dutyCycleActiveSeconds is always a nonnegative integer when non-null', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const sensorForm = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: ['accelerometer'] };
-        const result = buildSensorSetting(sensorForm);
-        if (result) {
-          expect(result.dutyCycleActiveSeconds).toBeGreaterThanOrEqual(0);
-          expect(Number.isInteger(result.dutyCycleActiveSeconds)).toBe(true);
-        }
-      }),
-    );
-  });
-
-  it('buildSensorSetting dutyCyclePeriodSeconds is always a positive integer when non-null', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const sensorForm = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: ['accelerometer'] };
-        const result = buildSensorSetting(sensorForm);
-        if (result) {
-          expect(result.dutyCyclePeriodSeconds).toBeGreaterThan(0);
-          expect(Number.isInteger(result.dutyCyclePeriodSeconds)).toBe(true);
-        }
-      }),
-    );
-  });
-
-  it('buildSensorSetting always includes @class when non-null', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const sensorForm = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: ['accelerometer'] };
-        const result = buildSensorSetting(sensorForm);
-        if (result) {
-          expect(result['@class']).toBe('com.openlattice.chronicle.android.AndroidSensorSetting');
-        }
-      }),
-    );
-  });
-
-  it('buildSensorSetting sensors matches selectedSensors', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const sensors = form.selectedSensors.length > 0 ? form.selectedSensors : ['accelerometer'];
-        const sensorForm = { ...form, features: ['ANDROID_SENSOR'], selectedSensors: sensors };
-        const result = buildSensorSetting(sensorForm);
-        if (result) {
-          expect(result.sensors).toEqual(sensors);
-        }
-      }),
-    );
-  });
-
-  it('buildStudyLimits returns null when all numeric fields are empty strings', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const emptyForm = { ...form, participantLimit: '', studyDurationDays: '', dataRetentionDays: '' };
-        expect(buildStudyLimits(emptyForm)).toBeNull();
-      }),
-    );
-  });
-
-  it('buildStudyLimits returns null when all numeric fields are 0', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const zeroForm = { ...form, participantLimit: '0', studyDurationDays: '0', dataRetentionDays: '0' };
-        expect(buildStudyLimits(zeroForm)).toBeNull();
-      }),
-    );
-  });
-
-  it('when buildStudyLimits returns non-null, it has at least one field', () => {
-    fc.assert(
-      fc.property(formArb, (form) => {
-        const result = buildStudyLimits(form);
-        if (result !== null) {
-          expect(Object.keys(result).length).toBeGreaterThanOrEqual(1);
-        }
-      }),
-    );
-  });
-
-  it('buildStudyLimits participantLimit is always a positive integer when present', () => {
-    fc.assert(
-      fc.property(fc.integer({ min: 1, max: 10000 }), (limit) => {
-        const form = {
-          contact: '',
-          dataRetentionDays: '',
-          description: '',
-          dutyCycleActiveSeconds: '',
-          dutyCyclePeriodSeconds: '',
-          features: [] as string[],
-          group: '',
-          notificationsEnabled: false,
-          participantLimit: String(limit),
-          samplingRateHz: '',
-          selectedSensors: [] as string[],
-          studyDurationDays: '',
-          title: '',
-          version: '',
-        };
-        const result = buildStudyLimits(form);
-        expect(result).not.toBeNull();
-        if (result && 'participantLimit' in result) {
-          expect(result.participantLimit).toBeGreaterThan(0);
-          expect(Number.isInteger(result.participantLimit)).toBe(true);
-        }
+        const zeroForm = { ...form, studyDurationDays: '0', dataRetentionDays: '0' };
+        expect(buildStudyLimits(zeroForm)).toEqual({});
       }),
     );
   });
@@ -499,17 +311,12 @@ describe('study-form-helpers properties', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 10000 }), (days) => {
         const form = {
+          modules: moduleDraftsWith(),
           contact: '',
           dataRetentionDays: '',
           description: '',
-          dutyCycleActiveSeconds: '',
-          dutyCyclePeriodSeconds: '',
           features: [] as string[],
           group: '',
-          notificationsEnabled: false,
-          participantLimit: '',
-          samplingRateHz: '',
-          selectedSensors: [] as string[],
           studyDurationDays: String(days),
           title: '',
           version: '',
@@ -546,7 +353,6 @@ describe('study-form-helpers properties', () => {
         expect('group' in result).toBe(true);
         expect('version' in result).toBe(true);
         expect('modules' in result).toBe(true);
-        expect('notificationsEnabled' in result).toBe(true);
       }),
     );
   });

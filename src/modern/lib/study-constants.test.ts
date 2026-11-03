@@ -1,57 +1,30 @@
 import { describe, expect, it } from 'bun:test';
+import { ANDROID_SENSOR_MODULE_IDS, COLLECTION_MODULE_ID } from '@/generated/chronicle-contracts';
 
 import {
   ACTIVE_COLLECTION_MODULE_IDS,
   ANDROID_SENSOR_MAPPINGS,
-  COLLECTION_DATA_DISPOSITIONS,
   COLLECTION_MODULE_IDS as CONTRACT_COLLECTION_MODULE_IDS,
-  IOS_SENSOR_TYPES as CONTRACT_IOS_SENSOR_TYPES,
   STUDY_FEATURES as CONTRACT_STUDY_FEATURES,
   INACTIVE_COLLECTION_MODULE_IDS,
   PARTICIPANT_DATA_TYPES,
 } from '../generated/chronicle-contracts';
 import {
   ANDROID_SENSOR_TYPES,
-  COLLECTION_DISPOSITIONS,
   COLLECTION_MODULE_GROUP_ORDER,
   COLLECTION_MODULES,
   DEFAULT_COLLECTION_INTERVAL_SECONDS,
-  dispositionsForModule,
   INTERVAL_CONFIGURABLE_MODULES,
-  IOS_SENSOR_TYPES,
-  SENSOR_MODULE_IDS,
-  SHARED_QUEUE_MODULES,
   STUDY_FEATURES,
   type StudyModule,
 } from './study-constants';
-
-describe('dispositionsForModule', () => {
-  it('omits discard_and_stop for shared-queue modules (cannot be honored on the device)', () => {
-    for (const moduleId of SHARED_QUEUE_MODULES) {
-      const values = dispositionsForModule(moduleId).map((d) => d.value);
-      expect(values).not.toContain('discard_and_stop');
-      expect(values).toContain('flush_then_stop');
-      expect(values).toContain('hold_pending');
-    }
-  });
-
-  it('offers all dispositions for a dedicated-queue module (a per-sensor module)', () => {
-    expect(dispositionsForModule('sensor_accelerometer')).toEqual(COLLECTION_DISPOSITIONS);
-    expect(dispositionsForModule('sensor_accelerometer').map((d) => d.value)).toContain('discard_and_stop');
-  });
-
-  it('SHARED_QUEUE_MODULES is exactly the two dataQueue-backed modules', () => {
-    expect([...SHARED_QUEUE_MODULES].sort()).toEqual(['device_lifecycle', 'usage_events']);
-  });
-});
 
 describe('generated contract coverage (tranche 4)', () => {
   it('mirrors every participant export category from chronicle-models', () => {
     expect(PARTICIPANT_DATA_TYPES).toEqual([
       'UsageEvents',
-      'Preprocessed',
       'AppUsageSurvey',
-      'IOSSensor',
+      'IOSScreenTime',
       'AndroidSensor',
       'SensorAvailability',
       'BatteryTelemetry',
@@ -66,7 +39,6 @@ describe('generated contract coverage (tranche 4)', () => {
       'AppNetworkUsage',
       'DeviceSettings',
       'UploadDiagnostics',
-      'DataQualityAlerts',
     ]);
   });
 
@@ -95,12 +67,12 @@ describe('generated contract coverage (tranche 4)', () => {
     const enabledByDefault = COLLECTION_MODULES.filter((m) => m.defaultEnabled).map((m) => m.value as string);
     expect(enabledByDefault.sort()).toEqual(
       [
-        'usage_events',
-        'device_lifecycle',
-        'upload_telemetry',
-        'sensor_availability',
-        'questionnaire',
-        'battery_telemetry',
+        COLLECTION_MODULE_ID.usage_events,
+        COLLECTION_MODULE_ID.device_lifecycle,
+        COLLECTION_MODULE_ID.upload_telemetry,
+        COLLECTION_MODULE_ID.sensor_availability,
+        COLLECTION_MODULE_ID.questionnaire,
+        COLLECTION_MODULE_ID.battery_telemetry,
       ].sort(),
     );
   });
@@ -114,16 +86,7 @@ describe('generated contract coverage (tranche 4)', () => {
     // The generated features NOT offered are the legacy/server-side ones, on purpose.
     const offered = new Set<string>(STUDY_FEATURES.map((f) => f.value));
     const notOffered = CONTRACT_STUDY_FEATURES.filter((value) => !offered.has(value)).sort();
-    // ANDROID_SENSOR and IOS_SENSOR joined this list when the legacy sensor pickers were
-    // removed in favour of the per-sensor collection modules.
-    expect(notOffered).toEqual([
-      'ANDROID_SENSOR',
-      'APP_USAGE',
-      'APP_USAGE_SURVEY',
-      'ARCHIVE',
-      'CHRONICLE',
-      'IOS_SENSOR',
-    ]);
+    expect(notOffered).toEqual(['APP_USAGE', 'APP_USAGE_SURVEY', 'ARCHIVE', 'CHRONICLE']);
   });
 
   it('ANDROID_SENSOR_TYPES covers every active generated sensor mapping in displayOrder with non-empty labels', () => {
@@ -145,25 +108,6 @@ describe('generated contract coverage (tranche 4)', () => {
     const rendered = COLLECTION_MODULES.filter((m) => m.sensorType).map((m) => m.value);
     expect(rendered).toEqual(expected);
   });
-
-  it('COLLECTION_DISPOSITIONS covers every generated disposition, in order, with non-empty labels and descriptions', () => {
-    expect(COLLECTION_DISPOSITIONS.map((d) => d.value)).toEqual([...COLLECTION_DATA_DISPOSITIONS]);
-    for (const disposition of COLLECTION_DISPOSITIONS) {
-      expect(disposition.label.trim().length).toBeGreaterThan(0);
-      expect(disposition.description.trim().length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe('IOS_SENSOR_TYPES', () => {
-  it('offers only generated iOS sensor values with labels', () => {
-    expect(IOS_SENSOR_TYPES.every(({ value }) => CONTRACT_IOS_SENSOR_TYPES.includes(value))).toBe(true);
-    expect(IOS_SENSOR_TYPES.every(({ label }) => label.trim().length > 0)).toBe(true);
-  });
-
-  it('offers exactly the active non-SensorKit motion streams', () => {
-    expect(IOS_SENSOR_TYPES.map(({ value }) => value)).toEqual(['accelerometer', 'pedometer', 'motionActivity']);
-  });
 });
 
 describe('COLLECTION_MODULES LinkML contract alignment', () => {
@@ -178,15 +122,12 @@ describe('COLLECTION_MODULES LinkML contract alignment', () => {
     type ContractCollectionModuleId = (typeof CONTRACT_COLLECTION_MODULE_IDS)[number];
     const offeredIds: ReadonlySet<string> = new Set(COLLECTION_MODULES.map((module) => module.value));
     const reservedOrRetired: ReadonlyArray<ContractCollectionModuleId> = [
-      'sensor_samsung_grip_wifi',
-      'sensor_samsung_motion',
-      'time_use_diary',
-      'app_inventory',
-      'gaze_tracking',
-      'interaction_content',
-      'location',
-      'communication_log',
-      'hardware_sensors',
+      COLLECTION_MODULE_ID.time_use_diary,
+      COLLECTION_MODULE_ID.app_inventory,
+      COLLECTION_MODULE_ID.gaze_tracking,
+      COLLECTION_MODULE_ID.interaction_content,
+      COLLECTION_MODULE_ID.location,
+      COLLECTION_MODULE_ID.communication_log,
     ];
 
     for (const moduleId of reservedOrRetired) {
@@ -208,9 +149,9 @@ describe('STUDY_FEATURES', () => {
   });
 
   const expectedFeatures: { label: string; value: StudyModule }[] = [
-    { label: 'Data Collection', value: 'CHRONICLE_DATA_COLLECTION' },
-    { label: 'Custom Surveys', value: 'CHRONICLE_SURVEYS' },
-    { label: 'Time Use Diary', value: 'TIME_USE_DIARY' },
+    { label: 'Data collection', value: 'CHRONICLE_DATA_COLLECTION' },
+    { label: 'Custom surveys', value: 'CHRONICLE_SURVEYS' },
+    { label: 'Time use diary', value: 'TIME_USE_DIARY' },
   ];
 
   describe('each entry has non-empty label and value', () => {
@@ -376,14 +317,20 @@ describe('COLLECTION_MODULES grouping', () => {
     }
     // And the Hardware Sensors group is exactly the per-sensor modules.
     const hardwareGroup = COLLECTION_MODULES.filter((m) => m.group === 'Hardware Sensors').map((m) => m.value);
-    expect([...hardwareGroup].sort()).toEqual([...SENSOR_MODULE_IDS].sort());
+    expect([...hardwareGroup].sort()).toEqual([...ANDROID_SENSOR_MODULE_IDS].sort());
   });
 });
 
 describe('INTERVAL_CONFIGURABLE_MODULES', () => {
   it('is exactly the five pull/periodic modules', () => {
     expect([...INTERVAL_CONFIGURABLE_MODULES].map(String).sort()).toEqual(
-      ['app_network_usage', 'battery_telemetry', 'connectivity_state', 'device_settings', 'health_connect'].sort(),
+      [
+        COLLECTION_MODULE_ID.app_network_usage,
+        COLLECTION_MODULE_ID.battery_telemetry,
+        COLLECTION_MODULE_ID.connectivity_state,
+        COLLECTION_MODULE_ID.device_settings,
+        COLLECTION_MODULE_ID.health_connect,
+      ].sort(),
     );
   });
 
@@ -391,7 +338,7 @@ describe('INTERVAL_CONFIGURABLE_MODULES', () => {
     const ids = new Set(COLLECTION_MODULES.map((m) => m.value));
     for (const moduleId of INTERVAL_CONFIGURABLE_MODULES) {
       expect(ids.has(moduleId)).toBe(true);
-      expect(SENSOR_MODULE_IDS.has(moduleId)).toBe(false);
+      expect((ANDROID_SENSOR_MODULE_IDS as readonly string[]).includes(moduleId)).toBe(false);
     }
   });
 

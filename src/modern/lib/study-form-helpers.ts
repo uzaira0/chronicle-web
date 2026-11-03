@@ -1,15 +1,23 @@
-import type { StudyFormData } from '@/components/study-form-dialog';
 import { getCurrentLanguage } from '@/i18n/language-context';
 import { createTranslator } from '@/i18n/translator';
+import { collectionNumberValidationProblems, isCollectionNumber } from '@/lib/collection-numbers';
 import {
   COLLECTION_MODULES,
-  DEFAULT_DISPOSITION,
+  type CollectionModuleId,
+  DEFAULT_COLLECTION_INTERVAL_SECONDS,
   DEFAULT_SENSOR_DUTY_ACTIVE,
+  DEFAULT_SENSOR_DUTY_PERIOD,
+  DEFAULT_SENSOR_RATE_HZ,
   DEFAULT_STUDY_TIME_ZONE,
+  DEFAULT_WITHDRAWAL_MODE,
+  HEALTH_CONNECT_RECORD_TYPES,
   INTERVAL_CONFIGURABLE_MODULES,
-  SHARED_QUEUE_MODULES,
-  WITHDRAWAL_MODES,
+  isKnownHealthConnectRecordType,
+  isPlayStoreBuildModule,
+  STUDY_SETTING_CLASSES,
 } from '@/lib/study-constants';
+import { DEFAULT_INTERACTION_CONFIG, type ModuleDraft, type StudyFormData } from '@/lib/study-form-model';
+import type { DataCollectionSettingSummary } from '@/state/study-operations-api';
 
 export function studyDurationToDays(duration: { days: number; months: number; years: number }) {
   return (duration.years || 0) * 365 + (duration.months || 0) * 30 + (duration.days || 0);
@@ -20,6 +28,13 @@ export function daysToStudyDuration(totalDays: number) {
 }
 
 export function buildStudyPayload(form: StudyFormData) {
+  return {
+    ...buildStudyUpdatePayload(form),
+    settings: { DataCollection: buildDataCollectionSetting(form) },
+  };
+}
+
+export function buildStudyUpdatePayload(form: StudyFormData) {
   const modules: Record<string, Record<string, unknown>> = {};
   for (const feature of form.features) {
     modules[feature] = {};
@@ -32,15 +47,20 @@ export function buildStudyPayload(form: StudyFormData) {
     group: form.group.trim(),
     version: form.version.trim(),
     modules,
-    notificationsEnabled: form.notificationsEnabled,
   };
 }
 
+export function buildAppUsageSurveySetting(form: StudyFormData) {
+  const appUsageFrequency = form.appUsageFrequency ?? 'DAILY';
+  if (form.loadedAppUsageFrequency === appUsageFrequency) return null;
+  return { '@class': STUDY_SETTING_CLASSES.AppUsageSurvey, appUsageFrequency };
+}
+
 export function buildWithdrawalSetting(form: StudyFormData) {
-  const mode = form.withdrawalMode ?? WITHDRAWAL_MODES.erase;
+  const mode = form.withdrawalMode ?? DEFAULT_WITHDRAWAL_MODE;
   if (form.loadedWithdrawalMode === mode) return null;
   return {
-    '@class': 'com.openlattice.chronicle.study.StudyWithdrawalSetting',
+    '@class': STUDY_SETTING_CLASSES.Withdrawal,
     mode,
   };
 }
@@ -49,100 +69,90 @@ export function buildTimeUseDiarySetting(form: StudyFormData) {
   if (form.loadedTimeZone === (form.timeZone ?? DEFAULT_STUDY_TIME_ZONE)) return null;
   return {
     ...form.loadedTimeUseDiary,
-    '@class': 'com.openlattice.chronicle.timeusediary.TimeUseDiarySettings',
+    '@class': STUDY_SETTING_CLASSES.TimeUseDiary,
     timeZone: form.timeZone ?? DEFAULT_STUDY_TIME_ZONE,
   };
 }
 
-function parseDutyCycleActiveSeconds(value: string): number {
-  const parsed = parseInt(value, 10);
-  return Number.isNaN(parsed) ? Number(DEFAULT_SENSOR_DUTY_ACTIVE) : parsed;
+type StoredModule = NonNullable<DataCollectionSettingSummary['modules']>[string] | undefined;
+const MODULE_POLICY_DRAFTS: Partial<Record<CollectionModuleId, (entry: StoredModule) => Partial<ModuleDraft>>> = {
+  interaction_events: (entry) => {
+    const policy = entry?.interactionPolicy;
+    return {
+      interaction: {
+        gridRows: String(policy?.gridRows ?? DEFAULT_INTERACTION_CONFIG.gridRows),
+        gridCols: String(policy?.gridCols ?? DEFAULT_INTERACTION_CONFIG.gridCols),
+        captureClicks: policy?.captureClicks ?? DEFAULT_INTERACTION_CONFIG.captureClicks,
+        captureScrolls: policy?.captureScrolls ?? DEFAULT_INTERACTION_CONFIG.captureScrolls,
+        captureElementPosition: policy?.captureElementPosition ?? DEFAULT_INTERACTION_CONFIG.captureElementPosition,
+      },
+    };
+  },
+  health_connect: (entry) => ({
+    healthConnectRecordTypes: Array.isArray(entry?.healthConnectRecordTypes)
+      ? [...new Set(entry.healthConnectRecordTypes)]
+      : [],
+  }),
+};
+
+/** One read adapter for sparse server settings, including defaults for every active module. */
+export function moduleDraftsFromSetting(
+  setting?: Pick<DataCollectionSettingSummary, 'modules'>,
+): StudyFormData['modules'] {
+  return Object.fromEntries(
+    COLLECTION_MODULES.map(({ value, alwaysOn, defaultEnabled, sensorType, consentGated }) => {
+      const entry = setting?.modules?.[value];
+      const enabled = alwaysOn || (entry?.enabled ?? defaultEnabled);
+      const sensor = entry?.sensorPolicy;
+      const draft: ModuleDraft = {
+        mode: enabled ? (consentGated && entry?.required ? 'required' : 'optional') : 'disabled',
+        intervalSeconds: entry?.collectionCadence?.intervalSeconds?.toString() ?? DEFAULT_COLLECTION_INTERVAL_SECONDS,
+        ...(sensorType
+          ? {
+              sensorPolicy: {
+                rateHz: String(sensor?.samplingRateHz ?? DEFAULT_SENSOR_RATE_HZ),
+                dutyActive: String(sensor?.dutyCycleActiveSeconds ?? DEFAULT_SENSOR_DUTY_ACTIVE),
+                dutyPeriod: String(sensor?.dutyCyclePeriodSeconds ?? DEFAULT_SENSOR_DUTY_PERIOD),
+              },
+            }
+          : {}),
+        ...MODULE_POLICY_DRAFTS[value]?.(entry),
+      };
+      return [value, draft];
+    }),
+  ) as StudyFormData['modules'];
 }
 
-export function buildSensorSetting(form: StudyFormData) {
-  if (!form.features.includes('ANDROID_SENSOR') || form.selectedSensors.length === 0) {
-    return null;
-  }
-
-  return {
-    '@class': 'com.openlattice.chronicle.android.AndroidSensorSetting' as const,
-    sensors: form.selectedSensors,
-    samplingRateHz: parseInt(form.samplingRateHz, 10) || 5,
-    dutyCycleActiveSeconds: parseDutyCycleActiveSeconds(form.dutyCycleActiveSeconds),
-    dutyCyclePeriodSeconds: parseInt(form.dutyCyclePeriodSeconds, 10) || 300,
-  };
-}
-
-export function buildIosSensorSetting(form: StudyFormData, clearWhenDisabled: true): [string, string[]];
-export function buildIosSensorSetting(form: StudyFormData, clearWhenDisabled?: false): [string, string[]] | null;
-export function buildIosSensorSetting(form: StudyFormData, clearWhenDisabled = false): [string, string[]] | null {
-  const enabled = form.features.includes('IOS_SENSOR');
-  if (!enabled && !clearWhenDisabled) {
-    return null;
-  }
-
-  return ['com.openlattice.chronicle.sensorkit.SensorSetting', enabled ? (form.selectedIosSensors ?? []) : []] as [
-    string,
-    string[],
+export function toggleHealthConnectRecordType(current: string[], recordType: string): string[] {
+  const selected = new Set(current);
+  if (selected.has(recordType)) selected.delete(recordType);
+  else selected.add(recordType);
+  return [
+    ...HEALTH_CONNECT_RECORD_TYPES.map(({ value }) => value).filter((value) => selected.has(value)),
+    ...current.filter((value) => !isKnownHealthConnectRecordType(value) && selected.has(value)),
   ];
 }
 
-export function iosSensorSettingUnchanged(form: StudyFormData): boolean {
-  const loaded = form.loadedIosSensorSetting;
-  if (!loaded) return false;
-  const enabled = form.features.includes('IOS_SENSOR');
-  if (enabled !== loaded.enabled) return false;
-  const selected = form.selectedIosSensors ?? [];
-  return selected.length === loaded.sensors.length && selected.every((sensor) => loaded.sensors.includes(sensor));
-}
-
-// A per-sensor hardware module's own sampling rate + duty cycle (per-sensor consent
-// redesign), read from the per-sensor form fields with the model defaults (5 Hz / 30 s /
-// 300 s). The single owning sensor is named in `sensors`.
-function buildPerSensorPolicy(form: StudyFormData, moduleId: string, sensorType: string) {
-  return {
-    '@class': 'com.openlattice.chronicle.android.AndroidSensorSetting' as const,
-    sensors: [sensorType],
-    samplingRateHz: parseInt(form.sensorRateHz?.[moduleId] ?? '', 10) || 5,
-    dutyCycleActiveSeconds: parseDutyCycleActiveSeconds(form.sensorDutyActive?.[moduleId] ?? ''),
-    dutyCyclePeriodSeconds: parseInt(form.sensorDutyPeriod?.[moduleId] ?? '', 10) || 300,
-  };
-}
-
-// interaction_events' own InteractionPolicy (grid granularity, clicks/scrolls toggles, and
-// whether to capture accessibility-element bounds), read from the interaction form fields with
-// the model defaults. The grid and old exact-position flag are compatibility derivations/aliases.
-// Element text is never
-// captured — content-freeness is a backend constructional invariant, not a configurable field.
-function buildInteractionPolicy(form: StudyFormData) {
-  return {
-    '@class': 'com.openlattice.chronicle.collection.InteractionPolicy' as const,
-    gridRows: parseInt(form.interactionGridRows ?? '', 10) || 4,
-    gridCols: parseInt(form.interactionGridCols ?? '', 10) || 3,
-    captureClicks: form.interactionCaptureClicks ?? true,
-    captureScrolls: form.interactionCaptureScrolls ?? true,
-    captureExactPosition: form.interactionCaptureExactPosition ?? true,
-    captureElementPosition: form.interactionCaptureExactPosition ?? true,
-  };
-}
-
-// A pull/periodic module's own collection interval. CollectionCadence is a PLAIN object — it is
-// NOT a polymorphic StudySetting subtype and has no @JsonIgnoreProperties(ignoreUnknown), so it
-// must carry NO `@class` (a stray one would break backend deserialization). Only intervalSeconds
-// is sent (defaulting to the 15-min floor); jitterSeconds is intentionally omitted.
-function buildCollectionCadence(form: StudyFormData, moduleId: string): { intervalSeconds: number } {
-  return { intervalSeconds: parseInt(form.moduleIntervalSeconds?.[moduleId] ?? '', 10) || 900 };
+export function healthConnectScopeMissing(draft: ModuleDraft): boolean {
+  return draft.mode !== 'disabled' && (draft.healthConnectRecordTypes?.length ?? 0) === 0;
 }
 
 function applyHealthConnectScope(
   moduleEntry: Record<string, unknown>,
   form: StudyFormData,
   enabled: boolean,
-  moduleId: (typeof COLLECTION_MODULES)[number]['value'],
+  moduleId: CollectionModuleId,
 ) {
-  if (moduleId !== 'health_connect') return;
-  const selectedRecordTypes = [...new Set((form.healthConnectRecordTypes ?? []).filter((recordType) => recordType))];
-  if (enabled && selectedRecordTypes.length === 0) {
+  const draft = form.modules[moduleId];
+  if (draft.healthConnectRecordTypes === undefined) return;
+  const selectedRecordTypes = [...new Set(draft.healthConnectRecordTypes.filter((recordType) => recordType))];
+  if (
+    healthConnectScopeMissing({
+      ...draft,
+      mode: enabled ? 'optional' : 'disabled',
+      healthConnectRecordTypes: selectedRecordTypes,
+    })
+  ) {
     throw new Error(createTranslator(getCurrentLanguage()).t('study_form.hc_scope_error'));
   }
   // Disabled means no approved scope. Sending an explicit empty list prevents a
@@ -150,64 +160,68 @@ function applyHealthConnectScope(
   moduleEntry.healthConnectRecordTypes = enabled ? selectedRecordTypes : [];
 }
 
-function applyDisableDisposition(
-  moduleEntry: Record<string, unknown>,
-  form: StudyFormData,
-  enabled: boolean,
-  moduleId: (typeof COLLECTION_MODULES)[number]['value'],
-) {
-  if (enabled) return;
-  const chosen = form.moduleDispositions?.[moduleId] ?? DEFAULT_DISPOSITION;
-  // Shared-queue modules (usage_events / device_lifecycle) cannot honor DISCARD — the
-  // device drains their merged `dataQueue` module-blind — so never emit it for them even
-  // from stale form state; coerce to the no-loss default. (See study-constants
-  // SHARED_QUEUE_MODULES + collection loop closure design §7.1.)
-  moduleEntry.disableDisposition =
-    SHARED_QUEUE_MODULES.has(moduleId) && chosen === 'discard_and_stop' ? DEFAULT_DISPOSITION : chosen;
+function moduleEnabledInForm(form: StudyFormData, module: (typeof COLLECTION_MODULES)[number]): boolean {
+  return module.alwaysOn ? true : form.modules[module.value].mode !== 'disabled';
 }
 
-// Build the wire entry for a single collection module from the form state. Extracted from
-// buildDataCollectionSetting to keep that function's branching within complexity limits.
+/** Enabled modules the Play Store Android app does not collect (participants on it cannot enroll). */
+export function playStoreUnsupportedModules(form: StudyFormData): CollectionModuleId[] {
+  if (!form.features.includes('CHRONICLE_DATA_COLLECTION')) return [];
+  return COLLECTION_MODULES.filter(
+    (module) => moduleEnabledInForm(form, module) && !isPlayStoreBuildModule(module.value),
+  ).map(({ value }) => value);
+}
+
 function buildModuleEntry(form: StudyFormData, module: (typeof COLLECTION_MODULES)[number]): Record<string, unknown> {
-  const { value, defaultEnabled, sensorType } = module;
+  const { value, sensorType } = module;
   // `enabled` is always sent explicitly — the backend CollectionModuleSetting has no
   // default for it. `required` (per-module consent design §3.1) is meaningful only while
   // enabled, but is always sent (mirrors `enabled`, keeps the write idempotent); defaults
   // optional (false), and a disabled module is never required. An always-on module is
   // written enabled whatever the form state says (stale state from before the lock).
-  const enabled = module.alwaysOn
-    ? true
-    : form.features.includes('CHRONICLE_DATA_COLLECTION') && (form.moduleSettings?.[value] ?? defaultEnabled);
-  const required = enabled ? (form.moduleRequired?.[value] ?? false) : false;
+  const enabled = moduleEnabledInForm(form, module);
+  const draft = form.modules[value];
+  const required = enabled && module.consentGated && draft.mode === 'required';
   const moduleEntry: Record<string, unknown> = { enabled, required };
 
   // A per-sensor module carries its own sampling policy, set only while enabled.
   if (sensorType && enabled) {
-    moduleEntry.sensorPolicy = buildPerSensorPolicy(form, value, sensorType);
+    moduleEntry.sensorPolicy = {
+      '@class': STUDY_SETTING_CLASSES.AndroidSensor,
+      sensors: [sensorType],
+      samplingRateHz: Number(draft.sensorPolicy?.rateHz),
+      dutyCycleActiveSeconds: Number(draft.sensorPolicy?.dutyActive),
+      dutyCyclePeriodSeconds: Number(draft.sensorPolicy?.dutyPeriod),
+    };
   }
 
   // interaction_events carries its own InteractionPolicy, set only while enabled.
-  if (value === 'interaction_events' && enabled) {
-    moduleEntry.interactionPolicy = buildInteractionPolicy(form);
+  if (draft.interaction && enabled) {
+    const policy = draft.interaction;
+    moduleEntry.interactionPolicy = {
+      '@class': STUDY_SETTING_CLASSES.InteractionPolicy,
+      gridRows: Number(policy.gridRows),
+      gridCols: Number(policy.gridCols),
+      captureClicks: policy.captureClicks,
+      captureScrolls: policy.captureScrolls,
+      captureElementPosition: policy.captureElementPosition,
+    };
   }
 
-  // The pull/periodic modules carry their own collection interval, set only while enabled.
-  if (enabled && INTERVAL_CONFIGURABLE_MODULES.has(value)) {
-    moduleEntry.collectionCadence = buildCollectionCadence(form, value);
+  // Disabling collection retains the configured cadence for re-enablement.
+  if (INTERVAL_CONFIGURABLE_MODULES.has(value) && isCollectionNumber('intervalSeconds', draft.intervalSeconds)) {
+    moduleEntry.collectionCadence = {
+      intervalSeconds: Number(draft.intervalSeconds),
+    };
   }
 
   applyHealthConnectScope(moduleEntry, form, enabled, value);
-  // The disable disposition is meaningful only while the module is OFF. Sending it
-  // exclusively in the disabled case clears it (back to null) on re-enable — the device
-  // acts on it only on the ACTIVE -> INACTIVE transition.
-  applyDisableDisposition(moduleEntry, form, enabled, value);
   return moduleEntry;
 }
 
 export function buildDataCollectionSetting(form: StudyFormData) {
-  // Turning off the feature must overwrite previously enabled optional modules.
-  const collecting = form.features.includes('CHRONICLE_DATA_COLLECTION');
-
+  const problems = collectionNumberValidationProblems(form, createTranslator(getCurrentLanguage()).t);
+  if (problems.length) throw new RangeError(problems[0]?.message);
   // A newer server may carry modules this build has never heard of. `modules` is written
   // whole, so rebuilding it from COLLECTION_MODULES alone would delete them on any
   // unrelated edit — carry the loaded entries through untouched first (same reasoning as
@@ -216,9 +230,7 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   const modules: Record<string, Record<string, unknown>> = {};
   for (const [moduleId, entry] of Object.entries(form.loadedModules ?? {})) {
     if (!known.has(moduleId) && entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      modules[moduleId] = collecting
-        ? { ...(entry as Record<string, unknown>) }
-        : { ...(entry as Record<string, unknown>), enabled: false, required: false };
+      modules[moduleId] = { ...(entry as Record<string, unknown>) };
     }
   }
   for (const module of COLLECTION_MODULES) {
@@ -226,7 +238,7 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   }
 
   return {
-    '@class': 'com.openlattice.chronicle.collection.AndroidDataCollectionSetting' as const,
+    '@class': STUDY_SETTING_CLASSES.DataCollection,
     modules,
     // v2 carries the per-module `required` flag (per-module consent design §3.2), matching
     // AndroidDataCollectionSetting.CURRENT_VERSION. The flag rides inside each module entry,
@@ -235,51 +247,51 @@ export function buildDataCollectionSetting(form: StudyFormData) {
   };
 }
 
-const LIMIT_FIELDS = ['participantLimit', 'studyDurationDays', 'dataRetentionDays'] as const;
+const LIMIT_FIELDS = ['studyDurationDays', 'dataRetentionDays'] as const;
+type StudyLimitField = (typeof LIMIT_FIELDS)[number];
+const WHOLE_DAYS = /^[1-9]\d*$/;
 
-/** True when the three limit inputs still hold what the form loaded (empty on create). */
+/** True when the limit inputs still hold what the form loaded (empty on create). */
 export function studyLimitsUnchanged(form: StudyFormData): boolean {
   return LIMIT_FIELDS.every((field) => form[field].trim() === (form.loadedLimits?.[field] ?? ''));
 }
 
+/** Limit inputs that are neither empty nor a whole number of days; they are refused, never coerced. */
+export function invalidStudyLimitFields(form: StudyFormData): StudyLimitField[] {
+  return LIMIT_FIELDS.filter((field) => {
+    const value = form[field].trim();
+    return value !== '' && !WHOLE_DAYS.test(value);
+  });
+}
+
+function limitDays(form: StudyFormData, field: StudyLimitField): number | undefined {
+  const value = form[field].trim();
+  return WHOLE_DAYS.test(value) ? Number(value) : undefined;
+}
+
+/** Loaded limits when a duration is untouched, preserving its calendar period and absolute deadline. */
+function unchangedDuration(form: StudyFormData, field: StudyLimitField) {
+  return form[field].trim() === form.loadedLimits?.[field] ? form.loadedLimits : undefined;
+}
+
 /**
- * True when some but not all limits are set. The endpoint binds an omitted key to the
- * StudyLimits default (e.g. 25 participants), so a partial set would not mean "no limit".
+ * The limits body. An omitted duration means the study has no end (the researcher sets one or
+ * nobody does); an omitted retention takes the server default. Empty inputs give an empty body.
  */
-export function studyLimitsPartial(form: StudyFormData): boolean {
-  const set = LIMIT_FIELDS.filter((field) => parseInt(form[field], 10) > 0).length;
-  return set > 0 && set < LIMIT_FIELDS.length;
-}
-
-// Null means "no request": the limits endpoint binds an empty body to the StudyLimits
-// defaults rather than clearing, so there is no wire representation of "no limit" yet.
-/** The stored duration when its day field is untouched, so a legacy calendar period ("1 year") is not rewritten as days. */
-function unchangedDuration(
-  form: StudyFormData,
-  field: 'dataRetentionDays' | 'studyDurationDays',
-  duration: 'dataRetentionDuration' | 'studyDuration',
-) {
-  return form[field].trim() === form.loadedLimits?.[field] ? form.loadedLimits[duration] : undefined;
-}
-
-export function buildStudyLimits(form: StudyFormData): Record<string, unknown> | null {
-  const participantLimit = parseInt(form.participantLimit, 10);
-  const studyDurationDays = parseInt(form.studyDurationDays, 10);
-  const dataRetentionDays = parseInt(form.dataRetentionDays, 10);
-
-  if (!(participantLimit > 0) && !(studyDurationDays > 0) && !(dataRetentionDays > 0)) {
-    return null;
-  }
-
+export function buildStudyLimits(form: StudyFormData): Record<string, unknown> {
+  const studyDurationDays = limitDays(form, 'studyDurationDays');
+  const dataRetentionDays = limitDays(form, 'dataRetentionDays');
   const limits: Record<string, unknown> = {};
-  if (participantLimit > 0) limits.participantLimit = participantLimit;
-  if (studyDurationDays > 0) {
-    limits.studyDuration =
-      unchangedDuration(form, 'studyDurationDays', 'studyDuration') ?? daysToStudyDuration(studyDurationDays);
+  if (studyDurationDays !== undefined) {
+    const loaded = unchangedDuration(form, 'studyDurationDays');
+    limits.studyDuration = loaded?.studyDuration ?? daysToStudyDuration(studyDurationDays);
+    if (loaded?.studyEnds) limits.studyEnds = loaded.studyEnds;
   }
-  if (dataRetentionDays > 0) {
-    limits.dataRetentionDuration =
-      unchangedDuration(form, 'dataRetentionDays', 'dataRetentionDuration') ?? daysToStudyDuration(dataRetentionDays);
+  if (dataRetentionDays !== undefined) {
+    const loaded = unchangedDuration(form, 'dataRetentionDays');
+    limits.dataRetentionDuration = loaded?.dataRetentionDuration ?? daysToStudyDuration(dataRetentionDays);
+    if (loaded?.studyDataExpires && unchangedDuration(form, 'studyDurationDays'))
+      limits.studyDataExpires = loaded.studyDataExpires;
   }
   return limits;
 }

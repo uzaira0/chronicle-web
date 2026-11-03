@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { FieldHint } from '@/components/ui/field-hint';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,6 +9,7 @@ import {
   type ParticipantPolicyForm,
   validateParticipantPolicy,
 } from '@/lib/participant-policy';
+import { studyFieldName } from '@/lib/study-form-model';
 
 type PolicyField = keyof ParticipantPolicyForm;
 
@@ -29,14 +31,14 @@ const DISCLOSURE_FIELDS = [
   { field: 'retentionAndDeletion', key: 'retention' },
 ] as const satisfies ReadonlyArray<{ field: PolicyField; key: string }>;
 
-const ALWAYS_RECORDED_HINT_ID = 'participant-policy-dataUseAndSharing-hint';
-
 function FieldError({
+  id,
   errors,
   field,
   showErrors,
   value,
 }: {
+  id: string;
   errors: ParticipantPolicyErrors;
   field: PolicyField;
   showErrors: boolean;
@@ -44,7 +46,7 @@ function FieldError({
 }) {
   const error = value.trim() || showErrors ? errors[field] : undefined;
   return error ? (
-    <p className="text-xs text-destructive" id={`participant-policy-${field}-error`}>
+    <p className="text-xs text-destructive" id={id}>
       {error}
     </p>
   ) : null;
@@ -57,19 +59,22 @@ export function StudyParticipantPolicyFields({
   value,
 }: StudyParticipantPolicyFieldsProps) {
   const { t } = useTranslator();
+  const idPrefix = useId();
+  const alwaysRecordedHintId = `${idPrefix}-data-use-hint`;
   const errors = validateParticipantPolicy(value, t);
   const describedBy = (field: PolicyField) =>
-    errors[field] && (value[field].trim() || showErrors) ? `participant-policy-${field}-error` : undefined;
+    errors[field] && (value[field].trim() || showErrors) ? `${idPrefix}-${field}-error` : undefined;
 
   const renderInput = (field: PolicyField, label: string, placeholder: string, isUrl = false) => (
     <div className="space-y-1.5" key={field}>
-      <Label htmlFor={`participant-policy-${field}`} required>
+      <Label htmlFor={`${idPrefix}-${field}`} required>
         {label}
       </Label>
       <Input
         aria-describedby={describedBy(field)}
         aria-invalid={Boolean(errors[field]) && (value[field].trim() !== '' || showErrors)}
-        id={`participant-policy-${field}`}
+        id={`${idPrefix}-${field}`}
+        name={studyFieldName.policy(field)}
         maxLength={isUrl ? 2_048 : 8_000}
         onChange={(event) => onChange(field, event.target.value)}
         placeholder={placeholder}
@@ -77,7 +82,13 @@ export function StudyParticipantPolicyFields({
         type={isUrl ? 'url' : 'text'}
         value={value[field]}
       />
-      <FieldError errors={errors} field={field} showErrors={showErrors} value={value[field]} />
+      <FieldError
+        id={`${idPrefix}-${field}-error`}
+        errors={errors}
+        field={field}
+        showErrors={showErrors}
+        value={value[field]}
+      />
     </div>
   );
 
@@ -112,17 +123,18 @@ export function StudyParticipantPolicyFields({
         <div className="grid gap-4 sm:grid-cols-2">
           {DISCLOSURE_FIELDS.map(({ field, key }) => (
             <div className="space-y-1.5" key={field}>
-              <Label htmlFor={`participant-policy-${field}`} required>
+              <Label htmlFor={`${idPrefix}-${field}`} required>
                 {t(`policy_fields.${key}`)}
               </Label>
               <Textarea
                 aria-describedby={
-                  [field === 'dataUseAndSharing' && ALWAYS_RECORDED_HINT_ID, describedBy(field)]
+                  [field === 'dataUseAndSharing' && alwaysRecordedHintId, describedBy(field)]
                     .filter(Boolean)
                     .join(' ') || undefined
                 }
                 aria-invalid={Boolean(errors[field]) && (value[field].trim() !== '' || showErrors)}
-                id={`participant-policy-${field}`}
+                id={`${idPrefix}-${field}`}
+                name={studyFieldName.policy(field)}
                 maxLength={8_000}
                 onChange={(event) => onChange(field, event.target.value)}
                 placeholder={t(`policy_fields.${key}_placeholder`)}
@@ -130,11 +142,17 @@ export function StudyParticipantPolicyFields({
                 value={value[field]}
               />
               {field === 'dataUseAndSharing' && (
-                <p className="text-xs leading-5 text-muted-foreground" id={ALWAYS_RECORDED_HINT_ID}>
+                <p className="text-xs leading-5 text-muted-foreground" id={alwaysRecordedHintId}>
                   {t('policy_fields.data_use_always_recorded_hint')}
                 </p>
               )}
-              <FieldError errors={errors} field={field} showErrors={showErrors} value={value[field]} />
+              <FieldError
+                id={`${idPrefix}-${field}-error`}
+                errors={errors}
+                field={field}
+                showErrors={showErrors}
+                value={value[field]}
+              />
             </div>
           ))}
         </div>
@@ -149,19 +167,21 @@ export function StudyParticipantPolicyFields({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="participant-policy-consentDocumentUrl">{t('policy_fields.consent_url')}</Label>
+          <Label htmlFor={`${idPrefix}-consentDocumentUrl`}>{t('policy_fields.consent_url')}</Label>
           <Input
             aria-describedby={describedBy('consentDocumentUrl')}
             aria-invalid={Boolean(errors.consentDocumentUrl) && (value.consentDocumentUrl.trim() !== '' || showErrors)}
-            id="participant-policy-consentDocumentUrl"
+            id={`${idPrefix}-consentDocumentUrl`}
+            name={studyFieldName.policy('consentDocumentUrl')}
             maxLength={2_048}
             onChange={(event) => onChange('consentDocumentUrl', event.target.value)}
-            placeholder="https://research.example.org/consent/study.pdf"
+            placeholder="https://research.example.org/consent/study.pdf…"
             type="url"
             value={value.consentDocumentUrl}
           />
           <FieldHint>{t('policy_fields.consent_hint')}</FieldHint>
           <FieldError
+            id={`${idPrefix}-consentDocumentUrl-error`}
             errors={errors}
             field="consentDocumentUrl"
             showErrors={showErrors}
@@ -171,36 +191,51 @@ export function StudyParticipantPolicyFields({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="participant-policy-version" required>
+            <Label htmlFor={`${idPrefix}-version`} required>
               {t('policy_fields.version')}
             </Label>
             <Input
               aria-describedby={describedBy('version')}
               aria-invalid={Boolean(errors.version) && (value.version.trim() !== '' || showErrors)}
-              id="participant-policy-version"
+              id={`${idPrefix}-version`}
+              spellCheck={false}
+              name={studyFieldName.policy('version')}
               maxLength={128}
               onChange={(event) => onChange('version', event.target.value)}
-              placeholder="consent-2026-08-17"
+              placeholder="consent-2026-08-17…"
               required
               value={value.version}
             />
-            <FieldError errors={errors} field="version" showErrors={showErrors} value={value.version} />
+            <FieldError
+              id={`${idPrefix}-version-error`}
+              errors={errors}
+              field="version"
+              showErrors={showErrors}
+              value={value.version}
+            />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="participant-policy-effectiveAt" required>
+            <Label htmlFor={`${idPrefix}-effectiveAt`} required>
               {t('policy_fields.effective_at')}
             </Label>
             <Input
               aria-describedby={describedBy('effectiveAt')}
               aria-invalid={Boolean(errors.effectiveAt) && (value.effectiveAt.trim() !== '' || showErrors)}
-              id="participant-policy-effectiveAt"
+              id={`${idPrefix}-effectiveAt`}
+              name={studyFieldName.policy('effectiveAt')}
               onChange={(event) => onChange('effectiveAt', event.target.value)}
-              placeholder="2026-08-17T09:30:00-05:00"
+              placeholder="2026-08-17T09:30:00-05:00…"
               required
               value={value.effectiveAt}
             />
             <FieldHint>{t('policy_fields.effective_hint')}</FieldHint>
-            <FieldError errors={errors} field="effectiveAt" showErrors={showErrors} value={value.effectiveAt} />
+            <FieldError
+              id={`${idPrefix}-effectiveAt-error`}
+              errors={errors}
+              field="effectiveAt"
+              showErrors={showErrors}
+              value={value.effectiveAt}
+            />
           </div>
         </div>
       </fieldset>

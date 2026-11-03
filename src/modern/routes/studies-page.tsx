@@ -1,11 +1,12 @@
-import { Bell, CircleAlert, Library, Search } from 'lucide-react';
-import { useMemo } from 'react';
+import { CircleAlert, Library, Plus, Search } from 'lucide-react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { SectionHeader } from '@/components/section-header';
 import { SortableTableHead } from '@/components/sortable-table-head';
 import { StatePanel } from '@/components/state-panel';
-import { type StudyFormData, StudyFormDialog } from '@/components/study-form-dialog';
+import type { StudyFormDialogHandle, StudyFormDialogProps } from '@/components/study-form/types';
+import { StudyFormDialog } from '@/components/study-form-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -15,41 +16,46 @@ import { translateCatalog, useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
 import { formatDisplayDate } from '@/lib/format';
 import { buildStudyParticipantPolicy, EMPTY_PARTICIPANT_POLICY_FORM } from '@/lib/participant-policy';
-import { STUDY_FEATURES } from '@/lib/study-constants';
+import type { SortState } from '@/lib/sort';
 import {
+  buildAppUsageSurveySetting,
   buildDataCollectionSetting,
-  buildIosSensorSetting,
-  buildSensorSetting,
   buildStudyLimits,
   buildStudyPayload,
+  buildStudyUpdatePayload,
   buildTimeUseDiarySetting,
   buildWithdrawalSetting,
+  studyLimitsUnchanged,
 } from '@/lib/study-form-helpers';
+import type { StudyFormData } from '@/lib/study-form-model';
+import { studyFeatureLabel } from '@/lib/study-navigation';
 import {
-  saveStep,
+  STUDY_SAVE_STEP,
+  StudySaveError,
+  type StudySaveFailure,
+  type StudySaveStep,
   settingWrites,
-  studyConfigurationNavigationState,
   writeSettingsInOrder,
-} from '@/lib/study-navigation';
-import { useListSearchParams } from '@/lib/use-list-search-params';
+} from '@/lib/study-save';
+import { SAVED_EDITS_NAVIGATION } from '@/lib/use-confirm-leave';
+import { useListSearchParams, useSearchParamValue } from '@/lib/use-list-search-params';
 import { useResearcherCreateIntent } from '@/lib/use-researcher-create-intent';
+import { isConditionalWriteFailure, requireSettingsRevision } from '@/state/settings-revision';
 import { useAppSelector } from '@/state/store';
 import {
   type StudySummary,
   useCreateStudyMutation,
   useGetAllStudiesQuery,
+  useLazyGetStudySummaryQuery,
   useSetStudyLimitsMutation,
+  useUpdateStudyMutation,
   useUpdateStudySettingsMutation,
 } from '@/state/study-operations-api';
 
+type StudySortKey = 'contact' | 'title' | 'updated';
+
 function hasValidStudyId(study: StudySummary): study is StudySummary & { id: string } {
   return typeof study.id === 'string' && study.id.length > 0;
-}
-
-const FEATURE_LABELS = new Map<string, string>(STUDY_FEATURES.map(({ label, value }) => [value, label]));
-
-function moduleLabel(moduleId: string) {
-  return FEATURE_LABELS.get(moduleId) ?? moduleId.replace(/_/g, ' ');
 }
 
 function StudyTableRow({ study }: { study: StudySummary & { id: string } }) {
@@ -59,23 +65,12 @@ function StudyTableRow({ study }: { study: StudySummary & { id: string } }) {
   return (
     <TableRow>
       <TableCell>
-        {/* The title is the link. The row previously carried a separate "Details →"
-            column doing the same navigation. */}
         <div className="space-y-0.5">
           <div className="flex flex-wrap items-center gap-2">
             <Link className="font-semibold hover:underline" to={`/studies/${study.id}`}>
               {study.title || study.id}
             </Link>
             {study.version && <Badge variant="outline">{study.version}</Badge>}
-            {study.notificationsEnabled && (
-              <span
-                className="flex items-center gap-1 text-xs text-muted-foreground"
-                title={t('studies.notifications_enabled')}
-              >
-                <Bell aria-hidden="true" className="h-3 w-3" />
-                {t('studies.notifications')}
-              </span>
-            )}
           </div>
           {/* One line, not a paragraph — descriptions ran several lines and made every
               row a different height, which is what a scannable list can least afford. */}
@@ -89,7 +84,7 @@ function StudyTableRow({ study }: { study: StudySummary & { id: string } }) {
       </TableCell>
       {/* Truncated: the shared study contact is a long address that otherwise wrapped to
           two lines and widened the column past what the study title had. */}
-      <TableCell className="max-w-50 truncate text-sm" title={study.contact ?? undefined}>
+      <TableCell truncate className="max-w-50" title={study.contact ?? undefined}>
         {study.contact || t('common.not_set')}
       </TableCell>
       <TableCell>
@@ -98,42 +93,105 @@ function StudyTableRow({ study }: { study: StudySummary & { id: string } }) {
             <Badge variant="muted">{t('studies.no_modules')}</Badge>
           ) : (
             studyModules.map((moduleId) => (
-              <Badge className="normal-case tracking-normal" key={moduleId} variant="muted">
-                {translateCatalog(t, 'feature', moduleId, moduleLabel(moduleId))}
+              <Badge casing="natural" key={moduleId} variant="muted">
+                {translateCatalog(t, 'feature', moduleId, studyFeatureLabel(moduleId))}
               </Badge>
             ))
           )}
         </div>
       </TableCell>
-      <TableCell className="whitespace-nowrap text-xs">
+      <TableCell size="small" className="whitespace-nowrap">
         {study.updatedAt ? formatDisplayDate(study.updatedAt) : t('common.na')}
       </TableCell>
     </TableRow>
   );
 }
 
-export function StudiesPage() {
-  const session = useAppSelector((state) => state.session);
-  const { t } = useTranslator();
-  const {
-    data: studies = [],
-    error: studiesError,
-    isError,
-    isLoading: isStudiesLoading,
-    refetch: refetchStudies,
-  } = useGetAllStudiesQuery(undefined, {
-    skip: session.status !== 'authenticated',
-  });
+/** The settings and limits a create writes after the study exists; the create itself already carried its modules. */
+function createdStudyWrites(form: StudyFormData, retry: boolean) {
+  const limits = studyLimitsUnchanged(form) ? null : buildStudyLimits(form);
+  return [
+    ...settingWrites({
+      AppUsageSurvey: buildAppUsageSurveySetting(form),
+      DataCollection: retry ? buildDataCollectionSetting(form) : null,
+      Withdrawal: buildWithdrawalSetting(form),
+      TimeUseDiary: buildTimeUseDiarySetting(form),
+      ParticipantPolicy: buildStudyParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM),
+    }),
+    ...(limits ? [{ settingType: 'limits' as const, limits }] : []),
+  ];
+}
 
-  const { searchQuery, setSearchQuery, sort, handleSort } = useListSearchParams(
-    ['contact', 'title', 'updated'],
-    'title',
-  );
+/** `rememberCreatedStudy` keeps a created study's id until its create completes, then clears it (undefined). */
+function useStudyCreate(rememberCreatedStudy: (studyId: string | undefined) => void): StudyFormDialogProps['onSubmit'] {
+  const { t } = useTranslator();
+  const [updateStudy] = useUpdateStudyMutation();
   const [createStudy] = useCreateStudyMutation();
   const createIntent = useResearcherCreateIntent('/study');
   const [updateStudySettings] = useUpdateStudySettingsMutation();
   const [setStudyLimits] = useSetStudyLimitsMutation();
+  const [readStudy] = useLazyGetStudySummaryQuery();
   const navigate = useNavigate();
+
+  return async (form, context) => {
+    const study = buildStudyPayload(form);
+    const retry = context.createdStudyId !== undefined;
+    if (!context.createdStudyId) {
+      const intent = await createIntent.currentIntent(study);
+      context.createdStudyId = await createStudy({ study, idempotencyKey: intent.key }).unwrap();
+      rememberCreatedStudy(context.createdStudyId);
+      await createIntent.acknowledge(intent);
+    }
+    const studyId = context.createdStudyId;
+
+    const writes = createdStudyWrites(form, retry);
+    const pendingSteps: StudySaveStep[] = writes.map(({ settingType }) => settingType);
+    let failures: StudySaveFailure[];
+    if (retry) pendingSteps.unshift(STUDY_SAVE_STEP.details);
+    try {
+      // No write happens without a revision, so one never captured (a failed read) is read now.
+      context.settingsRevision ??= (await readStudy(studyId).unwrap()).settingsRevision;
+      // A retry continues from this tab's last committed revision, so another tab's newer save is a
+      // conflict that keeps both, never overwritten by this draft.
+      if (retry) {
+        const updated = await updateStudy({
+          studyId,
+          study: buildStudyUpdatePayload(form),
+          ifMatch: requireSettingsRevision(context.settingsRevision),
+        }).unwrap();
+        context.settingsRevision = updated.settingsRevision;
+        pendingSteps.shift();
+      }
+      const result = await writeSettingsInOrder(
+        writes,
+        async (write) => {
+          const ifMatch = requireSettingsRevision(context.settingsRevision);
+          const saved = await ('limits' in write
+            ? setStudyLimits({ studyId, limits: write.limits, ifMatch })
+            : updateStudySettings({ studyId, ...write, ifMatch })
+          ).unwrap();
+          context.settingsRevision = saved.settingsRevision;
+        },
+        isConditionalWriteFailure,
+      );
+      failures = result.failures;
+    } catch (error) {
+      failures = pendingSteps.map((step) => ({ step, error }));
+    }
+
+    if (failures.length) throw new StudySaveError({ failures, t });
+    // Complete: the next "Create new study" here, even after going back to this page, starts a new study.
+    rememberCreatedStudy(undefined);
+    await navigate(`/studies/${studyId}`, { state: SAVED_EDITS_NAVIGATION });
+    delete context.createdStudyId;
+  };
+}
+
+function useStudyCatalog(studies: StudySummary[]) {
+  const { searchQuery, setSearchQuery, sort, handleSort } = useListSearchParams(
+    ['contact', 'title', 'updated'],
+    'title',
+  );
 
   const filteredStudies = useMemo(() => {
     const query = searchQuery.toLowerCase();
@@ -149,134 +207,208 @@ export function StudiesPage() {
       .sort((a, b) => direction * field(a).localeCompare(field(b)));
   }, [studies, searchQuery, sort]);
 
-  const handleCreateStudy = async (form: StudyFormData) => {
-    const study = buildStudyPayload(form);
-    const intent = await createIntent.currentIntent(study);
-    const studyId = await createStudy({ study, idempotencyKey: intent.key }).unwrap();
-    await createIntent.acknowledge(intent);
+  return { filteredStudies, searchQuery, setSearchQuery, sort, handleSort };
+}
 
-    // Best-effort post-create config (the study already exists). The settings PATCHes run
-    // in order and continue past a failure (writeSettingsInOrder); limits is a disjoint
-    // write and runs in parallel. Every step that did not save is named on the study page.
-    const limits = buildStudyLimits(form);
-    const writes = settingWrites({
-      Withdrawal: buildWithdrawalSetting(form),
-      TimeUseDiary: buildTimeUseDiarySetting(form),
-      AndroidSensor: buildSensorSetting(form),
-      DataCollection: buildDataCollectionSetting(form),
-      ParticipantPolicy: buildStudyParticipantPolicy(form.participantPolicy ?? EMPTY_PARTICIPANT_POLICY_FORM),
-      Sensor: buildIosSensorSetting(form),
-    });
-    const [settings, limitsFailure] = await Promise.all([
-      writeSettingsInOrder(writes, (write) => updateStudySettings({ studyId, ...write }).unwrap()),
-      saveStep('limits', limits ? setStudyLimits({ studyId, limits }).unwrap() : null),
-    ]);
+function StudyCatalogTable({
+  studies,
+  sort,
+  onSort,
+}: {
+  studies: (StudySummary & { id: string })[];
+  sort: SortState<StudySortKey>;
+  onSort: (key: StudySortKey) => void;
+}) {
+  const { t } = useTranslator();
+  return (
+    <Card>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <SortableTableHead onSort={onSort} sort={sort} sortKey="title">
+              {t('studies.col_study')}
+            </SortableTableHead>
+            <SortableTableHead onSort={onSort} sort={sort} sortKey="contact">
+              {t('studies.col_contact')}
+            </SortableTableHead>
+            <TableHead>{t('studies.col_modules')}</TableHead>
+            <SortableTableHead onSort={onSort} sort={sort} sortKey="updated">
+              {t('studies.col_updated')}
+            </SortableTableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {studies.map((study) => (
+            <StudyTableRow key={study.id} study={study} />
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
 
-    await navigate(`/studies/${studyId}`, {
-      state: studyConfigurationNavigationState([...settings.failures, ...limitsFailure].map((failure) => failure.step)),
-    });
+function StudySignInPanel({
+  testingLoginEnabled,
+  providerLabel,
+  loginUrl,
+}: {
+  testingLoginEnabled: boolean;
+  providerLabel: string;
+  loginUrl: string | null;
+}) {
+  const { t } = useTranslator();
+  return (
+    <StatePanel
+      className="max-w-none"
+      description={
+        testingLoginEnabled
+          ? t('studies.testing_auth_description')
+          : t('studies.sign_in_description', { provider: providerLabel })
+      }
+      eyebrow={t('studies.auth_eyebrow')}
+      icon={<CircleAlert className="h-5 w-5" />}
+      title={t('studies.sign_in_required')}
+      tone="default"
+      actions={
+        loginUrl ? (
+          <Button asChild size="sm">
+            <a href={loginUrl}>{t('studies.continue_with_auth')}</a>
+          </Button>
+        ) : null
+      }
+    />
+  );
+}
+
+function StudyCatalogContent({
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  isEmpty,
+  emptyCatalogAction,
+  children,
+}: {
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  onRetry: () => unknown;
+  isEmpty: boolean;
+  emptyCatalogAction: ReactNode;
+  children: ReactNode;
+}) {
+  const { t } = useTranslator();
+  if (isLoading)
+    return (
+      <div role="status" aria-label={t('common.loading')} className="grid gap-3">
+        {[1, 2, 3].map((i) => (
+          <Card variant="loading" key={i}>
+            <div className="h-20 bg-muted" />
+          </Card>
+        ))}
+      </div>
+    );
+  if (isError)
+    return (
+      <StatePanel
+        className="max-w-none"
+        description={getErrorMessage(error, t('common.unable_to_load_studies'))}
+        eyebrow={t('common.error')}
+        icon={<CircleAlert className="h-5 w-5" />}
+        onRetry={onRetry}
+        title={t('common.failed_to_load_studies')}
+        tone="destructive"
+      />
+    );
+  if (isEmpty)
+    return (
+      <StatePanel
+        actions={emptyCatalogAction}
+        className="max-w-none"
+        description={t('studies.no_results_description')}
+        eyebrow={t('studies.no_results_eyebrow')}
+        icon={<Library className="h-5 w-5" />}
+        title={t('common.no_studies_found')}
+      />
+    );
+  return children;
+}
+
+export function StudiesPage() {
+  const { t } = useTranslator();
+  const [recoveredStudyId, setRecoveredStudyId] = useSearchParamValue<string>('createdStudy', '');
+  // The live identity updates before another submit; the URL restores it after leaving this page.
+  const [createdStudyId, setCreatedStudyId] = useState(() => recoveredStudyId || undefined);
+  const session = useAppSelector((state) => state.session);
+  const {
+    data: studies = [],
+    error,
+    isError,
+    isLoading,
+    refetch: refetchStudies,
+  } = useGetAllStudiesQuery(undefined, {
+    skip: session.status !== 'authenticated',
+  });
+  const { filteredStudies, searchQuery, setSearchQuery, sort, handleSort } = useStudyCatalog(studies);
+  const rememberCreatedStudy = (id: string | undefined) => {
+    setCreatedStudyId(id);
+    setRecoveredStudyId(id ?? '');
   };
-
-  const createStudyDialog = <StudyFormDialog mode="create" onSubmit={handleCreateStudy} />;
-  // An empty catalog points at creating the first study; an empty search does not.
-  const emptyCatalogAction = searchQuery.trim() === '' && createStudyDialog;
-
+  const handleCreateStudy = useStudyCreate(rememberCreatedStudy);
+  const createDialog = useRef<StudyFormDialogHandle>(null);
+  // The empty catalog opens the header's dialog; a second dialog would hold a second, divergent draft.
+  const emptyCatalogAction = searchQuery.trim() === '' && (
+    <Button aria-haspopup="dialog" onClick={() => createDialog.current?.open()}>
+      <Plus className="mr-2 h-4 w-4" />
+      {t('study_form.create_new')}
+    </Button>
+  );
   return (
     <div className="space-y-6">
       <SectionHeader
-        actions={createStudyDialog}
+        actions={
+          <StudyFormDialog
+            ref={createDialog}
+            mode="create"
+            onSubmit={handleCreateStudy}
+            createdStudyId={createdStudyId}
+          />
+        }
         description={t('studies.description')}
         eyebrow={t('studies.eyebrow')}
         icon={<Library className="h-3.5 w-3.5" />}
         title={t('studies.title')}
       />
-
-      {/* A single input does not need a Card around it — that framed an otherwise empty
-          box and matched nothing else in the app. Same bare search as Participants. */}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           aria-label={t('studies.search_aria')}
+          type="search"
           name="study-search"
           autoComplete="off"
-          className="pl-9"
+          variant="search"
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('studies.search_placeholder')}
           value={searchQuery}
         />
       </div>
-
       {session.status !== 'authenticated' ? (
-        <StatePanel
-          className="max-w-none"
-          description={
-            session.testingLoginEnabled
-              ? t('studies.testing_auth_description')
-              : t('studies.sign_in_description', { provider: session.providerLabel })
-          }
-          eyebrow={t('studies.auth_eyebrow')}
-          icon={<CircleAlert className="h-5 w-5" />}
-          title={t('studies.sign_in_required')}
-          tone="default"
-          actions={
-            session.loginUrl ? (
-              <Button asChild size="sm">
-                <a href={session.loginUrl}>{t('studies.continue_with_auth')}</a>
-              </Button>
-            ) : null
-          }
-        />
-      ) : isStudiesLoading ? (
-        <div className="grid gap-3">
-          {[1, 2, 3].map((i) => (
-            <Card className="animate-pulse" key={i}>
-              <div className="h-20 bg-muted" />
-            </Card>
-          ))}
-        </div>
-      ) : isError ? (
-        <StatePanel
-          className="max-w-none"
-          description={getErrorMessage(studiesError, t('common.unable_to_load_studies'))}
-          eyebrow={t('common.error')}
-          icon={<CircleAlert className="h-5 w-5" />}
-          onRetry={refetchStudies}
-          title={t('common.failed_to_load_studies')}
-          tone="destructive"
-        />
-      ) : filteredStudies.length === 0 ? (
-        <StatePanel
-          actions={emptyCatalogAction}
-          className="max-w-none"
-          description={t('studies.no_results_description')}
-          eyebrow={t('studies.no_results_eyebrow')}
-          icon={<Library className="h-5 w-5" />}
-          title={t('common.no_studies_found')}
+        <StudySignInPanel
+          testingLoginEnabled={session.testingLoginEnabled}
+          providerLabel={session.providerLabel}
+          loginUrl={session.loginUrl}
         />
       ) : (
-        <Card>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <SortableTableHead onSort={handleSort} sort={sort} sortKey="title">
-                  {t('studies.col_study')}
-                </SortableTableHead>
-                <SortableTableHead onSort={handleSort} sort={sort} sortKey="contact">
-                  {t('studies.col_contact')}
-                </SortableTableHead>
-                <TableHead>{t('studies.col_modules')}</TableHead>
-                <SortableTableHead onSort={handleSort} sort={sort} sortKey="updated">
-                  {t('studies.col_updated')}
-                </SortableTableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredStudies.map((study) => (
-                <StudyTableRow key={study.id} study={study} />
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
+        <StudyCatalogContent
+          isLoading={isLoading}
+          isError={isError}
+          error={error}
+          onRetry={refetchStudies}
+          isEmpty={filteredStudies.length === 0}
+          emptyCatalogAction={emptyCatalogAction}
+        >
+          <StudyCatalogTable studies={filteredStudies} sort={sort} onSort={handleSort} />
+        </StudyCatalogContent>
       )}
     </div>
   );

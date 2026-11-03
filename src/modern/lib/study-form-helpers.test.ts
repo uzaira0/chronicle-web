@@ -1,31 +1,28 @@
 import { describe, expect, it } from 'bun:test';
+import { ACTIVE_COLLECTION_MODULE_IDS as ACTIVE_MODULE_IDS, STUDY_FEATURES } from '@/generated/chronicle-contracts';
+import type { StudyFormData } from '@/lib/study-form-model';
+import { moduleDraftsWith } from '@/test/module-drafts';
 
 import {
   buildDataCollectionSetting,
-  buildIosSensorSetting,
-  buildSensorSetting,
   buildStudyLimits,
   buildStudyPayload,
   daysToStudyDuration,
-  iosSensorSettingUnchanged,
+  healthConnectScopeMissing,
+  invalidStudyLimitFields,
   studyDurationToDays,
+  toggleHealthConnectRecordType,
 } from './study-form-helpers';
 
 // Minimal form factory for testing
-function makeForm(overrides: Record<string, unknown> = {}) {
+function makeForm(overrides: Partial<StudyFormData> = {}): StudyFormData {
   return {
     contact: ' admin@example.com ',
     dataRetentionDays: '',
     description: ' A study description ',
-    dutyCycleActiveSeconds: '30',
-    dutyCyclePeriodSeconds: '300',
     features: [] as string[],
     group: ' neuro ',
-    notificationsEnabled: false,
-    participantLimit: '',
-    samplingRateHz: '5',
-    selectedIosSensors: [] as string[],
-    selectedSensors: [] as string[],
+    modules: moduleDraftsWith(),
     studyDurationDays: '',
     title: ' My Study ',
     version: ' 1.0 ',
@@ -62,6 +59,33 @@ describe('daysToStudyDuration()', () => {
 });
 
 describe('buildStudyPayload()', () => {
+  it.each(['', '0', '-1', '1.5', '15junk', 'NaN'])('rejects invalid enabled collection numbers: %s', (invalid) => {
+    for (const modules of [
+      moduleDraftsWith({ device_settings: { mode: 'optional', intervalSeconds: invalid } }),
+      moduleDraftsWith({
+        sensor_accelerometer: {
+          mode: 'optional',
+          sensorPolicy: { rateHz: invalid, dutyActive: '30', dutyPeriod: '300' },
+        },
+      }),
+      moduleDraftsWith({
+        interaction_events: {
+          mode: 'optional',
+          interaction: {
+            gridRows: invalid,
+            gridCols: '3',
+            captureClicks: true,
+            captureScrolls: true,
+            captureElementPosition: true,
+          },
+        },
+      }),
+    ])
+      expect(() =>
+        buildDataCollectionSetting(makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], modules })),
+      ).toThrow();
+  });
+
   it('trims all string fields', () => {
     const payload = buildStudyPayload(makeForm());
     expect(payload.title).toBe('My Study');
@@ -72,187 +96,48 @@ describe('buildStudyPayload()', () => {
   });
 
   it('creates modules map from features array', () => {
-    const payload = buildStudyPayload(makeForm({ features: ['ANDROID_SENSOR', 'TIME_USE_DIARY'] }));
-    expect(payload.modules).toEqual({ ANDROID_SENSOR: {}, TIME_USE_DIARY: {} });
+    const payload = buildStudyPayload(makeForm({ features: ['CHRONICLE_SURVEYS', 'TIME_USE_DIARY'] }));
+    expect(payload.modules).toEqual({ CHRONICLE_SURVEYS: {}, TIME_USE_DIARY: {} });
   });
 
   it('creates empty modules map when no features', () => {
     const payload = buildStudyPayload(makeForm());
     expect(payload.modules).toEqual({});
   });
-
-  it('passes notificationsEnabled through', () => {
-    expect(buildStudyPayload(makeForm({ notificationsEnabled: true })).notificationsEnabled).toBe(true);
-    expect(buildStudyPayload(makeForm({ notificationsEnabled: false })).notificationsEnabled).toBe(false);
-  });
-});
-
-describe('buildSensorSetting()', () => {
-  it('preserves a loaded zero-second active duty cycle in both sensor settings', () => {
-    const form = makeForm({
-      features: ['ANDROID_SENSOR', 'CHRONICLE_DATA_COLLECTION'],
-      selectedSensors: ['light'],
-      dutyCycleActiveSeconds: '0',
-      moduleSettings: { sensor_light: true },
-      sensorDutyActive: { sensor_light: '0' },
-    });
-    expect(buildSensorSetting(form)?.dutyCycleActiveSeconds).toBe(0);
-    expect(buildDataCollectionSetting(form).modules.sensor_light?.sensorPolicy).toMatchObject({
-      dutyCycleActiveSeconds: 0,
-    });
-  });
-
-  it('returns null when ANDROID_SENSOR not in features', () => {
-    expect(buildSensorSetting(makeForm({ features: ['TIME_USE_DIARY'] }))).toBeNull();
-  });
-
-  it('returns null when ANDROID_SENSOR is present but no sensors selected', () => {
-    expect(buildSensorSetting(makeForm({ features: ['ANDROID_SENSOR'], selectedSensors: [] }))).toBeNull();
-  });
-
-  it('returns sensor setting with @class when sensors are selected', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER', 'GYROSCOPE'],
-        samplingRateHz: '10',
-        dutyCycleActiveSeconds: '60',
-        dutyCyclePeriodSeconds: '600',
-      }),
-    );
-
-    expect(result).toEqual({
-      '@class': 'com.openlattice.chronicle.android.AndroidSensorSetting',
-      sensors: ['ACCELEROMETER', 'GYROSCOPE'],
-      samplingRateHz: 10,
-      dutyCycleActiveSeconds: 60,
-      dutyCyclePeriodSeconds: 600,
-    });
-  });
-
-  it('defaults to 5 Hz when samplingRateHz is not a number', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        samplingRateHz: 'abc',
-      }),
-    );
-    expect(result?.samplingRateHz).toBe(5);
-  });
-
-  it('defaults dutyCycleActiveSeconds to 30 when NaN', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        dutyCycleActiveSeconds: '',
-      }),
-    );
-    expect(result?.dutyCycleActiveSeconds).toBe(30);
-  });
-
-  it('defaults dutyCyclePeriodSeconds to 300 when NaN', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        dutyCyclePeriodSeconds: '',
-      }),
-    );
-    expect(result?.dutyCyclePeriodSeconds).toBe(300);
-  });
-});
-
-describe('buildIosSensorSetting()', () => {
-  it('returns null when IOS_SENSOR is not enabled during study creation', () => {
-    expect(buildIosSensorSetting(makeForm())).toBeNull();
-  });
-
-  it('writes the polymorphic SensorSetting wrapper with selected sensors', () => {
-    expect(
-      buildIosSensorSetting(
-        makeForm({
-          features: ['IOS_SENSOR'],
-          selectedIosSensors: ['accelerometer', 'pedometer', 'motionActivity'],
-        }),
-      ),
-    ).toEqual(['com.openlattice.chronicle.sensorkit.SensorSetting', ['accelerometer', 'pedometer', 'motionActivity']]);
-  });
-
-  it('clears iOS sensors when the feature is disabled during study editing', () => {
-    expect(buildIosSensorSetting(makeForm({ selectedIosSensors: ['pedometer'] }), true)).toEqual([
-      'com.openlattice.chronicle.sensorkit.SensorSetting',
-      [],
-    ]);
-  });
-
-  it('skips an unchanged disabled iOS setting during study editing', () => {
-    expect(iosSensorSettingUnchanged(makeForm({ loadedIosSensorSetting: { enabled: false, sensors: [] } }))).toBe(true);
-  });
-
-  it('writes Sensor when the iOS selection changes', () => {
-    const form = makeForm({
-      features: ['IOS_SENSOR'],
-      loadedIosSensorSetting: { enabled: true, sensors: ['pedometer'] },
-      selectedIosSensors: ['accelerometer'],
-    });
-    expect(iosSensorSettingUnchanged(form)).toBe(false);
-    expect(buildIosSensorSetting(form, true)).toEqual([
-      'com.openlattice.chronicle.sensorkit.SensorSetting',
-      ['accelerometer'],
-    ]);
-  });
-
-  it('writes Sensor when the iOS feature changes', () => {
-    const form = makeForm({
-      features: ['IOS_SENSOR'],
-      loadedIosSensorSetting: { enabled: false, sensors: [] },
-      selectedIosSensors: ['pedometer'],
-    });
-    expect(iosSensorSettingUnchanged(form)).toBe(false);
-  });
 });
 
 describe('buildDataCollectionSetting()', () => {
-  const ACTIVE_MODULE_IDS = [
-    'usage_events',
-    'device_lifecycle',
-    'user_identification',
-    'upload_telemetry',
-    'sensor_availability',
-    'questionnaire',
-    'battery_telemetry',
-    'interaction_events',
-    'in_app_activity_class',
-    'audio_activity',
-    'audio_content',
-    'notification_activity',
-    'ambient_audio',
-    'sleep',
-    'activity_recognition',
-    'health_connect',
-    'connectivity_state',
-    'app_network_usage',
-    'device_settings',
-    'sensor_accelerometer',
-    'sensor_gyroscope',
-    'sensor_magnetometer',
-    'sensor_gravity',
-    'sensor_linear_acceleration',
-    'sensor_rotation_vector',
-    'sensor_step_counter',
-    'sensor_light',
-    'sensor_proximity',
-    'sensor_significant_motion',
-    'sensor_tilt_detector',
-    'sensor_screen_orientation',
-  ];
-
-  it('disables optional modules when CHRONICLE_DATA_COLLECTION is not a feature', () => {
-    expect(buildDataCollectionSetting(makeForm({ features: ['ANDROID_SENSOR'] })).modules.usage_events?.enabled).toBe(
-      false,
+  it('keeps a zero active duty cycle and ignores incomplete disabled module fields', () => {
+    const setting = buildDataCollectionSetting(
+      makeForm({
+        modules: moduleDraftsWith({
+          sensor_accelerometer: { mode: 'optional', sensorPolicy: { rateHz: '5', dutyActive: '0', dutyPeriod: '300' } },
+          device_settings: { mode: 'disabled', intervalSeconds: '' },
+          interaction_events: { mode: 'disabled', interaction: { gridRows: '', gridCols: '' } },
+        }),
+      }),
     );
+    expect(setting.modules.sensor_accelerometer?.sensorPolicy).toMatchObject({ dutyCycleActiveSeconds: 0 });
+    expect(setting.modules.device_settings).not.toHaveProperty('collectionCadence');
+    expect(setting.modules.interaction_events).not.toHaveProperty('interactionPolicy');
+  });
+
+  it('rejects an active duty cycle longer than its period', () => {
+    expect(() =>
+      buildDataCollectionSetting(
+        makeForm({
+          modules: moduleDraftsWith({
+            sensor_accelerometer: { mode: 'optional', sensorPolicy: { dutyActive: '301', dutyPeriod: '300' } },
+          }),
+        }),
+      ),
+    ).toThrow(/cannot exceed/);
+  });
+
+  it('preserves module choices when CHRONICLE_DATA_COLLECTION is not a feature', () => {
+    expect(
+      buildDataCollectionSetting(makeForm({ features: ['CHRONICLE_SURVEYS'] })).modules.usage_events?.enabled,
+    ).toBe(true);
   });
 
   it('emits the @class marker and version 2 (carries the per-module required flag)', () => {
@@ -273,7 +158,7 @@ describe('buildDataCollectionSetting()', () => {
     }
   });
 
-  it('defaults every module to optional (required=false) when moduleRequired is absent', () => {
+  it('defaults every module to optional (required=false) with the default draft', () => {
     const result = buildDataCollectionSetting(makeForm({ features: ['CHRONICLE_DATA_COLLECTION'] }));
     const modules = result?.modules ?? {};
     for (const id of ACTIVE_MODULE_IDS) {
@@ -285,8 +170,7 @@ describe('buildDataCollectionSetting()', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { usage_events: true },
-        moduleRequired: { usage_events: true },
+        modules: moduleDraftsWith({ usage_events: { mode: 'required' } }),
       }),
     );
     const usage = result?.modules?.usage_events as { enabled: boolean; required: boolean };
@@ -294,34 +178,34 @@ describe('buildDataCollectionSetting()', () => {
     expect(usage.required).toBe(true);
   });
 
-  it('forces required=false for a disabled module even if marked required (a disabled module is never required)', () => {
+  it('retains a required draft when the feature is off', () => {
     const result = buildDataCollectionSetting(
       makeForm({
-        features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { battery_telemetry: false },
-        moduleRequired: { battery_telemetry: true },
+        features: [],
+        modules: moduleDraftsWith({ battery_telemetry: { mode: 'required' } }),
       }),
     );
     const battery = result?.modules?.battery_telemetry as { enabled: boolean; required: boolean };
-    expect(battery.enabled).toBe(false);
-    expect(battery.required).toBe(false);
+    expect(battery.enabled).toBe(true);
+    expect(battery.required).toBe(true);
   });
 
   it('emits interaction_events policy capturing element bounds with legacy alias by default', () => {
     const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { interaction_events: true } }),
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        modules: moduleDraftsWith({ interaction_events: { mode: 'optional' } }),
+      }),
     );
     const policy = result?.modules?.interaction_events?.interactionPolicy as {
       gridRows: number;
       gridCols: number;
       captureClicks: boolean;
       captureScrolls: boolean;
-      captureExactPosition: boolean;
       captureElementPosition: boolean;
     };
     expect(policy.gridRows).toBe(4);
     expect(policy.gridCols).toBe(3);
-    expect(policy.captureExactPosition).toBe(true);
     expect(policy.captureElementPosition).toBe(true);
   });
 
@@ -329,19 +213,18 @@ describe('buildDataCollectionSetting()', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { interaction_events: true },
-        interactionCaptureExactPosition: false,
+        modules: moduleDraftsWith({
+          interaction_events: { interaction: { captureElementPosition: false }, mode: 'optional' },
+        }),
       }),
     );
     const policy = result?.modules?.interaction_events?.interactionPolicy as {
-      captureExactPosition: boolean;
       captureElementPosition: boolean;
     };
-    expect(policy.captureExactPosition).toBe(false);
     expect(policy.captureElementPosition).toBe(false);
   });
 
-  it('applies privacy-class defaults when moduleSettings is absent', () => {
+  it('applies privacy-class defaults with the default draft', () => {
     const result = buildDataCollectionSetting(makeForm({ features: ['CHRONICLE_DATA_COLLECTION'] }));
     const modules = result?.modules ?? {};
     expect(modules.battery_telemetry?.enabled).toBe(true);
@@ -351,11 +234,14 @@ describe('buildDataCollectionSetting()', () => {
     expect(modules.user_identification?.enabled).toBe(false);
   });
 
-  it('honors explicit moduleSettings overrides', () => {
+  it('honors explicit module mode overrides', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { battery_telemetry: false, sensor_accelerometer: true },
+        modules: moduleDraftsWith({
+          battery_telemetry: { mode: 'disabled' },
+          sensor_accelerometer: { mode: 'optional' },
+        }),
       }),
     );
     const modules = result?.modules ?? {};
@@ -363,80 +249,26 @@ describe('buildDataCollectionSetting()', () => {
     expect(modules.sensor_accelerometer?.enabled).toBe(true);
   });
 
-  it('attaches a default disableDisposition (flush_then_stop) to a disabled module', () => {
-    const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { battery_telemetry: false } }),
-    );
-    const battery = result?.modules?.battery_telemetry as { disableDisposition?: string };
-    expect(battery.disableDisposition).toBe('flush_then_stop');
-  });
-
-  it('omits disableDisposition on an enabled module (cleared on re-enable)', () => {
-    const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { battery_telemetry: true } }),
-    );
-    const battery = result?.modules?.battery_telemetry as { disableDisposition?: string };
-    expect(battery.disableDisposition).toBeUndefined();
-  });
-
-  it('honors an explicit disableDisposition for a disabled module', () => {
+  it('writes no disable disposition: disabling a module flushes what the phone already holds', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { battery_telemetry: false },
-        moduleDispositions: { battery_telemetry: 'hold_pending' },
+        modules: moduleDraftsWith({ battery_telemetry: { mode: 'disabled' } }),
       }),
     );
-    const battery = result?.modules?.battery_telemetry as { disableDisposition?: string };
-    expect(battery.disableDisposition).toBe('hold_pending');
-  });
-
-  it('coerces a discard_and_stop to flush for shared-queue usage_events (cannot be honored)', () => {
-    const result = buildDataCollectionSetting(
-      makeForm({
-        features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { usage_events: false },
-        // Stale/forced DISCARD for a shared-queue module: the device drains dataQueue
-        // module-blind, so DISCARD is unkeepable — never emit it; coerce to no-loss.
-        moduleDispositions: { usage_events: 'discard_and_stop' },
-      }),
-    );
-    const usage = result?.modules?.usage_events as { disableDisposition?: string };
-    expect(usage.disableDisposition).toBe('flush_then_stop');
-  });
-
-  it('still honors hold_pending for a shared-queue module (only discard is coerced)', () => {
-    const result = buildDataCollectionSetting(
-      makeForm({
-        features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { device_lifecycle: false },
-        moduleDispositions: { device_lifecycle: 'hold_pending' },
-      }),
-    );
-    const lifecycle = result?.modules?.device_lifecycle as { disableDisposition?: string };
-    expect(lifecycle.disableDisposition).toBe('hold_pending');
-  });
-
-  it('keeps discard_and_stop for a dedicated-queue module (a per-sensor module)', () => {
-    const result = buildDataCollectionSetting(
-      makeForm({
-        features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { sensor_accelerometer: false },
-        moduleDispositions: { sensor_accelerometer: 'discard_and_stop' },
-      }),
-    );
-    const accel = result?.modules?.sensor_accelerometer as { disableDisposition?: string };
-    expect(accel.disableDisposition).toBe('discard_and_stop');
+    expect(result?.modules?.battery_telemetry).not.toHaveProperty('disableDisposition');
   });
 
   it('attaches a per-sensor sensorPolicy (rate + duty) to an enabled sensor module', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { sensor_accelerometer: true },
-        sensorRateHz: { sensor_accelerometer: '10' },
-        sensorDutyActive: { sensor_accelerometer: '20' },
-        sensorDutyPeriod: { sensor_accelerometer: '200' },
+        modules: moduleDraftsWith({
+          sensor_accelerometer: {
+            sensorPolicy: { rateHz: '10', dutyActive: '20', dutyPeriod: '200' },
+            mode: 'optional',
+          },
+        }),
       }),
     );
     const accel = result?.modules?.sensor_accelerometer as {
@@ -459,7 +291,10 @@ describe('buildDataCollectionSetting()', () => {
 
   it('defaults a sensor module sensorPolicy to 5 Hz / 30 s / 300 s when unset', () => {
     const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { sensor_light: true } }),
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        modules: moduleDraftsWith({ sensor_light: { mode: 'optional' } }),
+      }),
     );
     const light = result?.modules?.sensor_light as {
       sensorPolicy?: { dutyCycleActiveSeconds: number; dutyCyclePeriodSeconds: number; samplingRateHz: number };
@@ -471,18 +306,20 @@ describe('buildDataCollectionSetting()', () => {
 
   it('omits sensorPolicy on a disabled sensor module', () => {
     const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { sensor_accelerometer: false } }),
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        modules: moduleDraftsWith({ sensor_accelerometer: { mode: 'disabled' } }),
+      }),
     );
     const accel = result?.modules?.sensor_accelerometer as { sensorPolicy?: unknown };
     expect(accel.sensorPolicy).toBeUndefined();
   });
 
-  it('emits collectionCadence.intervalSeconds from moduleIntervalSeconds for an interval-configurable enabled module', () => {
+  it('emits collectionCadence.intervalSeconds from the module draft for an interval-configurable enabled module', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { connectivity_state: true },
-        moduleIntervalSeconds: { connectivity_state: '1800' },
+        modules: moduleDraftsWith({ connectivity_state: { intervalSeconds: '1800', mode: 'optional' } }),
       }),
     );
     const connectivity = result?.modules?.connectivity_state as { collectionCadence?: { intervalSeconds: number } };
@@ -491,7 +328,10 @@ describe('buildDataCollectionSetting()', () => {
 
   it('defaults collectionCadence.intervalSeconds to 900 when unset for an interval-configurable module', () => {
     const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { device_settings: true } }),
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        modules: moduleDraftsWith({ device_settings: { mode: 'optional' } }),
+      }),
     );
     const deviceSettings = result?.modules?.device_settings as { collectionCadence?: { intervalSeconds: number } };
     expect(deviceSettings.collectionCadence?.intervalSeconds).toBe(900);
@@ -501,8 +341,7 @@ describe('buildDataCollectionSetting()', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { battery_telemetry: true },
-        moduleIntervalSeconds: { battery_telemetry: '600' },
+        modules: moduleDraftsWith({ battery_telemetry: { intervalSeconds: '600', mode: 'optional' } }),
       }),
     );
     const battery = result?.modules?.battery_telemetry as { collectionCadence?: Record<string, unknown> };
@@ -517,9 +356,11 @@ describe('buildDataCollectionSetting()', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { usage_events: true, sensor_accelerometer: true },
+        modules: moduleDraftsWith({
+          usage_events: { intervalSeconds: '1200', mode: 'optional' },
+          sensor_accelerometer: { intervalSeconds: '1200', mode: 'optional' },
+        }),
         // Even if stale interval state is present, non-interval modules must not emit it.
-        moduleIntervalSeconds: { usage_events: '1200', sensor_accelerometer: '1200' },
       }),
     );
     const usage = result?.modules?.usage_events as { collectionCadence?: unknown };
@@ -528,20 +369,24 @@ describe('buildDataCollectionSetting()', () => {
     expect(accel.collectionCadence).toBeUndefined();
   });
 
-  it('omits collectionCadence on a disabled interval-configurable module', () => {
+  it('preserves collectionCadence on a disabled interval-configurable module', () => {
     const result = buildDataCollectionSetting(
-      makeForm({ features: ['CHRONICLE_DATA_COLLECTION'], moduleSettings: { connectivity_state: false } }),
+      makeForm({
+        features: ['CHRONICLE_DATA_COLLECTION'],
+        modules: moduleDraftsWith({ connectivity_state: { mode: 'disabled' } }),
+      }),
     );
     const connectivity = result?.modules?.connectivity_state as { collectionCadence?: unknown };
-    expect(connectivity.collectionCadence).toBeUndefined();
+    expect(connectivity.collectionCadence).toEqual({ intervalSeconds: 900 });
   });
 
   it('persists only the exact selected Health Connect record types on the health_connect module', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { health_connect: true },
-        healthConnectRecordTypes: ['steps', 'heart_rate', 'sleep'],
+        modules: moduleDraftsWith({
+          health_connect: { healthConnectRecordTypes: ['steps', 'heart_rate', 'sleep'], mode: 'optional' },
+        }),
       }),
     );
     expect(result?.modules?.health_connect?.healthConnectRecordTypes).toEqual(['steps', 'heart_rate', 'sleep']);
@@ -553,8 +398,7 @@ describe('buildDataCollectionSetting()', () => {
       buildDataCollectionSetting(
         makeForm({
           features: ['CHRONICLE_DATA_COLLECTION'],
-          moduleSettings: { health_connect: true },
-          healthConnectRecordTypes: [],
+          modules: moduleDraftsWith({ health_connect: { healthConnectRecordTypes: [], mode: 'optional' } }),
         }),
       ),
     ).toThrow('Select at least one Health Connect record type');
@@ -564,8 +408,9 @@ describe('buildDataCollectionSetting()', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { health_connect: false },
-        healthConnectRecordTypes: ['steps', 'sleep'],
+        modules: moduleDraftsWith({
+          health_connect: { healthConnectRecordTypes: ['steps', 'sleep'], mode: 'disabled' },
+        }),
       }),
     );
     expect(result?.modules?.health_connect?.healthConnectRecordTypes).toEqual([]);
@@ -575,8 +420,9 @@ describe('buildDataCollectionSetting()', () => {
     const result = buildDataCollectionSetting(
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
-        moduleSettings: { health_connect: true },
-        healthConnectRecordTypes: ['steps', 'future_metric'],
+        modules: moduleDraftsWith({
+          health_connect: { healthConnectRecordTypes: ['steps', 'future_metric'], mode: 'optional' },
+        }),
       }),
     );
     expect(result?.modules?.health_connect?.healthConnectRecordTypes).toEqual(['steps', 'future_metric']);
@@ -584,25 +430,25 @@ describe('buildDataCollectionSetting()', () => {
 });
 
 describe('buildStudyLimits()', () => {
-  it('returns null when all limits are empty', () => {
-    expect(buildStudyLimits(makeForm())).toBeNull();
+  it('sends an empty body (an open-ended study) when all limits are empty', () => {
+    expect(buildStudyLimits(makeForm())).toEqual({});
   });
 
-  it('returns null when all limits are zero or NaN', () => {
+  it('refuses partial or exponent numbers instead of reading a prefix of them', () => {
+    const form = makeForm({ studyDurationDays: '12abc', dataRetentionDays: '1e3' });
+    expect(invalidStudyLimitFields(form)).toEqual(['studyDurationDays', 'dataRetentionDays']);
+    expect(buildStudyLimits(form)).toEqual({});
+  });
+
+  it('omits limits that are not whole days (the form refuses them before saving)', () => {
     expect(
       buildStudyLimits(
         makeForm({
-          participantLimit: '0',
           studyDurationDays: 'abc',
-          dataRetentionDays: '',
+          dataRetentionDays: '0',
         }),
       ),
-    ).toBeNull();
-  });
-
-  it('includes only participantLimit when set', () => {
-    const result = buildStudyLimits(makeForm({ participantLimit: '50' }));
-    expect(result).toEqual({ participantLimit: 50 });
+    ).toEqual({});
   });
 
   it('includes studyDuration as a duration object', () => {
@@ -618,13 +464,11 @@ describe('buildStudyLimits()', () => {
   it('includes all limits when all are set', () => {
     const result = buildStudyLimits(
       makeForm({
-        participantLimit: '100',
         studyDurationDays: '365',
         dataRetentionDays: '30',
       }),
     );
     expect(result).toEqual({
-      participantLimit: 100,
       studyDuration: { years: 0, months: 0, days: 365 },
       dataRetentionDuration: { years: 0, months: 0, days: 30 },
     });
@@ -699,16 +543,10 @@ describe('buildStudyPayload() — additional variations', () => {
     expect(payload.modules).toEqual({ CHRONICLE_SURVEYS: {} });
   });
 
-  it('handles all five features', () => {
-    const features = [
-      'ANDROID_SENSOR',
-      'CHRONICLE_DATA_COLLECTION',
-      'CHRONICLE_SURVEYS',
-      'IOS_SENSOR',
-      'TIME_USE_DIARY',
-    ];
+  it('handles every current feature', () => {
+    const features = [...STUDY_FEATURES];
     const payload = buildStudyPayload(makeForm({ features }));
-    expect(Object.keys(payload.modules)).toHaveLength(5);
+    expect(Object.keys(payload.modules)).toHaveLength(features.length);
     for (const f of features) {
       expect(payload.modules[f]).toEqual({});
     }
@@ -730,9 +568,9 @@ describe('buildStudyPayload() — additional variations', () => {
   });
 
   it('creates modules from duplicate features (last wins in object)', () => {
-    const payload = buildStudyPayload(makeForm({ features: ['ANDROID_SENSOR', 'ANDROID_SENSOR'] }));
+    const payload = buildStudyPayload(makeForm({ features: ['CHRONICLE_SURVEYS', 'CHRONICLE_SURVEYS'] }));
     expect(Object.keys(payload.modules)).toHaveLength(1);
-    expect(payload.modules.ANDROID_SENSOR).toEqual({});
+    expect(payload.modules.CHRONICLE_SURVEYS).toEqual({});
   });
 
   it('contact with multiple spaces collapses correctly via trim', () => {
@@ -746,148 +584,20 @@ describe('buildStudyPayload() — additional variations', () => {
   });
 });
 
-describe('buildSensorSetting() — additional variations', () => {
-  it('parses valid integer for samplingRateHz', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        samplingRateHz: '25',
-      }),
-    );
-    expect(result?.samplingRateHz).toBe(25);
-  });
-
-  it('parses string with leading zeros', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        samplingRateHz: '005',
-      }),
-    );
-    expect(result?.samplingRateHz).toBe(5);
-  });
-
-  it('defaults samplingRateHz for empty string', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        samplingRateHz: '',
-      }),
-    );
-    expect(result?.samplingRateHz).toBe(5);
-  });
-
-  it('returns null when features is empty', () => {
-    expect(buildSensorSetting(makeForm({ features: [], selectedSensors: ['ACCELEROMETER'] }))).toBeNull();
-  });
-
-  it('returns null when features has non-sensor types only', () => {
-    expect(
-      buildSensorSetting(
-        makeForm({ features: ['TIME_USE_DIARY', 'CHRONICLE_SURVEYS'], selectedSensors: ['ACCELEROMETER'] }),
-      ),
-    ).toBeNull();
-  });
-
-  it('includes all selected sensors', () => {
-    const sensors = ['ACCELEROMETER', 'GYROSCOPE', 'MAGNETOMETER'];
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: sensors,
-      }),
-    );
-    expect(result?.sensors).toEqual(sensors);
-  });
-
-  it('always includes @class field', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-      }),
-    );
-    expect(result?.['@class']).toBe('com.openlattice.chronicle.android.AndroidSensorSetting');
-  });
-
-  it('handles very large duty cycle values', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        dutyCycleActiveSeconds: '999999',
-        dutyCyclePeriodSeconds: '999999',
-      }),
-    );
-    expect(result?.dutyCycleActiveSeconds).toBe(999999);
-    expect(result?.dutyCyclePeriodSeconds).toBe(999999);
-  });
-
-  it('handles "0" as valid parsed integer for sampling rate', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        samplingRateHz: '0',
-      }),
-    );
-    // parseInt('0') = 0, 0 || 5 = 5
-    expect(result?.samplingRateHz).toBe(5);
-  });
-
-  it('handles decimal string for duty cycle', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        dutyCycleActiveSeconds: '45.7',
-      }),
-    );
-    // parseInt('45.7') = 45
-    expect(result?.dutyCycleActiveSeconds).toBe(45);
-  });
-
-  it('handles negative string for sampling rate', () => {
-    const result = buildSensorSetting(
-      makeForm({
-        features: ['ANDROID_SENSOR'],
-        selectedSensors: ['ACCELEROMETER'],
-        samplingRateHz: '-10',
-      }),
-    );
-    expect(result?.samplingRateHz).toBe(-10);
-  });
-});
-
 describe('buildStudyLimits() — additional variations', () => {
-  it('returns null for negative participantLimit', () => {
-    const result = buildStudyLimits(makeForm({ participantLimit: '-5' }));
-    expect(result).toBeNull();
+  it.each(['', '60'])('recomputes data expiry when study duration changes to %s', (duration) => {
+    const form = makeForm({
+      studyDurationDays: duration,
+      dataRetentionDays: '24',
+      loadedLimits: {
+        studyDurationDays: '12',
+        dataRetentionDays: '24',
+        studyEnds: '2026-11-03T00:00:00Z',
+        studyDataExpires: '2026-11-27T00:00:00Z',
+      },
+    });
+    expect(buildStudyLimits(form).studyDataExpires).toBeUndefined();
   });
-
-  it('handles decimal string for participantLimit', () => {
-    const result = buildStudyLimits(makeForm({ participantLimit: '50.7' }));
-    expect(result).toEqual({ participantLimit: 50 });
-  });
-
-  it('handles very large participantLimit', () => {
-    const result = buildStudyLimits(makeForm({ participantLimit: '999999' }));
-    expect(result).toEqual({ participantLimit: 999999 });
-  });
-
-  it('handles "1" as minimum valid limit', () => {
-    const result = buildStudyLimits(makeForm({ participantLimit: '1' }));
-    expect(result).toEqual({ participantLimit: 1 });
-  });
-
-  it('handles whitespace-only string as NaN', () => {
-    const result = buildStudyLimits(makeForm({ participantLimit: '  ' }));
-    expect(result).toBeNull();
-  });
-
   it('handles studyDurationDays: "1"', () => {
     const result = buildStudyLimits(makeForm({ studyDurationDays: '1' }));
     expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 1 } });
@@ -903,31 +613,19 @@ describe('buildStudyLimits() — additional variations', () => {
     expect(result).toEqual({ studyDuration: { years: 0, months: 0, days: 3650 } });
   });
 
-  it('handles negative studyDurationDays (returns null)', () => {
+  it('omits a negative studyDurationDays', () => {
     const result = buildStudyLimits(makeForm({ studyDurationDays: '-30' }));
-    expect(result).toBeNull();
+    expect(result).toEqual({});
   });
 
-  it('handles negative dataRetentionDays (returns null)', () => {
+  it('omits a negative dataRetentionDays', () => {
     const result = buildStudyLimits(makeForm({ dataRetentionDays: '-90' }));
-    expect(result).toBeNull();
-  });
-
-  it('handles mixed: only participantLimit valid, others NaN', () => {
-    const result = buildStudyLimits(
-      makeForm({
-        participantLimit: '25',
-        studyDurationDays: 'xyz',
-        dataRetentionDays: '',
-      }),
-    );
-    expect(result).toEqual({ participantLimit: 25 });
+    expect(result).toEqual({});
   });
 
   it('handles mixed: only studyDurationDays valid', () => {
     const result = buildStudyLimits(
       makeForm({
-        participantLimit: '',
         studyDurationDays: '60',
         dataRetentionDays: 'abc',
       }),
@@ -938,7 +636,6 @@ describe('buildStudyLimits() — additional variations', () => {
   it('handles mixed: only dataRetentionDays valid', () => {
     const result = buildStudyLimits(
       makeForm({
-        participantLimit: '0',
         studyDurationDays: '0',
         dataRetentionDays: '365',
       }),
@@ -957,8 +654,8 @@ describe('buildStudyLimits() — additional variations', () => {
   });
 });
 
-// Regression: `modules` is written whole, so an older dashboard rebuilding it from its own
-// COLLECTION_MODULES list silently deleted any module a newer server had introduced.
+// `modules` is written whole, so a dashboard rebuilding it from its own COLLECTION_MODULES
+// list would delete any module a newer server introduced.
 describe('buildDataCollectionSetting() — unknown modules', () => {
   it('carries a module this build does not know about through untouched', () => {
     const result = buildDataCollectionSetting(
@@ -975,7 +672,7 @@ describe('buildDataCollectionSetting() — unknown modules', () => {
       makeForm({
         features: ['CHRONICLE_DATA_COLLECTION'],
         loadedModules: { usage_events: { enabled: false, stale: true } },
-        moduleSettings: { usage_events: true },
+        modules: moduleDraftsWith({ usage_events: { mode: 'optional' } }),
       }),
     );
     expect(result?.modules.usage_events).toMatchObject({ enabled: true });
@@ -990,22 +687,43 @@ describe('buildDataCollectionSetting() — unknown modules', () => {
   });
 });
 
-describe('W27 disabled data collection', () => {
-  it('writes explicit disabled optional modules on create and update, preserving always-on telemetry', () => {
-    for (const overrides of [
-      {},
-      {
-        moduleSettings: { usage_events: true, sensor_light: true },
-        loadedModules: { future_optional: { enabled: true, required: true } },
-      },
-    ]) {
-      const result = buildDataCollectionSetting(makeForm({ features: [], ...overrides }));
-      expect(result).not.toBeNull();
-      expect(result?.modules.usage_events).toMatchObject({ enabled: false, required: false });
-      expect(result?.modules.sensor_light).toMatchObject({ enabled: false, required: false });
-      expect(result?.modules.upload_telemetry?.enabled).toBe(true);
-      if ('loadedModules' in overrides)
-        expect(result?.modules.future_optional).toMatchObject({ enabled: false, required: false });
-    }
+describe('feature-off collection choices', () => {
+  it('retains known and unknown choices so enabling the feature can resume them', () => {
+    const form = makeForm({
+      features: [],
+      modules: moduleDraftsWith({ usage_events: { mode: 'required' }, sensor_light: { mode: 'optional' } }),
+      loadedModules: { future_optional: { enabled: true, required: true } },
+    });
+    const off = buildDataCollectionSetting(form);
+    const on = buildDataCollectionSetting({ ...form, features: ['CHRONICLE_DATA_COLLECTION'] });
+    expect(off).toEqual(on);
+    expect(off.modules.usage_events).toMatchObject({ enabled: true, required: true });
+    expect(off.modules.sensor_light).toMatchObject({ enabled: true, required: false });
+    expect(off.modules.future_optional).toMatchObject({ enabled: true, required: true });
+    expect(off.modules.upload_telemetry?.enabled).toBe(true);
   });
+});
+
+it.each([
+  [['sleep', 'steps', 'future_metric'], 'heart_rate', ['steps', 'heart_rate', 'sleep', 'future_metric']],
+  [['sleep', 'steps', 'future_metric'], 'steps', ['sleep', 'future_metric']],
+  [['steps', 'future_metric'], 'future_metric', ['steps']],
+  [['steps', 'steps'], 'heart_rate', ['steps', 'heart_rate']],
+] as [string[], string, string[]][])('toggles Health Connect scope %j with %s', (current, recordType, expected) => {
+  const original = [...current];
+  expect(toggleHealthConnectRecordType(current, recordType)).toEqual(expected);
+  expect(current).toEqual(original);
+});
+
+it.each([
+  ['optional', [], true],
+  ['required', undefined, true],
+  ['disabled', [], false],
+  ['optional', ['future_metric'], false],
+] as const)('checks Health Connect scope for %s with %j', (mode, selected, expected) => {
+  const draft = moduleDraftsWith({
+    health_connect: { mode, ...(selected ? { healthConnectRecordTypes: [...selected] } : {}) },
+  }).health_connect;
+  if (!selected) delete draft.healthConnectRecordTypes;
+  expect(healthConnectScopeMissing(draft)).toBe(expected);
 });

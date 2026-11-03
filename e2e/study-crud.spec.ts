@@ -2,6 +2,7 @@ import {
   chronicleTest as test,
   expect,
 } from './fixtures/chronicle-test';
+import { headerCreateStudyButton } from './fixtures/study-form';
 
 test.describe('study CRUD operations', () => {
   test('displays the studies list page', async ({ scenario }) => {
@@ -26,9 +27,7 @@ test.describe('study CRUD operations', () => {
         await auth.asPersona('expert-researcher', async (persona) => {
           await persona.openStudiesList();
           await expect(
-            persona.page.getByRole('button', {
-              name: /create new study/i,
-            }),
+            headerCreateStudyButton(persona.page),
           ).toBeVisible();
         });
       });
@@ -42,8 +41,7 @@ test.describe('study CRUD operations', () => {
       await s.asUser('test_admin', async (auth) => {
         await auth.asPersona('expert-researcher', async (persona) => {
           await persona.openStudiesList();
-          await persona.page
-            .getByRole('button', { name: /create new study/i })
+          await headerCreateStudyButton(persona.page)
             .click();
           await expect(persona.page.getByRole('dialog')).toBeVisible();
         });
@@ -51,21 +49,18 @@ test.describe('study CRUD operations', () => {
     });
   });
 
-  test('study form keeps create disabled while required fields are empty', async ({
+  test('study form refuses an empty create and names the missing fields', async ({
     scenario,
   }) => {
     await scenario(async (s) => {
       await s.asUser('test_admin', async (auth) => {
         await auth.asPersona('expert-researcher', async (persona) => {
           await persona.openStudiesList();
-          await persona.page
-            .getByRole('button', { name: /create new study/i })
-            .click();
+          await headerCreateStudyButton(persona.page).click();
           const dialog = persona.page.getByRole('dialog');
           await expect(dialog).toBeVisible();
-          await expect(
-            dialog.getByRole('button', { name: /^create study$/i }),
-          ).toBeDisabled();
+          await dialog.getByRole('button', { name: /^create study$/i }).click();
+          await expect(dialog.getByRole('alert')).toContainText('Fix the highlighted fields before saving.');
           await expect(dialog).toBeVisible();
         });
       });
@@ -84,15 +79,13 @@ test.describe('study CRUD operations', () => {
             await study.asPersona('expert-researcher', async (persona) => {
               await persona.openStudiesList();
               await persona.page
-                .getByRole('textbox', { name: /search studies/i })
+                .getByRole('searchbox', { name: /search studies/i })
                 .fill(study.title);
               const row = persona.page
                 .getByRole('row')
                 .filter({ hasText: study.title });
               await expect(row).toBeVisible();
-              // The study title is the row's link. StudyTableRow used to carry a separate
-              // "Details →" column doing the same navigation and it was removed, so a
-              // /details/i lookup here matches nothing and the click times out.
+              // The study title is the row's only link; StudyTableRow has no "Details →" column.
               await row.getByRole('link', { name: study.title }).click();
               await expect(persona.page).toHaveURL(
                 new RegExp(`/studies/${study.id}$`),

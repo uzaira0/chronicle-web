@@ -1,14 +1,8 @@
 import { ArrowUpDown } from 'lucide-react';
 
 import { TableHead } from '@/components/ui/table';
+import type { SortState } from '@/lib/sort';
 import { cn } from '@/lib/utils';
-
-export type SortState<K extends string> = { dir: 'asc' | 'desc'; key: K };
-
-/** Re-clicking the active column flips direction; a new column starts ascending. */
-export function nextSort<K extends string>(prev: SortState<K>, key: K): SortState<K> {
-  return { dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc', key };
-}
 
 /** Column header that toggles sort direction, with the sort state exposed to assistive tech. */
 export function SortableTableHead<K extends string>({
