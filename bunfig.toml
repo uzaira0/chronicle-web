@@ -2,6 +2,10 @@
 plugins = ["bun-plugin-tailwind"]
 
 [test]
+pathIgnorePatterns = ["e2e/**/*.spec.ts", "e2e/*.spec.ts"]
 preload = ["./src/modern/test/setup-dom.ts"]
 reuse-workers = false
-
+# `bun test --coverage` (the local-ci web job) writes coverage/lcov.info for scripts/diff-coverage.py.
+# Not measured here: the build scripts (proved by `bun run build` and `bun run size`) and the
+# runtime-config.js injection (proved by the Playwright specs).
+coverageReporter = ["text", "lcov"]

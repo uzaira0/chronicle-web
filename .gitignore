@@ -19,6 +19,8 @@ preview.log
 biome_output.txt
 biome_output.log
 full_biome.log
+bun-audit-output.txt
+bun-audit-report.json
 *_output.log
 *_output.txt
 
