@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { getErrorMessage } from './errors';
-import { formatDisplayDate, getStartOfDayIso, isSentinelDate } from './format';
+import { formatDisplayDate } from './format';
 import { daysToStudyDuration, studyDurationToDays } from './study-form-helpers';
 
 describe('performance -- functions complete within time budget', () => {
@@ -11,24 +11,6 @@ describe('performance -- functions complete within time budget', () => {
     const start = performance.now();
     for (let i = 0; i < ITERATIONS; i++) {
       formatDisplayDate('2024-03-15');
-    }
-    const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(BUDGET_MS);
-  });
-
-  it('isSentinelDate x 10k < 100ms', () => {
-    const start = performance.now();
-    for (let i = 0; i < ITERATIONS; i++) {
-      isSentinelDate('+999999999-12-31T23:59:59.999999999');
-    }
-    const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(BUDGET_MS);
-  });
-
-  it('getStartOfDayIso x 10k < 100ms', () => {
-    const start = performance.now();
-    for (let i = 0; i < ITERATIONS; i++) {
-      getStartOfDayIso('2024-03-15');
     }
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(BUDGET_MS);

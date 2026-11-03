@@ -7,7 +7,6 @@ ignore:
   - "**/stories/**"
   - "build/.*"
   - "config/.*"
-  - "flow-typed/.*"
   - "node_modules/.*"
 parsers:
   javascript:

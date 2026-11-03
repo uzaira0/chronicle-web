@@ -97,7 +97,6 @@ export function OverviewPage() {
     skip: session.status !== 'authenticated',
   });
   const studies = allStudies.filter(hasValidId);
-  const notificationEnabledCount = studies.filter((study) => study.notificationsEnabled).length;
   const dataCollectionStudyCount = studies.filter((study) => Boolean(study.modules?.CHRONICLE_DATA_COLLECTION)).length;
 
   return (
@@ -123,7 +122,6 @@ export function OverviewPage() {
             [
               ['overview.stat_studies', studies.length],
               ['overview.stat_collecting', dataCollectionStudyCount],
-              ['overview.stat_notifications', notificationEnabledCount],
             ] as const
           ).map(([label, value]) => (
             <div key={label}>
@@ -135,12 +133,12 @@ export function OverviewPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle layout="icon">
               <Activity className="h-4 w-4 text-primary" />
               {t('overview.runtime_status')}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+          <CardContent spacing={3} size="small">
             <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
               <span className="text-muted-foreground">{t('overview.auth_mode')}</span>
               <span className="font-medium">{statusLabel(t, 'auth_mode', session.authMode)}</span>
@@ -149,12 +147,6 @@ export function OverviewPage() {
               <span className="text-muted-foreground">{t('overview.session')}</span>
               <Badge variant={session.status === 'authenticated' ? 'success' : 'warning'}>
                 {statusLabel(t, 'session', session.status)}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
-              <span className="text-muted-foreground">{t('overview.backend')}</span>
-              <Badge variant={session.backendCompatibility === 'operational' ? 'success' : 'warning'}>
-                {statusLabel(t, 'backend', session.backendCompatibility)}
               </Badge>
             </div>
           </CardContent>

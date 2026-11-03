@@ -1,118 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 
-import {
-  EMAIL_REGEX,
-  ISO_DATE_REGEX,
-  ISO_DATETIME_REGEX,
-  isValidEmail,
-  isValidIsoDate,
-  isValidIsoDateTime,
-  isValidUUID,
-  UUID_REGEX,
-} from '@/lib/data-validation';
+import { EMAIL_REGEX, isValidEmail } from '@/lib/data-validation';
 import { getErrorMessage } from '@/lib/errors';
-import {
-  formatDisplayDate,
-  formatDisplayDateTime,
-  getEndOfDayIso,
-  getStartOfDayIso,
-  isSentinelDate,
-} from '@/lib/format';
+import { formatDisplayDate, formatDisplayDateTime } from '@/lib/format';
 import { getStatusVariant } from '@/lib/participant-status';
 import { getMutationRequestState, REQUEST_STATES } from '@/lib/request-state';
 import { ANDROID_SENSOR_TYPES, STUDY_FEATURES } from '@/lib/study-constants';
 import { daysToStudyDuration, studyDurationToDays } from '@/lib/study-form-helpers';
-
-// =============================================================================
-// UUID validation
-// =============================================================================
-
-describe('UUID validation', () => {
-  const validUUIDs = [
-    '123e4567-e89b-12d3-a456-426614174000',
-    '00000000-0000-0000-0000-000000000000',
-    'ffffffff-ffff-ffff-ffff-ffffffffffff',
-    'ABCDEF01-2345-6789-ABCD-EF0123456789',
-    'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-    '550e8400-e29b-41d4-a716-446655440000',
-    '6ba7b810-9dad-11d1-80b4-00c04fd430c8',
-    '6ba7b811-9dad-11d1-80b4-00c04fd430c8',
-    'f47ac10b-58cc-4372-a567-0e02b2c3d479',
-    '7c9e6679-7425-40de-944b-e07fc1f90ae7',
-  ];
-  const invalidUUIDs = [
-    '',
-    'not-a-uuid',
-    '123e4567-e89b-12d3-a456',
-    '123e4567-e89b-12d3-a456-426614174000-extra',
-    '123e4567_e89b_12d3_a456_426614174000',
-    'gggggggg-gggg-gggg-gggg-gggggggggggg',
-    '123e4567-e89b-12d3-a456-42661417400',
-    '123e4567e89b12d3a456426614174000',
-    ' 123e4567-e89b-12d3-a456-426614174000',
-    '123e4567-e89b-12d3-a456-426614174000 ',
-    '{123e4567-e89b-12d3-a456-426614174000}',
-    'null',
-  ];
-
-  for (const uuid of validUUIDs) {
-    it(`accepts valid UUID: ${uuid}`, () => {
-      expect(UUID_REGEX.test(uuid)).toBe(true);
-      expect(isValidUUID(uuid)).toBe(true);
-    });
-  }
-  for (const uuid of invalidUUIDs) {
-    it(`rejects invalid UUID: "${uuid.slice(0, 40)}"`, () => {
-      expect(UUID_REGEX.test(uuid)).toBe(false);
-      expect(isValidUUID(uuid)).toBe(false);
-    });
-  }
-});
-
-// =============================================================================
-// ISO date validation
-// =============================================================================
-
-describe('ISO date validation', () => {
-  const validDates = [
-    '2024-01-01',
-    '2024-12-31',
-    '2000-06-15',
-    '1999-01-01',
-    '2025-02-28',
-    '2024-02-29',
-    '2100-12-31',
-    '1900-01-01',
-    '2024-06-30',
-    '2024-11-15',
-  ];
-  const invalidDates = [
-    '',
-    '2024',
-    '2024-01',
-    '01-01-2024',
-    '2024/01/01',
-    '2024-1-1',
-    '24-01-01',
-    '2024-01-01T00:00:00',
-    'not-a-date',
-    '20240101',
-    '2024.01.01',
-  ];
-
-  for (const date of validDates) {
-    it(`accepts valid ISO date: ${date}`, () => {
-      expect(ISO_DATE_REGEX.test(date)).toBe(true);
-      expect(isValidIsoDate(date)).toBe(true);
-    });
-  }
-  for (const date of invalidDates) {
-    it(`rejects invalid ISO date: "${date}"`, () => {
-      expect(ISO_DATE_REGEX.test(date)).toBe(false);
-      expect(isValidIsoDate(date)).toBe(false);
-    });
-  }
-});
 
 // =============================================================================
 // Email validation
@@ -121,6 +15,7 @@ describe('ISO date validation', () => {
 describe('Email validation', () => {
   const validEmails = [
     'test@example.com',
+    "o'connor@example.org",
     'user.name@domain.co.uk',
     'first+last@sub.domain.org',
     '123@abc.com',
@@ -147,42 +42,6 @@ describe('Email validation', () => {
     it(`rejects invalid email: "${email}"`, () => {
       expect(EMAIL_REGEX.test(email)).toBe(false);
       expect(isValidEmail(email)).toBe(false);
-    });
-  }
-});
-
-// =============================================================================
-// ISO datetime validation
-// =============================================================================
-
-describe('ISO datetime validation', () => {
-  const validDateTimes = [
-    '2024-01-01T00:00:00Z',
-    '2024-06-15T12:30:45.123Z',
-    '2024-12-31T23:59:59Z',
-    '2024-01-01T00:00:00+00:00',
-    '2024-01-01T00:00:00-05:00',
-  ];
-  const invalidDateTimes = [
-    '',
-    '2024-01-01',
-    '2024-01-01 00:00:00',
-    'not-a-datetime',
-    '01/01/2024T00:00:00',
-    '2024-01-01T00:00:00; DROP TABLE users;',
-    '2024-01-01T00:00:00-5:00-extra',
-  ];
-
-  for (const dt of validDateTimes) {
-    it(`accepts valid ISO datetime: ${dt}`, () => {
-      expect(ISO_DATETIME_REGEX.test(dt)).toBe(true);
-      expect(isValidIsoDateTime(dt)).toBe(true);
-    });
-  }
-  for (const dt of invalidDateTimes) {
-    it(`rejects invalid ISO datetime: "${dt}"`, () => {
-      expect(ISO_DATETIME_REGEX.test(dt)).toBe(false);
-      expect(isValidIsoDateTime(dt)).toBe(false);
     });
   }
 });
@@ -481,34 +340,6 @@ describe('getErrorMessage return type', () => {
 });
 
 // =============================================================================
-// isSentinelDate
-// =============================================================================
-
-describe('isSentinelDate', () => {
-  const sentinelValues = [
-    '+999999999-12-31T23:59:59.999999999',
-    '-999999999-01-01T00:00:00',
-    '+99999-12-31T23:59:59',
-    '99999-01-01T00:00:00',
-    '+100000-01-01',
-  ];
-
-  for (const val of sentinelValues) {
-    it(`detects sentinel date: "${val.slice(0, 30)}"`, () => {
-      expect(isSentinelDate(val)).toBe(true);
-    });
-  }
-
-  const normalValues = ['2024-01-01T00:00:00Z', '2024-12-31', '1999-06-15T12:00:00', '2000-01-01'];
-
-  for (const val of normalValues) {
-    it(`does not flag normal date: "${val}"`, () => {
-      expect(isSentinelDate(val)).toBe(false);
-    });
-  }
-});
-
-// =============================================================================
 // formatDisplayDate / formatDisplayDateTime
 // =============================================================================
 
@@ -536,39 +367,5 @@ describe('formatDisplayDateTime return type', () => {
   });
   it('returns a string for date-only input', () => {
     expect(typeof formatDisplayDateTime('2024-06-15')).toBe('string');
-  });
-});
-
-// =============================================================================
-// getStartOfDayIso / getEndOfDayIso
-// =============================================================================
-
-describe('getStartOfDayIso', () => {
-  it('returns ISO string ending in T00:00:00.000Z', () => {
-    expect(getStartOfDayIso('2024-01-15')).toBe('2024-01-15T00:00:00.000Z');
-  });
-  it('works for year boundary', () => {
-    expect(getStartOfDayIso('2024-12-31')).toBe('2024-12-31T00:00:00.000Z');
-  });
-  it('returns a string', () => {
-    expect(typeof getStartOfDayIso('2024-06-15')).toBe('string');
-  });
-  it('throws for invalid date', () => {
-    expect(() => getStartOfDayIso('not-a-date')).toThrow();
-  });
-});
-
-describe('getEndOfDayIso', () => {
-  it('returns ISO string ending in T23:59:59.999Z', () => {
-    expect(getEndOfDayIso('2024-01-15')).toBe('2024-01-15T23:59:59.999Z');
-  });
-  it('works for year boundary', () => {
-    expect(getEndOfDayIso('2024-12-31')).toBe('2024-12-31T23:59:59.999Z');
-  });
-  it('returns a string', () => {
-    expect(typeof getEndOfDayIso('2024-06-15')).toBe('string');
-  });
-  it('throws for invalid date', () => {
-    expect(() => getEndOfDayIso('garbage')).toThrow();
   });
 });

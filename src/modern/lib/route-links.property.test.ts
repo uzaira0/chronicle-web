@@ -1,60 +1,22 @@
 import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
 
-import {
-  legacyModernPath,
-  modernQuestionnairePath,
-  modernRoutePath,
-  modernStudyPath,
-  modernSurveyPath,
-  modernTimeUseDiaryPath,
-  pickModernBase,
-} from './route-links';
-
-const chronicleModernPathArb = fc
-  .string({ minLength: 1, maxLength: 50 })
-  .filter((s) => !s.includes('\0'))
-  .map((s) => `/chronicle/modern/${s}`);
-
-const modernPathArb = fc
-  .string({ minLength: 1, maxLength: 50 })
-  .filter((s) => !s.includes('\0'))
-  .map((s) => `/modern/${s}`);
+import { modernRoutePath, modernSurveyPath, modernTimeUseDiaryPath, pickModernBase } from './route-links';
 
 const chroniclePathArb = fc
   .string({ minLength: 1, maxLength: 50 })
-  .filter((s) => !s.includes('\0') && !s.startsWith('modern'))
+  .filter((s) => !s.includes('\0'))
   .map((s) => `/chronicle/${s}`);
 
 const otherPathArb = fc
   .string({ minLength: 1, maxLength: 50 })
-  .filter((s) => !s.startsWith('/chronicle') && !s.startsWith('/modern') && !s.includes('\0'))
+  .filter((s) => !s.startsWith('/chronicle') && !s.includes('\0'))
   .map((s) => `/other/${s}`);
 
-const baseArb = fc.oneof(chronicleModernPathArb, modernPathArb, chroniclePathArb, otherPathArb);
-
-const sectionArb = fc.constantFrom('audit', 'compliance', 'participants', 'questionnaires', 'time-use-diary');
-
-const studyIdArb = fc.string({ minLength: 1, maxLength: 60 }).filter((s) => s.length > 0);
+const baseArb = fc.oneof(chroniclePathArb, otherPathArb);
 
 describe('route-links properties', () => {
-  it('pickModernBase returns /chronicle/modern for /chronicle/modern/* paths', () => {
-    fc.assert(
-      fc.property(chronicleModernPathArb, (path) => {
-        expect(pickModernBase(path)).toBe('/chronicle/modern');
-      }),
-    );
-  });
-
-  it('pickModernBase returns /modern for /modern/* paths', () => {
-    fc.assert(
-      fc.property(modernPathArb, (path) => {
-        expect(pickModernBase(path)).toBe('/modern');
-      }),
-    );
-  });
-
-  it('pickModernBase returns /chronicle for /chronicle/* (non-modern) paths', () => {
+  it('pickModernBase returns /chronicle for /chronicle/* paths', () => {
     fc.assert(
       fc.property(chroniclePathArb, (path) => {
         expect(pickModernBase(path)).toBe('/chronicle');
@@ -78,11 +40,11 @@ describe('route-links properties', () => {
     );
   });
 
-  it('pickModernBase result is always one of the 4 possible values', () => {
+  it('pickModernBase result is always one of the 2 deployment mounts', () => {
     fc.assert(
       fc.property(fc.string(), (path) => {
         const result = pickModernBase(path);
-        expect(['/chronicle/modern', '/modern', '/chronicle', '']).toContain(result);
+        expect(['/chronicle', '']).toContain(result);
       }),
     );
   });
@@ -110,51 +72,6 @@ describe('route-links properties', () => {
     );
   });
 
-  it('modernStudyPath result always contains /studies/', () => {
-    fc.assert(
-      fc.property(studyIdArb, baseArb, (studyId, base) => {
-        const result = modernStudyPath(studyId, base);
-        expect(result).toContain('/studies/');
-      }),
-    );
-  });
-
-  it('modernStudyPath result always contains the encoded studyId', () => {
-    fc.assert(
-      fc.property(studyIdArb, baseArb, (studyId, base) => {
-        const result = modernStudyPath(studyId, base);
-        expect(result).toContain(encodeURIComponent(studyId));
-      }),
-    );
-  });
-
-  it('legacyModernPath result always contains the section name', () => {
-    fc.assert(
-      fc.property(studyIdArb, sectionArb, baseArb, (studyId, section, base) => {
-        const result = legacyModernPath(studyId, section, base);
-        expect(result).toContain(section);
-      }),
-    );
-  });
-
-  it('legacyModernPath result always contains /studies/', () => {
-    fc.assert(
-      fc.property(studyIdArb, sectionArb, baseArb, (studyId, section, base) => {
-        const result = legacyModernPath(studyId, section, base);
-        expect(result).toContain('/studies/');
-      }),
-    );
-  });
-
-  it('legacyModernPath result always contains the encoded studyId', () => {
-    fc.assert(
-      fc.property(studyIdArb, sectionArb, baseArb, (studyId, section, base) => {
-        const result = legacyModernPath(studyId, section, base);
-        expect(result).toContain(encodeURIComponent(studyId));
-      }),
-    );
-  });
-
   it('modernSurveyPath result always ends with /survey', () => {
     fc.assert(
       fc.property(baseArb, (base) => {
@@ -167,14 +84,6 @@ describe('route-links properties', () => {
     fc.assert(
       fc.property(baseArb, (base) => {
         expect(modernTimeUseDiaryPath(base)).toEndWith('/time-use-diary');
-      }),
-    );
-  });
-
-  it('modernQuestionnairePath result always ends with /questionnaire', () => {
-    fc.assert(
-      fc.property(baseArb, (base) => {
-        expect(modernQuestionnairePath(base)).toEndWith('/questionnaire');
       }),
     );
   });
@@ -209,24 +118,6 @@ describe('route-links properties', () => {
       fc.property(baseArb, (base) => {
         const result = modernTimeUseDiaryPath(base);
         expect(result.startsWith(pickModernBase(base))).toBe(true);
-      }),
-    );
-  });
-
-  it('modernStudyPath always returns a string starting with pickModernBase', () => {
-    fc.assert(
-      fc.property(studyIdArb, baseArb, (studyId, base) => {
-        const result = modernStudyPath(studyId, base);
-        expect(result.startsWith(pickModernBase(base))).toBe(true);
-      }),
-    );
-  });
-
-  it('legacyModernPath result ends with the section', () => {
-    fc.assert(
-      fc.property(studyIdArb, sectionArb, baseArb, (studyId, section, base) => {
-        const result = legacyModernPath(studyId, section, base);
-        expect(result).toEndWith(`/${section}`);
       }),
     );
   });

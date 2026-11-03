@@ -16,38 +16,27 @@ export default tseslint.config(
       'coverage/**',
       'dist/**',
       'docs/**',
-      'flow-typed/**',
       'node_modules/**',
       'vendor/**',
       '**/*.config.*',
-      '**/*.js.flow',
     ],
   },
   // Registered with no rules enabled, so `eslint-disable shadcn/...` directives written for
   // `bun run lint:design` (eslint.shadcn.mjs) resolve here too instead of erroring.
   { plugins: { shadcn } },
   {
-    files: [
-      'src/modern/**/*.{ts,tsx}',
-      'e2e/**/*.{ts,tsx}',
-      'scripts/**/*.ts',
-    ],
+    files: ['src/modern/**/*.{ts,tsx}', 'e2e/**/*.{ts,tsx}', 'scripts/**/*.ts'],
     extends: [...tseslint.configs.recommendedTypeChecked],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
     languageOptions: {
       parserOptions: { projectService: true },
     },
   },
   {
-    files: [
-      'src/modern/**/*.{ts,tsx}',
-      'e2e/**/*.{ts,tsx}',
-      'scripts/**/*.ts',
-    ],
-    ignores: [
-      'src/modern/**/*.test.{ts,tsx}',
-      'src/modern/test/**',
-      'e2e/**/*.test.{ts,tsx}',
-    ],
+    files: ['src/modern/**/*.{ts,tsx}', 'e2e/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    ignores: ['src/modern/**/*.test.{ts,tsx}', 'src/modern/test/**', 'e2e/**/*.test.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unnecessary-condition': 'error',
     },

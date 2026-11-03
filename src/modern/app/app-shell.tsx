@@ -1,7 +1,7 @@
 import { EqualIcon } from '@eqds/icons';
 import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router';
-import { useShallow } from 'zustand/react/shallow';
 import { RouteOutlet } from '@/components/error-boundary';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
@@ -10,8 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } 
 import { LanguageSwitcher, statusLabel, useTranslator } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { logoutSession } from '@/state/session-slice';
-import { store, useAppSelector } from '@/state/store';
-import { useUiShellStore } from '@/stores/ui-shell-store';
+import { useAppDispatch, useAppSelector } from '@/state/store';
 
 const navigation = [
   { icon: 'settings', labelKey: 'shell.nav.operations', to: '/dashboard' },
@@ -29,18 +28,30 @@ function makeNavLinkClassName(padding: string) {
 }
 
 const navLinkClassName = makeNavLinkClassName('px-2.5 py-2');
+const SIDEBAR_COLLAPSED_KEY = 'chronicle.sidebar-collapsed';
+
+function storedSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 const mobileNavLinkClassName = makeNavLinkClassName('px-3 py-2.5');
 
 export function AppShell() {
-  const { closeMobileNav, isMobileNavOpen, isSidebarCollapsed, setMobileNavOpen, toggleSidebar } = useUiShellStore(
-    useShallow((s) => ({
-      closeMobileNav: s.closeMobileNav,
-      isMobileNavOpen: s.isMobileNavOpen,
-      isSidebarCollapsed: s.isSidebarCollapsed,
-      setMobileNavOpen: s.setMobileNavOpen,
-      toggleSidebar: s.toggleSidebar,
-    })),
-  );
+  const [isMobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(storedSidebarCollapsed);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));
+    } catch {
+      /* Storage may be disabled; the choice lasts for this page only. */
+    }
+  }, [isSidebarCollapsed]);
+  const toggleSidebar = () => setSidebarCollapsed((collapsed) => !collapsed);
+  const closeMobileNav = () => setMobileNavOpen(false);
+  const dispatch = useAppDispatch();
   const session = useAppSelector((state) => state.session);
   const { t } = useTranslator();
 
@@ -134,9 +145,14 @@ export function AppShell() {
                   <p className="hidden text-xs text-muted-foreground sm:block">{t('shell.console_subtitle')}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {session.user?.name && (
-                  <span className="hidden text-sm text-muted-foreground sm:inline">{session.user.name}</span>
+                  <span
+                    className="hidden min-w-0 max-w-48 truncate text-sm text-muted-foreground sm:inline"
+                    title={session.user.name}
+                  >
+                    {session.user.name}
+                  </span>
                 )}
                 {/* Hidden on phones: the header cluster would otherwise overflow a 390px viewport. */}
                 <Badge
@@ -152,7 +168,7 @@ export function AppShell() {
                 <Button
                   aria-label={t('shell.sign_out')}
                   onClick={() => {
-                    void store.dispatch(logoutSession());
+                    void dispatch(logoutSession());
                   }}
                   size="sm"
                   variant="outline"
