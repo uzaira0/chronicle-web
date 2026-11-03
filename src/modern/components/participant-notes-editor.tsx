@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslator } from '@/i18n';
 import { getErrorMessage } from '@/lib/errors';
+import { useConfirmLeave, useEditorDismissal } from '@/lib/use-confirm-leave';
 import { isConditionalWriteFailure } from '@/state/settings-revision';
 import {
   type Participant,
@@ -31,6 +32,9 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
   const [tags, setTags] = useState<string[]>([...participant.participantTags]);
   const [newTag, setNewTag] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [edited, setEdited] = useState(false);
+  useConfirmLeave(edited || newTag.trim() !== '');
+  const dismiss = useEditorDismissal(isLoading, onClose);
   const initializedParticipant = useRef<string | null>(null);
   const { t } = useTranslator();
 
@@ -43,8 +47,10 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
       setTags(snapshot.data.participantTags ?? []);
       setRevision(snapshot.revision);
       setConflict(false);
+      setEdited(false);
+      setNewTag('');
     } catch (err) {
-      setError(getErrorMessage(err, t('notes_editor.save_failed')));
+      setError(getErrorMessage(err, t('notes_editor.load_failed')));
     }
   }, [loadSnapshot, participant.participantId, studyId, t]);
   useEffect(() => {
@@ -58,12 +64,14 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
     const tag = newTag.trim();
     if (tag && !tags.includes(tag)) {
       setTags((prev) => [...prev, tag]);
+      setEdited(true);
     }
     setNewTag('');
   };
 
   const removeTag = (tag: string) => {
     setTags((prev) => prev.filter((t) => t !== tag));
+    setEdited(true);
   };
 
   const handleSave = async () => {
@@ -71,7 +79,10 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
     setError(null);
     try {
       await updateAnnotations({
-        annotations: { participantNotes: notes, participantTags: tags },
+        annotations: {
+          participantNotes: notes,
+          participantTags: newTag.trim() && !tags.includes(newTag.trim()) ? [...tags, newTag.trim()] : tags,
+        },
         ifMatch: revision,
         participantId: participant.participantId,
         studyId,
@@ -84,7 +95,7 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
   };
 
   const handleTagKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       addTag();
     }
@@ -93,7 +104,7 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
   return (
     <Dialog
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) dismiss();
       }}
       open
     >
@@ -102,57 +113,62 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
         <DialogDescription>{t('notes_editor.description', { id: participant.participantId })}</DialogDescription>
 
         <div className="mt-4 space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="participant-notes">{t('notes_editor.notes')}</Label>
-            <Textarea
-              disabled={!revision || isLoadingSnapshot}
-              id="participant-notes"
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={t('notes_editor.notes_placeholder')}
-              value={notes}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="participant-tags">{t('notes_editor.tags')}</Label>
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <Badge key={tag} variant="muted">
-                    {tag}
-                    <button
-                      aria-label={t('notes_editor.remove_tag', { tag })}
-                      className="ml-1.5 rounded-full hover:text-foreground"
-                      onClick={() => removeTag(tag)}
-                      type="button"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <Input
-                disabled={!revision || isLoadingSnapshot}
-                id="participant-tags"
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={handleTagKeyDown}
-                placeholder={t('notes_editor.tag_placeholder')}
-                value={newTag}
+          <fieldset className="min-w-0 space-y-4" disabled={isLoading || !revision || isLoadingSnapshot}>
+            <div className="space-y-1.5">
+              <Label htmlFor="participant-notes">{t('notes_editor.notes')}</Label>
+              <Textarea
+                id="participant-notes"
+                name="participant-notes"
+                onChange={(e) => {
+                  setNotes(e.target.value);
+                  setEdited(true);
+                }}
+                placeholder={t('notes_editor.notes_placeholder')}
+                value={notes}
               />
-              <Button
-                aria-label={t('notes_editor.add_tag')}
-                disabled={!newTag.trim()}
-                onClick={addTag}
-                size="icon"
-                type="button"
-                variant="outline"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
             </div>
-          </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="participant-tags">{t('notes_editor.tags')}</Label>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {tags.map((tag) => (
+                    <Badge key={tag} variant="muted">
+                      {tag}
+                      <button
+                        aria-label={t('notes_editor.remove_tag', { tag })}
+                        className="ml-1.5 rounded-full hover:text-foreground"
+                        onClick={() => removeTag(tag)}
+                        type="button"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  id="participant-tags"
+                  name="participant-tags"
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={handleTagKeyDown}
+                  placeholder={t('notes_editor.tag_placeholder')}
+                  value={newTag}
+                />
+                <Button
+                  aria-label={t('notes_editor.add_tag')}
+                  disabled={!newTag.trim()}
+                  onClick={addTag}
+                  size="icon"
+                  type="button"
+                  variant="outline"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </fieldset>
 
           {error && (
             <p className="text-sm text-destructive" role="alert">
@@ -166,19 +182,17 @@ export function ParticipantNotesEditor({ onClose, participant, studyId }: Partic
           )}
 
           <div className="flex justify-end gap-3 border-t border-border pt-4">
-            <Button onClick={onClose} variant="ghost">
+            <Button disabled={isLoading} onClick={dismiss} variant="ghost">
               {t('common.cancel')}
             </Button>
             <Button
               disabled={isLoading || !revision || conflict}
               onClick={() => {
-                handleSave().catch((err) => {
-                  setError(getErrorMessage(err, t('notes_editor.save_failed')));
-                });
+                void handleSave();
               }}
             >
               {isLoading && <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />}
-              {t('common.save')}
+              {t('notes_editor.save')}
             </Button>
           </div>
         </div>
