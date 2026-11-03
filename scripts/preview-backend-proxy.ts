@@ -1,24 +1,26 @@
 import { backendTargetPath, isInternalWebApiPath, isSameOriginRequest } from './backend-api-path';
 
+const INTERNAL_WEB_HEADER = 'X-Chronicle-Internal-Web';
+
 type PreviewBackendFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export async function proxyToPreviewBackend(
   request: Request,
   url: URL,
-  backendBaseUrl: string,
+  backend: { baseUrl: string; internalWebSecret?: string | undefined },
   backendFetch: PreviewBackendFetch = fetch,
 ): Promise<Response> {
   const internalWebRequest = isInternalWebApiPath(url.pathname);
-  const target = `${backendBaseUrl}${backendTargetPath(url.pathname)}${url.search}`;
+  const target = `${backend.baseUrl}${backendTargetPath(url.pathname)}${url.search}`;
   // Drop accept-encoding so the upstream returns plain text — Bun's fetch would
   // transparently decode gzip but we'd then forward Content-Encoding: gzip to
   // the browser, which would try to decode the already-decoded body and fail
   // with ERR_CONTENT_DECODING_FAILED.
   const upstreamHeaders = new Headers(request.headers);
   upstreamHeaders.delete('accept-encoding');
-  upstreamHeaders.delete('x-chronicle-internal-web');
-  if (internalWebRequest) {
-    upstreamHeaders.set('x-chronicle-internal-web', 'true');
+  upstreamHeaders.delete(INTERNAL_WEB_HEADER);
+  if (internalWebRequest && backend.internalWebSecret) {
+    upstreamHeaders.set(INTERNAL_WEB_HEADER, backend.internalWebSecret);
   }
   // A browser request to this reverse proxy is same-origin at the public
   // boundary. Do not reinterpret the preview server's origin as a cross-origin
@@ -27,7 +29,7 @@ export async function proxyToPreviewBackend(
   if (isSameOriginRequest(url, upstreamHeaders.get('origin'))) {
     upstreamHeaders.delete('origin');
   }
-  upstreamHeaders.set('host', new URL(backendBaseUrl).host);
+  upstreamHeaders.set('host', new URL(backend.baseUrl).host);
   const init: RequestInit = {
     method: request.method,
     headers: upstreamHeaders,

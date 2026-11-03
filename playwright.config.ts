@@ -8,19 +8,12 @@ const proxyBaseUrl = process.env.CHRONICLE_PROXY_BASE_URL ?? 'http://127.0.0.1:4
 //     -Dchronicle.playwright.backend=true
 const backendUrl = process.env.CHRONICLE_BACKEND_URL ?? 'http://localhost:40320';
 
-// Targeting a running self-host deployment instead of the local dev build. Two things differ
-// there and both are fatal if unhandled:
-//
-//   1. The dashboard sits behind Caddy basic_auth (chronicle_dashboard_gate), so every
-//      request — including the very first document load — needs credentials or returns 401.
-//   2. The internal listener serves a self-signed certificate minted by cert-init, which the
-//      browser refuses without ignoreHTTPSErrors.
-//
-// Setting the user is what switches this on; it also suppresses the webServer block, because
-// there is already a server and `bun run build && bun run serve` would fight it for the port.
-const selfhostUser = process.env.CHRONICLE_E2E_BASIC_AUTH_USER;
-const selfhostPassword = process.env.CHRONICLE_E2E_BASIC_AUTH_PASSWORD;
-const targetsSelfhost = Boolean(selfhostUser);
+const targetsSelfhost = process.env.CHRONICLE_E2E_SELFHOST === '1';
+if (targetsSelfhost && !process.env.CHRONICLE_PROXY_BASE_URL) {
+  throw new Error('CHRONICLE_PROXY_BASE_URL is required for the deployed self-host suite');
+}
+const selfhostSpec = '**/selfhost-journey.spec.ts';
+const ignoredSpecs = targetsSelfhost ? [] : [selfhostSpec];
 // Screenshot baselines are versioned only for this project's desktop Chromium environment.
 // Other browser projects still discover every nonvisual spec.
 const visualRegressionSpec = '**/visual-regression.spec.ts';
@@ -29,7 +22,8 @@ export default defineConfig({
   testDir: './e2e',
   // Match only browser specs. Bun unit-tests for DSL plumbing live in `*.test.ts`
   // alongside the code they cover; `bun run test:e2e-dsl` runs those.
-  testMatch: '**/*.spec.ts',
+  testMatch: targetsSelfhost ? selfhostSpec : '**/*.spec.ts',
+  testIgnore: ignoredSpecs,
   timeout: 30_000,
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{arg}{ext}',
   expect: {
@@ -43,7 +37,6 @@ export default defineConfig({
     trace: 'retain-on-failure',
     ...(targetsSelfhost
       ? {
-          httpCredentials: { username: selfhostUser as string, password: selfhostPassword ?? '' },
           ignoreHTTPSErrors: true,
         }
       : {}),
@@ -55,22 +48,22 @@ export default defineConfig({
     },
     {
       name: 'desktop-firefox',
-      testIgnore: visualRegressionSpec,
+      testIgnore: [...ignoredSpecs, visualRegressionSpec],
       use: { ...devices['Desktop Firefox'] },
     },
     {
       name: 'desktop-webkit',
-      testIgnore: visualRegressionSpec,
+      testIgnore: [...ignoredSpecs, visualRegressionSpec],
       use: { ...devices['Desktop Safari'] },
     },
     {
       name: 'mobile-chrome',
-      testIgnore: visualRegressionSpec,
+      testIgnore: [...ignoredSpecs, visualRegressionSpec],
       use: { ...devices['Pixel 5'] },
     },
     {
       name: 'tablet',
-      testIgnore: visualRegressionSpec,
+      testIgnore: [...ignoredSpecs, visualRegressionSpec],
       use: { ...devices['iPad Mini'] },
     },
   ],

@@ -1,7 +1,6 @@
-// Auth bootstrap + benign defaults for `bun run dev:local`.
+// Auth bootstrap + benign defaults for `bun run dev:local` without CHRONICLE_BACKEND_URL.
 //
-// Real study/participant/stats data comes from the prod DB via dev-realdata.ts.
-// This file only provides:
+// This file provides:
 //   - a synthetic logged-in session (local dev has no SSO), so the app boots in
 //     an authenticated state instead of bouncing to the SSO landing;
 //   - a benign default (200 [] for GETs, 204 otherwise) for any /chronicle/* path
@@ -29,7 +28,7 @@ const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' }, status });
 
 // Auth + benign default for a /chronicle/* request. Never returns null — every
-// path that isn't backed by real data still gets a non-error response.
+// path still gets a non-error response.
 export function fixtureResponse(method: string, pathname: string): Response {
   const m = method.toUpperCase();
 

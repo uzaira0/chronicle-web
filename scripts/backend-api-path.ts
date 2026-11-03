@@ -1,6 +1,6 @@
-const BACKEND_API_ROOTS = ['/chronicle/api/web', '/chronicle/v3'] as const;
-const INTERNAL_WEB_API_ROOT = '/chronicle/api/web';
-const DIRECT_API_ROOT = '/chronicle/v3';
+const BACKEND_API_ROOTS = ['/chronicle/api/web', '/chronicle/v3', '/chronicle/v4'] as const;
+export const INTERNAL_WEB_API_ROOT = '/chronicle/api/web';
+export const DIRECT_API_ROOT = '/chronicle/v3';
 
 export function isBackendApiPath(pathname: string): boolean {
   return BACKEND_API_ROOTS.some((root) => pathname === root || pathname.startsWith(`${root}/`));
@@ -18,9 +18,9 @@ export function backendTargetPath(pathname: string): string {
   return `${DIRECT_API_ROOT}${pathname.slice(INTERNAL_WEB_API_ROOT.length)}`;
 }
 
-// The local dev server answers API calls with live prod-DB rows and strips `Secure`
-// from every backend auth cookie it proxies back. Both are only defensible on a
-// listener nothing off-box can reach, so the host is checked rather than trusted.
+// The local dev server strips `Secure` from every backend auth cookie it proxies back.
+// That is only defensible on a listener nothing off-box can reach, so the host is
+// checked rather than trusted.
 export function isLoopbackHost(host: string): boolean {
   const bare = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
   if (bare === 'localhost' || bare === '::1' || bare === '::ffff:127.0.0.1') {

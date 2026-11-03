@@ -6,15 +6,16 @@ import { isBackendApiPath } from './backend-api-path';
 import { proxyToPreviewBackend } from './preview-backend-proxy';
 
 const distDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'dist');
+const indexPath = path.join(distDir, 'index.html');
 const port = Number(process.env.PORT ?? 4173);
 
-if (!existsSync(path.join(distDir, 'index.html'))) {
+if (!existsSync(indexPath)) {
   throw new Error('Web preview build is missing. Run `bun run build` first.');
 }
 
 function resolveAssetPath(requestPath: string) {
   if (requestPath === '/' || requestPath === '') {
-    return path.join(distDir, 'index.html');
+    return indexPath;
   }
 
   const normalizedPath = requestPath.startsWith('/chronicle/') ? requestPath.slice('/chronicle'.length) : requestPath;
@@ -27,6 +28,15 @@ function resolveAssetPath(requestPath: string) {
 // Otherwise fall back to the hardcoded "awaiting-sso" mock responses, which
 // keep the unauthenticated dev experience working without a backend.
 const backendUrl = process.env.CHRONICLE_BACKEND_URL?.replace(/\/$/, '');
+
+// Same policy the self-host Caddy sends (selfhost/caddy/snippets.caddy chronicle_security_headers),
+// so the browser specs fail when the bundle needs anything the deployment would block.
+const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+const indexResponse = () =>
+  new Response(Bun.file(indexPath), {
+    headers: { 'Content-Security-Policy': CONTENT_SECURITY_POLICY, 'Content-Type': 'text/html; charset=utf-8' },
+  });
 
 const server = Bun.serve({
   async fetch(request) {
@@ -49,7 +59,10 @@ const server = Bun.serve({
     // /chronicle/v3. Proxy both API families, but never /chronicle/* assets or
     // SPA routes.
     if (backendUrl && isBackendApiPath(url.pathname)) {
-      return proxyToPreviewBackend(request, url, backendUrl);
+      return proxyToPreviewBackend(request, url, {
+        baseUrl: backendUrl,
+        internalWebSecret: process.env.CHRONICLE_INTERNAL_WEB_SECRET,
+      });
     }
 
     if (url.pathname === '/chronicle/v3/auth/session') {
@@ -82,15 +95,11 @@ const server = Bun.serve({
 
     const assetPath = resolveAssetPath(url.pathname);
 
-    if (existsSync(assetPath) && Bun.file(assetPath).size > 0) {
+    if (assetPath !== indexPath && existsSync(assetPath) && Bun.file(assetPath).size > 0) {
       return new Response(Bun.file(assetPath));
     }
 
-    return new Response(Bun.file(path.join(distDir, 'index.html')), {
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-      },
-    });
+    return indexResponse();
   },
   hostname: '127.0.0.1',
   port,

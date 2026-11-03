@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import tailwindPlugin from 'bun-plugin-tailwind';
+import { BUILD_METAFILE_PATH } from './build-artifacts';
 import { collectThirdPartyNotices } from './third-party-notices';
 
 // Clean stale output from previous builds
@@ -24,6 +25,7 @@ const result = await Bun.build({
   // unresolved; the block after the build copies the fonts with a content hash.
   external: ['*.woff2'],
   minify: true,
+  metafile: true,
   outdir: './dist',
   plugins: [tailwindPlugin],
   publicPath: '/chronicle/',
@@ -37,6 +39,9 @@ if (!result.success) {
   }
   throw new Error('Modern Bun build failed.');
 }
+
+mkdirSync(dirname(BUILD_METAFILE_PATH), { recursive: true });
+writeFileSync(BUILD_METAFILE_PATH, JSON.stringify(result.metafile));
 
 // Bun.build + splitting has a bug: it only injects one chunk <script> into the HTML,
 // which may be a utility chunk instead of the main entry. Patch the HTML to ensure
@@ -61,8 +66,8 @@ if (entryOutput) {
 writeFileSync(htmlPath, html);
 writeFileSync('./dist/THIRD-PARTY-NOTICES.txt', collectThirdPartyNotices('.'));
 
-// Fonts: copy with a content hash (nginx serves /chronicle/*.woff2 as immutable for 1y) and
-// point the CSS at the hashed name.
+// Fonts: copy with a content hash (the self-host Caddy serves hashed fonts as immutable) and
+// point the CSS at the hashed name. The body face is preloaded so first text does not wait on CSS.
 const fontDir = join(dirname(Bun.resolveSync('@eqds/tokens/tokens.css', import.meta.dir)), 'fonts');
 mkdirSync('./dist/fonts', { recursive: true });
 // SIL OFL 1.1 requires the license to travel with the font files.
@@ -75,6 +80,12 @@ for (const font of readdirSync(fontDir).filter((file) => file.endsWith('.woff2')
     .slice(0, 8);
   const hashed = font.replace(/\.woff2$/, `-${hash}.woff2`);
   copyFileSync(join(fontDir, font), join('./dist/fonts', hashed));
+  if (font === 'atkinson-hyperlegible-latin-400-normal.woff2') {
+    html = html.replace(
+      '</head>',
+      `<link rel="preload" href="/chronicle/fonts/${hashed}" as="font" type="font/woff2" crossorigin>\n</head>`,
+    );
+  }
   for (const css of cssFiles) {
     const path = join('./dist', css);
     // The Tailwind plugin rewrites the url relative to the source file (../node_modules/...),
@@ -83,3 +94,13 @@ for (const font of readdirSync(fontDir).filter((file) => file.endsWith('.woff2')
     writeFileSync(path, readFileSync(path, 'utf-8').replace(pattern, `url(fonts/${hashed})`));
   }
 }
+
+// Immutable asset names describe the final bytes, including rewritten local font URLs.
+for (const css of cssFiles) {
+  const path = join('./dist', css);
+  const hash = createHash('sha256').update(readFileSync(path)).digest('hex').slice(0, 8);
+  const hashed = css.replace(/\.css$/, `-${hash}.css`);
+  renameSync(path, join('./dist', hashed));
+  html = html.replaceAll(css, hashed);
+}
+writeFileSync(htmlPath, html);
