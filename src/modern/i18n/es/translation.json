@@ -445,7 +445,8 @@
     "one_time_expires": "El registro de un solo uso vence",
     "continue_body": "Chronicle mostrará la declaración del estudio simulado y las opciones de datos solicitadas antes del registro.",
     "play_fallback_note": "El enlace alternativo de Play Store solo contiene la página del paquete de Chronicle. Nunca incluye las credenciales de registro ni la clave de evaluador.",
-    "error_wrong_server_detail": "El registro de evaluadores debe realizarse en el servidor público del estudio configurado."
+    "error_wrong_server_detail": "El registro de evaluadores debe realizarse en el servidor público del estudio configurado.",
+    "error_secret_length": "Ingrese una clave de evaluador de al menos 32 caracteres."
   },
   "questionnaire": {
     "title": "Encuesta del estudio",
@@ -652,6 +653,7 @@
     "started": "Iniciado",
     "ends": "Finaliza",
     "open_ended": "Sin fecha de término",
+    "end_unavailable": "No disponible: no se pudo cargar la fecha de término actual",
     "created": "Creado",
     "updated": "Actualizado"
   },
@@ -670,7 +672,7 @@
     "diagnostics_title": "Historial de diagnósticos de Android",
     "diagnostics_description": "Informes conservados del dispositivo y alertas de calidad de datos de este participante.",
     "diagnostics_loading": "Cargando historial conservado…",
-    "diagnostics_load_failed": "No se pudo cargar el historial de diagnósticos.",
+    "diagnostics_load_failed": "No se pudo cargar el historial de diagnósticos. Inténtelo nuevamente; si el problema persiste, revise la conexión con el servidor.",
     "diagnostics_empty": "No hay diagnósticos conservados ni alertas de calidad de datos que coincidan con estos filtros.",
     "diagnostics_download": "Descargar diagnósticos",
     "diagnostics_download_failed": "No se pudieron descargar los diagnósticos.",
@@ -929,7 +931,8 @@
     "col_setting": "Configuración",
     "col_summary": "Resumen",
     "show_more": "Mostrar {{step}} más ({{hidden}} ocultos)",
-    "no_changes": "No se han registrado cambios de configuración para este estudio."
+    "no_changes": "No se han registrado cambios de configuración para este estudio.",
+    "col_app_version": "Versión de la aplicación"
   },
   "study_form": {
     "app_usage_frequency": "Frecuencia de la encuesta de uso de las aplicaciones",
@@ -1083,6 +1086,7 @@
   "notes_editor": {
     "save": "Guardar notas",
     "save_failed": "No se pudieron guardar las anotaciones.",
+    "load_failed": "No se pudieron cargar las anotaciones. Vuelva a intentarlo para ver las notas y etiquetas más recientes.",
     "title": "Notas y etiquetas",
     "description": "Editar notas y etiquetas de {{id}}.",
     "notes": "Notas",
