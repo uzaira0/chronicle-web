@@ -9,3 +9,12 @@ reuse-workers = false
 # Not measured here: the build scripts (proved by `bun run build` and `bun run size`) and the
 # runtime-config.js injection (proved by the Playwright specs).
 coverageReporter = ["text", "lcov"]
+
+[install]
+# Supply-chain policy (root docs/SUPPLY-CHAIN.md): resolve no npm version younger than 7 days.
+# Renovate waits the same 7 days, and scripts/check-dependency-age.py checks every bun.lock change.
+minimumReleaseAge = 604800
+# Installs run with --ignore-scripts. bun-plugin-tailwind declares a peer dependency on the `bun`
+# npm package, whose bin is a placeholder until its postinstall runs; installed, it shadows the
+# Bun runtime for every nested `bun run`. Peers this project uses are direct dependencies.
+peer = false
