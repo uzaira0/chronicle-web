@@ -143,14 +143,19 @@ async function openSpanishDiary(browser: Browser, diaryLink: string): Promise<vo
     ).toBeVisible({ timeout: 60_000 });
     await expect(participantPage.getByText(spanish.participant_access.error_title)).toBeHidden();
 
+    // Positive evidence that the Spanish table — not the English one — is in use. The shell renders
+    // before the diary inside it (the exchange and the settings request come first), so wait for the
+    // diary's own copy instead of reading the page once: on a slow host that read saw only the shell.
+    await expect(participantPage.locator('body'), 'the diary should render Spanish copy').toContainText(
+      /siguiente|comenzar|continuar|día|hora/i,
+      { timeout: 60_000 },
+    );
     const body = await participantPage.locator('body').innerText();
     // The translator echoes an unknown key verbatim rather than falling back to English, so a
     // bare snake_case identifier on the page is a missing Spanish translation.
     expect(body, 'no raw translation keys should reach the participant').not.toMatch(
       /\b(intro_text|what_dow|day_of_week|survey_intro)\b/,
     );
-    // Positive evidence that the Spanish table — not the English one — is in use.
-    expect(body.toLowerCase(), 'the diary should render Spanish copy').toMatch(/siguiente|comenzar|continuar|día|hora/);
   } finally {
     await participant.close();
   }

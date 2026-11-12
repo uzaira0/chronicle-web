@@ -1,0 +1,39 @@
+id: no-positive-assert-on-text-snapshot
+language: typescript
+note: |
+  Blind spots: only `innerText()`/`textContent()` read into a `const` in the same block, or passed
+  straight to `expect`, is tracked; a snapshot passed through a helper or a `let` is not.
+  Negative checks (`.not.toMatch`) on a snapshot taken after a web-first wait are allowed.
+severity: error
+message: |
+  A positive `toMatch`/`toContain` on text read once with `innerText()`/`textContent()` does not
+  retry: it asserts whatever had rendered at that instant. On a slow host the selfhost smoke read
+  only the participant shell and failed "the diary should render Spanish copy". Wait with a
+  web-first assertion instead: `await expect(locator).toContainText(/.../, { timeout })`.
+rule:
+  any:
+    - pattern: expect(await $L.innerText($$$)).$A($$$)
+    - pattern: expect(await $L.innerText($$$), $MSG).$A($$$)
+    - pattern: expect(await $L.textContent($$$)).$A($$$)
+    - pattern: expect(await $L.textContent($$$), $MSG).$A($$$)
+    - all:
+        - kind: expression_statement
+        - has:
+            # `any` stops at the first match without backtracking, so the method-call forms come
+            # first: otherwise `expect(body.toLowerCase())` binds $V to the whole call.
+            any:
+              - pattern: expect($V.$F($$$)).$A($$$)
+              - pattern: expect($V.$F($$$), $MSG).$A($$$)
+              - pattern: expect($V).$A($$$)
+              - pattern: expect($V, $MSG).$A($$$)
+        - follows:
+            stopBy: end
+            any:
+              - pattern: const $V = await $L.innerText($$$);
+              - pattern: const $V = await $L.textContent($$$);
+constraints:
+  A:
+    regex: ^(toMatch|toContain|toEqual|toBe)$
+files:
+  - e2e/**/*.ts
+  - e2e/**/*.tsx

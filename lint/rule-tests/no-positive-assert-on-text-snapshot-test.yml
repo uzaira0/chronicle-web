@@ -1,0 +1,18 @@
+id: no-positive-assert-on-text-snapshot
+valid:
+  - |
+    await expect(page.locator('body')).toContainText(/hora/i, { timeout: 60_000 });
+    const body = await page.locator('body').innerText();
+    expect(body, 'no raw keys').not.toMatch(/intro_text/);
+  - "await expect(page.getByText('x')).toBeVisible();"
+  - |
+    const body = await page.locator('body').innerText();
+    expect(other).toMatch(/hora/);
+invalid:
+  - |
+    const body = await page.locator('body').innerText();
+    expect(body.toLowerCase(), 'the diary should render Spanish copy').toMatch(/siguiente|hora/);
+  - |
+    const text = await page.locator('h1').textContent();
+    expect(text).toContain('Welcome');
+  - "expect(await page.locator('h1').innerText()).toBe('Welcome');"
