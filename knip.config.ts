@@ -14,6 +14,13 @@ const config = {
     'src/modern/**/*.property.test.{ts,tsx}',
     'src/modern/**/*.security.test.{ts,tsx}',
     'src/modern/test/**/*.{ts,tsx}',
+    // Build scripts and their tests, the Playwright suite and the root configuration files are
+    // entrypoints so that Knip reports any package they import without package.json declaring
+    // it (an unlisted dependency). Such an import resolves only while another package happens
+    // to install the same name.
+    'scripts/**/*.ts',
+    'e2e/**/*.ts',
+    '*.{ts,mjs}',
   ],
   project: ['src/modern/**/*.{ts,tsx,css}!', '!src/modern/**/*.test.{ts,tsx}!', '!src/modern/test/**!'],
   ignore: [
@@ -50,9 +57,6 @@ const config = {
     // happy-dom is the peer of @happy-dom/global-registrator (imported by the
     // Bun test preload src/modern/test/setup-dom.ts); not imported directly.
     'happy-dom',
-    // axe-core is the type/runtime peer of @axe-core/playwright, referenced only
-    // by the (out-of-project) Playwright a11y spec e2e/accessibility.spec.ts.
-    'axe-core',
     // Transitive runtime helper pinned via package.json `overrides`; no direct import.
     '@babel/runtime',
   ],

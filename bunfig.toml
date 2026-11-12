@@ -16,5 +16,6 @@ coverageReporter = ["text", "lcov"]
 minimumReleaseAge = 604800
 # Installs run with --ignore-scripts. bun-plugin-tailwind declares a peer dependency on the `bun`
 # npm package, whose bin is a placeholder until its postinstall runs; installed, it shadows the
-# Bun runtime for every nested `bun run`. Peers this project uses are direct dependencies.
+# Bun runtime for every nested `bun run`. Peers this project uses are direct dependencies;
+# scripts/peer-dependencies.test.ts fails when an install would leave a required one out.
 peer = false
