@@ -82,7 +82,7 @@
   "overrides": {
     "qs": "~6.16.1",
     "fast-uri": "^4.2.3",
-    "minimatch": "11.0.1"
+    "minimatch": "11.0.3"
   },
   "scripts": {
     "build": "bun ./scripts/build-modern.ts",
