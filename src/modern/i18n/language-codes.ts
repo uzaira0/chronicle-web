@@ -86,3 +86,17 @@ export const ARRAY_ORDER_PERMUTATIONS: Record<string, Record<string, number[]>> 
   [LanguageCodes.HEBREW_MALE]: { weekday_options: [6, 0, 1, 2, 3, 4, 5] },
   [LanguageCodes.HEBREW_FEMALE]: { weekday_options: [6, 0, 1, 2, 3, 4, 5] },
 };
+
+/*
+ * Option lists whose localized entries are different answers from the English list at
+ * the same position, not a reordering of it: localized index -> the English canonical
+ * value stored. The Hebrew language_options list names the languages relevant to
+ * Hebrew-speaking families (English, Arabic, Russian, French, Spanish, Other); read by
+ * position against the English list it stored "Spanish" for English, "Nepali" for
+ * Russian, "Hindi" for Other, and so on.
+ */
+const HEBREW_LANGUAGE_VALUES = ['English', 'Arabic', 'Russian', 'French', 'Spanish', 'Other'];
+export const ARRAY_CANONICAL_VALUES: Record<string, Record<string, string[]>> = {
+  [LanguageCodes.HEBREW_MALE]: { language_options: HEBREW_LANGUAGE_VALUES },
+  [LanguageCodes.HEBREW_FEMALE]: { language_options: HEBREW_LANGUAGE_VALUES },
+};

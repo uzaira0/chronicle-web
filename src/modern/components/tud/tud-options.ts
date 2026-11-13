@@ -3,8 +3,9 @@
 // is the mechanism that lets the submit builder skip back-translation — the stored
 // answer is already English. For Hebrew, weekday options are reordered via
 // ARRAY_ORDER_PERMUTATIONS so the localized Sunday-first list maps to the right
-// English weekday.
-import { ARRAY_ORDER_PERMUTATIONS } from '@/i18n/language-codes';
+// English weekday, and Hebrew language options, which are a different list, take their
+// values from ARRAY_CANONICAL_VALUES.
+import { ARRAY_CANONICAL_VALUES, ARRAY_ORDER_PERMUTATIONS } from '@/i18n/language-codes';
 import type { Translator, TransOptions } from '@/i18n/translator';
 
 export interface TudOption {
@@ -23,6 +24,15 @@ export function optionsFromArray(ctx: OptionContext, optionsKey: string, trans: 
   const labels = ctx.translator.tArray(optionsKey, trans);
   const english = ctx.enTranslator.tArray(optionsKey, trans);
   const perm = ARRAY_ORDER_PERMUTATIONS[ctx.effectiveCode]?.[optionsKey];
+  const canonical = ARRAY_CANONICAL_VALUES[ctx.effectiveCode]?.[optionsKey];
+  if (canonical) {
+    if (canonical.length !== labels.length) {
+      throw new Error(
+        `[tud-options] ${ctx.effectiveCode} ${optionsKey}: ${labels.length} labels but ${canonical.length} canonical values`,
+      );
+    }
+    return labels.map((label, index) => ({ label, value: canonical[index] ?? label }));
+  }
   return labels.map((label, index) => {
     const enIndex = perm?.[index] ?? index;
     return { label, value: english[enIndex] ?? label };
