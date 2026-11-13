@@ -118,6 +118,8 @@
     "typecheck:scripts": "tsc -p scripts/tsconfig.json --noEmit",
     "i18n:sync-catalog": "bun --tsconfig-override tsconfig.app.json scripts/i18n-sync-catalog.ts && bunx biome format --write src/modern/i18n/en/translation.json",
     "i18n:report": "bun scripts/i18n-report.ts",
+    "tud:redcap": "bun --tsconfig-override tsconfig.app.json scripts/tud-redcap.ts",
+    "tud:redcap:prune": "bun --tsconfig-override tsconfig.app.json scripts/tud-redcap-prune.ts",
     "i18n:lint": "ast-grep scan src/modern"
   },
   "patchedDependencies": {
