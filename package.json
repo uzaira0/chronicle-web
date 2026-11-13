@@ -50,7 +50,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.45.2",
+    "@ast-grep/cli": "0.51.0",
     "@axe-core/playwright": "^4.11.1",
     "@biomejs/biome": "^2.4.10",
     "@happy-dom/global-registrator": "^21.0.4",
