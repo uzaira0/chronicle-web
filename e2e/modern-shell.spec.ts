@@ -97,7 +97,12 @@ test.describe('modern shell', () => {
 
   test('reduced motion stops repeating loading animations', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.route('**/chronicle/api/web/study', () => new Promise(() => undefined));
+    // The study list is read page by page (/study?limit=...&offset=...). A glob ending in /study does not
+    // match that URL, the seeded empty list answered instead and no skeleton was ever shown.
+    await page.route(
+      (url) => url.pathname.endsWith('/chronicle/api/web/study'),
+      () => new Promise(() => undefined),
+    );
     await page.goto('/studies');
     await expect(page.locator('.animate-pulse').first()).toBeVisible();
     const animations = await page.locator('.animate-pulse').evaluateAll((nodes) =>
